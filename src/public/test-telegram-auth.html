@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Auth Test - Диагностика</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        .status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 8px;
+            background: #f0f0f0;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        #widget-container {
+            margin: 30px 0;
+            padding: 20px;
+            background: #f9f9f9;
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            min-height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .log {
+            background: #1e1e1e;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        .log-entry {
+            margin: 2px 0;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        .step {
+            margin: 15px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-left: 4px solid #39B7FF;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Telegram Login Widget - Диагностика</h1>
+        
+        <div id="status-container">
+            <div class="status info">
+                ⏳ Инициализация...
+            </div>
+        </div>
+
+        <h2>📋 Информация:</h2>
+        <div class="step">
+            <strong>Имя бота:</strong> <code id="bot-name">h2enterbot</code><br>
+            <strong>Домен:</strong> <code id="domain">h2touch.pro</code><br>
+            <strong>Текущий URL:</strong> <code id="current-url"></code>
+        </div>
+
+        <h2>🎯 Telegram Login Widget:</h2>
+        <div id="widget-container">
+            <div id="telegram-login-h2enterbot"></div>
+        </div>
+
+        <div id="widget-status" class="status">
+            Проверка виджета...
+        </div>
+
+        <h2>📝 Лог событий:</h2>
+        <div id="log" class="log"></div>
+
+        <h2>✅ Инструкция по настройке:</h2>
+        <div class="step">
+            <strong>1. Откройте @BotFather в Telegram</strong><br>
+            Напишите команду: <code>/mybots</code>
+        </div>
+        <div class="step">
+            <strong>2. Выберите вашего бота</strong><br>
+            Найдите в списке: <code>@h2enterbot</code>
+        </div>
+        <div class="step">
+            <strong>3. Настройте домен</strong><br>
+            Bot Settings → Domain → добавьте: <code>h2touch.pro</code>
+        </div>
+        <div class="step">
+            <strong>4. Обновите страницу</strong><br>
+            После настройки обновите эту страницу (F5)
+        </div>
+    </div>
+
+    <script>
+        // Лог функция
+        const logContainer = document.getElementById('log');
+        function log(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const timestamp = new Date().toLocaleTimeString('ru-RU');
+            const icon = type === 'error' ? '❌' : type === 'success' ? '✅' : 'ℹ️';
+            entry.textContent = `[${timestamp}] ${icon} ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            console.log(`[${type.toUpperCase()}]`, message);
+        }
+
+        // Отображаем текущий URL
+        document.getElementById('current-url').textContent = window.location.href;
+        log('Страница загружена: ' + window.location.href);
+
+        // Глобальная функция для callback
+        window.onTelegramAuth = function(user) {
+            log('✅ УСПЕХ! Получены данные пользователя:', 'success');
+            log('ID: ' + user.id, 'success');
+            log('Имя: ' + user.first_name, 'success');
+            if (user.username) log('Username: @' + user.username, 'success');
+            
+            const statusContainer = document.getElementById('status-container');
+            statusContainer.innerHTML = `
+                <div class="status success">
+                    <strong>✅ Авторизация успешна!</strong><br>
+                    ID: ${user.id}<br>
+                    Имя: ${user.first_name}${user.last_name ? ' ' + user.last_name : ''}<br>
+                    ${user.username ? 'Username: @' + user.username : ''}
+                </div>
+            `;
+        };
+        log('Глобальная функция onTelegramAuth создана');
+
+        // Создаём виджет
+        log('Создание Telegram Login Widget...');
+        const container = document.getElementById('telegram-login-h2enterbot');
+        
+        if (container) {
+            log('Контейнер найден');
+            
+            const script = document.createElement('script');
+            script.src = 'https://telegram.org/js/telegram-widget.js?22';
+            script.setAttribute('data-telegram-login', 'h2enterbot');
+            script.setAttribute('data-size', 'large');
+            script.setAttribute('data-radius', '10');
+            script.setAttribute('data-request-access', 'write');
+            script.setAttribute('data-onauth', 'onTelegramAuth');
+            script.async = true;
+            
+            script.onload = function() {
+                log('✅ Скрипт telegram-widget.js загружен', 'success');
+                
+                // Проверяем через 2 секунды создался ли iframe
+                setTimeout(function() {
+                    const iframe = container.querySelector('iframe');
+                    const widgetStatus = document.getElementById('widget-status');
+                    
+                    if (iframe) {
+                        log('✅ Виджет успешно инициализирован (iframe создан)', 'success');
+                        widgetStatus.className = 'status success';
+                        widgetStatus.innerHTML = '<strong>✅ Виджет загружен!</strong><br>Если кнопка не появилась - проверьте настройки бота в @BotFather';
+                    } else {
+                        log('❌ ПРОБЛЕМА: iframe не создан! Виджет не инициализировался', 'error');
+                        widgetStatus.className = 'status error';
+                        widgetStatus.innerHTML = `
+                            <strong>❌ Виджет НЕ инициализирован!</strong><br><br>
+                            <strong>Возможные причины:</strong><br>
+                            1. Бот не настроен в @BotFather<br>
+                            2. Домен <code>h2touch.pro</code> не добавлен в настройках бота<br>
+                            3. Неправильное имя бота (должно быть <code>h2enterbot</code>)<br><br>
+                            <strong>Решение:</strong> Следуйте инструкциям ниже ⬇️
+                        `;
+                    }
+                    
+                    // Выводим содержимое контейнера
+                    log('HTML контейнера: ' + container.innerHTML);
+                }, 2000);
+            };
+            
+            script.onerror = function() {
+                log('❌ Ошибка загрузки telegram-widget.js', 'error');
+                const widgetStatus = document.getElementById('widget-status');
+                widgetStatus.className = 'status error';
+                widgetStatus.innerHTML = '<strong>❌ Не удалось загрузить скрипт Telegram</strong>';
+            };
+            
+            container.appendChild(script);
+            log('Скрипт виджета добавлен в DOM');
+            
+            const statusContainer = document.getElementById('status-container');
+            statusContainer.innerHTML = '<div class="status info">⏳ Загрузка виджета Telegram...</div>';
+        } else {
+            log('❌ Контейнер #telegram-login-h2enterbot не найден!', 'error');
+        }
+    </script>
+</body>
+</html>

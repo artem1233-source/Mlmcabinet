@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Пошаговая диагностика профиля</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+        
+        h1 {
+            color: #667eea;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #666;
+            font-size: 1.1em;
+            margin-bottom: 40px;
+        }
+        
+        .step {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 25px;
+            margin-bottom: 25px;
+            border-radius: 10px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .step:hover {
+            transform: translateX(5px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.2);
+        }
+        
+        .step-number {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 40px;
+            font-weight: bold;
+            font-size: 1.2em;
+            margin-right: 15px;
+        }
+        
+        .step-title {
+            display: inline-block;
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #333;
+            vertical-align: middle;
+        }
+        
+        .step-content {
+            margin-top: 20px;
+            margin-left: 55px;
+        }
+        
+        .substep {
+            background: white;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .substep-title {
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+        
+        code {
+            background: #2d3748;
+            color: #48bb78;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        
+        pre {
+            background: #2d3748;
+            color: #48bb78;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 15px 0;
+            font-size: 0.9em;
+        }
+        
+        .checklist {
+            background: #e8f5e9;
+            border-left: 4px solid #4caf50;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        
+        .checklist-item {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+        }
+        
+        .checkbox {
+            width: 24px;
+            height: 24px;
+            border: 2px solid #4caf50;
+            border-radius: 4px;
+            margin-right: 12px;
+            display: inline-block;
+            cursor: pointer;
+            position: relative;
+        }
+        
+        .checkbox.checked::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #4caf50;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .error-box {
+            background: #ffebee;
+            border-left: 4px solid #f44336;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        
+        .error-title {
+            color: #f44336;
+            font-weight: bold;
+            font-size: 1.2em;
+            margin-bottom: 10px;
+        }
+        
+        .success-box {
+            background: #e8f5e9;
+            border-left: 4px solid #4caf50;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        
+        .success-title {
+            color: #4caf50;
+            font-weight: bold;
+            font-size: 1.2em;
+            margin-bottom: 10px;
+        }
+        
+        .btn {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 12px 30px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            margin: 10px 5px;
+            transition: background 0.3s;
+        }
+        
+        .btn:hover {
+            background: #5568d3;
+        }
+        
+        .btn-secondary {
+            background: #48bb78;
+        }
+        
+        .btn-secondary:hover {
+            background: #38a169;
+        }
+        
+        .keyboard-key {
+            display: inline-block;
+            background: #f1f1f1;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 3px 8px;
+            font-family: monospace;
+            font-size: 0.9em;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .highlight {
+            background: #fff3cd;
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+        
+        .action-buttons {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 40px;
+            border-top: 2px solid #e0e0e0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 Пошаговая диагностика профиля</h1>
+        <p class="subtitle">Следуйте инструкциям шаг за шагом и отмечайте выполненные пункты</p>
+        
+        <!-- ШАГ 1 -->
+        <div class="step">
+            <span class="step-number">1</span>
+            <span class="step-title">Подготовка</span>
+            
+            <div class="step-content">
+                <div class="substep">
+                    <div class="substep-title">1.1 Закройте все вкладки с h2touch.pro</div>
+                    <p>Закройте все открытые вкладки с сайтом</p>
+                </div>
+                
+                <div class="substep">
+                    <div class="substep-title">1.2 Очистите кэш браузера</div>
+                    <p>Нажмите: <span class="keyboard-key">Cmd + Shift + Delete</span> (Mac) или <span class="keyboard-key">Ctrl + Shift + Delete</span> (Windows)</p>
+                    <ul style="margin-left: 20px; margin-top: 10px;">
+                        <li>Выберите: <span class="highlight">Всё время</span></li>
+                        <li>Отметьте: ✅ Файлы cookie</li>
+                        <li>Отметьте: ✅ Кэшированные файлы</li>
+                        <li>Нажмите: <strong>"Удалить данные"</strong></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ШАГ 2 -->
+        <div class="step">
+            <span class="step-number">2</span>
+            <span class="step-title">Откройте DevTools</span>
+            
+            <div class="step-content">
+                <div class="substep">
+                    <div class="substep-title">2.1 Откройте инкогнито</div>
+                    <p>Mac: <span class="keyboard-key">Cmd + Shift + N</span> | Windows: <span class="keyboard-key">Ctrl + Shift + N</span></p>
+                </div>
+                
+                <div class="substep">
+                    <div class="substep-title">2.2 Откройте DevTools</div>
+                    <p>Нажмите: <span class="keyboard-key">F12</span> или <span class="keyboard-key">Cmd + Option + I</span> (Mac)</p>
+                </div>
+                
+                <div class="substep">
+                    <div class="substep-title">2.3 Настройте Console</div>
+                    <p>1. Перейдите на вкладку <strong>Console</strong></p>
+                    <p>2. Найдите галочку <strong>"Preserve log"</strong> и включите её ✅</p>
+                </div>
+                
+                <div class="substep">
+                    <div class="substep-title">2.4 Настройте Network</div>
+                    <p>1. Перейдите на вкладку <strong>Network</strong></p>
+                    <p>2. Найдите галочку <strong>"Preserve log"</strong> и включите её ✅</p>
+                    <p>3. Очистите список (иконка 🚫)</p>
+                </div>
+                
+                <div class="substep">
+                    <div class="substep-title">2.5 Откройте сайт</div>
+                    <p>В адресной строке: <code>https://h2touch.pro</code></p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ШАГ 3 -->
+        <div class="step">
+            <span class="step-number">3</span>
+            <span class="step-title">Войдите через Google</span>
+            
+            <div class="step-content">
+                <div class="substep">
+                    <div class="substep-title">3.1 Нажмите "Продолжить с Google"</div>
+                    <p>Выберите аккаунт Google</p>
+                </div>
+                
+                <div class="substep">
+                    <div class="substep-title">3.2 СМОТРИТЕ В КОНСОЛЬ!</div>
+                    <p>Должны появиться логи:</p>
+                    <pre>Getting OAuth session...
+✅ OAuth successful: {user: {...}}
+📞 Calling /auth/oauth API...
+API URL: https://...supabase.co/functions/v1/make-server-05aa3c8a/auth/oauth
+API Response status: 200
+✅ API Response data: {success: true, ...}</pre>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ШАГ 4 -->
+        <div class="step">
+            <span class="step-number">4</span>
+            <span class="step-title">Проверьте Network</span>
+            
+            <div class="step-content">
+                <div class="substep">
+                    <div class="substep-title">4.1 Найдите запрос "oauth"</div>
+                    <p>В поиске Network введите: <code>oauth</code></p>
+                </div>
+                
+                <div class="substep">
+                    <div class="substep-title">4.2 Кликните на запрос</div>
+                    <p>Проверьте вкладку <strong>Response</strong></p>
+                </div>
+                
+                <div class="success-box">
+                    <div class="success-title">✅ Правильный ответ:</div>
+                    <pre>{
+  "success": true,
+  "user": {
+    "id": "u_oauth_xxx",
+    "имя": "John Doe",
+    "email": "john@example.com",
+    "уровень": 1,
+    "рефКод": "REFxxxxx",
+    "телефон": "",
+    "telegram": "",
+    "instagram": "",
+    "vk": "",
+    "facebook": "",
+    "аватарка": "https://..."
+  },
+  "token": "u_oauth_xxx"
+}</pre>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ШАГ 5 -->
+        <div class="step">
+            <span class="step-number">5</span>
+            <span class="step-title">Откройте Профиль</span>
+            
+            <div class="step-content">
+                <div class="substep">
+                    <div class="substep-title">5.1 В меню нажмите "Профиль"</div>
+                    <p>Слева в навигации → Профиль</p>
+                </div>
+                
+                <div class="substep">
+                    <div class="substep-title">5.2 Проверьте диагностику</div>
+                    <p>Должна появиться страница <strong>"🔍 Диагностика профиля"</strong></p>
+                    <p>Проверьте значения:</p>
+                    <ul style="margin-left: 20px; margin-top: 10px;">
+                        <li>currentUser существует: <strong>✅ ДА</strong></li>
+                        <li>currentUser.имя: <strong>должно быть ваше имя</strong></li>
+                        <li>телефон: <strong>есть поле</strong></li>
+                        <li>telegram: <strong>есть поле</strong></li>
+                    </ul>
+                </div>
+                
+                <div class="substep">
+                    <div class="substep-title">5.3 Скопируйте JSON</div>
+                    <p>Внизу страницы есть полный JSON объект - скопируйте его</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ЧЕКЛИСТ -->
+        <div class="checklist">
+            <h3 style="margin-bottom: 20px;">📋 Чеклист для проверки:</h3>
+            
+            <div class="checklist-item">
+                <span class="checkbox" onclick="this.classList.toggle('checked')"></span>
+                <span>Кэш очищен</span>
+            </div>
+            
+            <div class="checklist-item">
+                <span class="checkbox" onclick="this.classList.toggle('checked')"></span>
+                <span>DevTools открыт</span>
+            </div>
+            
+            <div class="checklist-item">
+                <span class="checkbox" onclick="this.classList.toggle('checked')"></span>
+                <span>"Preserve log" включен в Console</span>
+            </div>
+            
+            <div class="checklist-item">
+                <span class="checkbox" onclick="this.classList.toggle('checked')"></span>
+                <span>"Preserve log" включен в Network</span>
+            </div>
+            
+            <div class="checklist-item">
+                <span class="checkbox" onclick="this.classList.toggle('checked')"></span>
+                <span>Вошёл через Google</span>
+            </div>
+            
+            <div class="checklist-item">
+                <span class="checkbox" onclick="this.classList.toggle('checked')"></span>
+                <span>В Console есть логи OAuth</span>
+            </div>
+            
+            <div class="checklist-item">
+                <span class="checkbox" onclick="this.classList.toggle('checked')"></span>
+                <span>В Network есть запрос "oauth" со статусом 200</span>
+            </div>
+            
+            <div class="checklist-item">
+                <span class="checkbox" onclick="this.classList.toggle('checked')"></span>
+                <span>Открыл страницу Профиль</span>
+            </div>
+            
+            <div class="checklist-item">
+                <span class="checkbox" onclick="this.classList.toggle('checked')"></span>
+                <span>Диагностика показывает корректные данные</span>
+            </div>
+        </div>
+        
+        <!-- ОШИБКИ -->
+        <div class="error-box">
+            <div class="error-title">❌ Если что-то пошло не так:</div>
+            
+            <h4 style="margin-top: 20px;">Ошибка 1: API Response status: 404</h4>
+            <p><strong>Проблема:</strong> Edge Function не существует</p>
+            <p><strong>Решение:</strong> Проверьте Supabase Dashboard → Functions</p>
+            
+            <h4 style="margin-top: 20px;">Ошибка 2: API Response status: 500</h4>
+            <p><strong>Проблема:</strong> Ошибка в Edge Function</p>
+            <p><strong>Решение:</strong> Проверьте логи Edge Function</p>
+            
+            <h4 style="margin-top: 20px;">Ошибка 3: Нет запроса "oauth" в Network</h4>
+            <p><strong>Проблема:</strong> OAuth callback не работает</p>
+            <p><strong>Решение:</strong> Проверьте что AppRu.tsx обновлён</p>
+            
+            <h4 style="margin-top: 20px;">Ошибка 4: currentUser.имя = ПУСТО</h4>
+            <p><strong>Проблема:</strong> API вернул неправильные данные</p>
+            <p><strong>Решение:</strong> Проверьте Response в Network</p>
+        </div>
+        
+        <!-- ДЕЙСТВИЯ -->
+        <div class="action-buttons">
+            <a href="https://h2touch.pro" class="btn" target="_blank">Открыть сайт</a>
+            <a href="https://supabase.com/dashboard/project/vbjueuhgcyfberivihiv/functions" class="btn btn-secondary" target="_blank">Supabase Functions</a>
+        </div>
+    </div>
+</body>
+</html>

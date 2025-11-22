@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Login Widget Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .widget-container {
+            margin: 30px 0;
+            padding: 20px;
+            background: #f9f9f9;
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            color: #1976d2;
+            font-size: 14px;
+        }
+        .success {
+            background: #c8e6c9;
+            color: #2e7d32;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+        }
+        pre {
+            background: #263238;
+            color: #aed581;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        .debug {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #eee;
+        }
+        .debug h2 {
+            color: #666;
+            font-size: 18px;
+        }
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 6px;
+        }
+        .status-icon {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+        }
+        .status-icon.ok {
+            background: #4caf50;
+        }
+        .status-icon.error {
+            background: #f44336;
+        }
+        .status-icon.pending {
+            background: #ff9800;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🧪 Telegram Login Widget Test</h1>
+        <p class="subtitle">Тестовая страница для проверки Telegram Login Widget</p>
+        
+        <div class="info">
+            <strong>ℹ️ Настройки бота:</strong><br>
+            • Бот: @h2enterbot<br>
+            • Домен в BotFather: h2touch.pro<br>
+            • Callback: onTelegramAuth(user)
+        </div>
+
+        <div class="widget-container">
+            <p style="color: #999; margin-bottom: 15px;">👇 Telegram Login Widget должен появиться ниже:</p>
+            <div id="telegram-widget-container"></div>
+        </div>
+
+        <div id="success-message" class="success">
+            <strong>✅ Авторизация успешна!</strong><br>
+            <span id="user-info"></span>
+        </div>
+
+        <div class="debug">
+            <h2>🔍 Диагностика</h2>
+            
+            <div class="status" id="status-callback">
+                <div class="status-icon pending"></div>
+                <span>Глобальная функция onTelegramAuth...</span>
+            </div>
+            
+            <div class="status" id="status-script">
+                <div class="status-icon pending"></div>
+                <span>Скрипт telegram-widget.js...</span>
+            </div>
+            
+            <div class="status" id="status-iframe">
+                <div class="status-icon pending"></div>
+                <span>Iframe виджета...</span>
+            </div>
+            
+            <div class="status" id="status-domain">
+                <div class="status-icon pending"></div>
+                <span>Текущий домен: <strong id="current-domain"></strong></span>
+            </div>
+
+            <h3 style="margin-top: 20px; color: #666;">Console Logs:</h3>
+            <pre id="console-output"></pre>
+        </div>
+    </div>
+
+    <script>
+        // Логирование
+        const consoleOutput = document.getElementById('console-output');
+        function log(message, data = '') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = `[${timestamp}] ${message}${data ? '\n' + JSON.stringify(data, null, 2) : ''}`;
+            console.log(message, data);
+            consoleOutput.textContent += logEntry + '\n\n';
+            consoleOutput.scrollTop = consoleOutput.scrollHeight;
+        }
+
+        // Обновление статуса
+        function updateStatus(id, status) {
+            const element = document.getElementById(id);
+            const icon = element.querySelector('.status-icon');
+            icon.className = 'status-icon ' + status;
+        }
+
+        // Текущий домен
+        document.getElementById('current-domain').textContent = window.location.hostname;
+        updateStatus('status-domain', window.location.hostname === 'h2touch.pro' ? 'ok' : 'error');
+
+        // Глобальная функция для callback
+        window.onTelegramAuth = function(user) {
+            log('🎉 Telegram Login Widget callback triggered!', user);
+            updateStatus('status-callback', 'ok');
+            
+            // Показываем успешное сообщение
+            document.getElementById('success-message').style.display = 'block';
+            document.getElementById('user-info').innerHTML = `
+                👤 ${user.first_name} ${user.last_name || ''}<br>
+                🆔 ID: ${user.id}<br>
+                ${user.username ? '📝 Username: @' + user.username + '<br>' : ''}
+                📅 Auth Date: ${new Date(user.auth_date * 1000).toLocaleString()}
+            `;
+            
+            // Здесь можно отправить данные на backend
+            log('✅ Authentication successful! You can now send data to your backend.');
+        };
+
+        log('✅ Global onTelegramAuth function created');
+        updateStatus('status-callback', 'ok');
+
+        // Загрузка Telegram Widget
+        log('📥 Loading Telegram Login Widget...');
+        
+        const container = document.getElementById('telegram-widget-container');
+        
+        // Метод 1: innerHTML (РЕКОМЕНДУЕМЫЙ для Telegram Widget)
+        container.innerHTML = `
+            <script 
+                async 
+                src="https://telegram.org/js/telegram-widget.js?22" 
+                data-telegram-login="h2enterbot" 
+                data-size="large" 
+                data-radius="10" 
+                data-onauth="onTelegramAuth" 
+                data-request-access="write">
+            <\/script>
+        `;
+        
+        log('✅ Widget script injected via innerHTML');
+        updateStatus('status-script', 'ok');
+
+        // Проверка iframe через 2 секунды
+        setTimeout(() => {
+            const iframe = container.querySelector('iframe');
+            if (iframe) {
+                log('✅ Telegram Login Widget iframe found!');
+                log('iframe src:', iframe.src);
+                updateStatus('status-iframe', 'ok');
+            } else {
+                log('❌ Telegram Login Widget iframe NOT found!');
+                log('⚠️ Possible issues:');
+                log('1. Domain not set in BotFather: /setdomain h2touch.pro');
+                log('2. Wrong bot username');
+                log('3. CORS/CSP restrictions');
+                log('4. Script blocked by browser');
+                updateStatus('status-iframe', 'error');
+            }
+        }, 2000);
+
+        // Проверка через 5 секунд (на случай медленной загрузки)
+        setTimeout(() => {
+            const iframe = container.querySelector('iframe');
+            if (!iframe) {
+                log('⚠️ Still no iframe after 5 seconds. Checking container HTML...');
+                log('Container HTML:', container.innerHTML);
+            }
+        }, 5000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,129 @@
+import { LayoutDashboard, Users, ShoppingBag, Wallet, Package, GraduationCap, UserCircle, Settings, Droplet, TrendingUp, Bell, Play, LogOut, Shield } from 'lucide-react';
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from './ui/sheet';
+import { isDemoMode } from '../utils/demoApi';
+import { clearDemoData } from '../utils/demoData';
+
+interface SidebarProps {
+  текущаяВкладка: string;
+  изменитьВкладку: (tab: string) => void;
+  mobileMenuOpen?: boolean;
+  setMobileMenuOpen?: (open: boolean) => void;
+  currentUser?: any;
+}
+
+export function SidebarRu({ текущаяВкладка, изменитьВкладку, mobileMenuOpen, setMobileMenuOpen, currentUser }: SidebarProps) {
+  const isDemo = isDemoMode();
+  const isAdmin = currentUser?.isAdmin || false;
+  
+  const handleExitDemo = () => {
+    if (confirm('Выйти из демо режима? Все демо данные будут удалены.')) {
+      clearDemoData();
+      window.location.reload();
+    }
+  };
+
+  const navItems = [
+    { id: 'дашборд', label: 'Дашборд', icon: LayoutDashboard },
+    { id: 'структура', label: 'Структура', icon: Users },
+    { id: 'заказы', label: 'Заказы', icon: ShoppingBag },
+    { id: 'доходы', label: 'Доходы', icon: TrendingUp },
+    { id: 'баланс', label: 'Баланс', icon: Wallet },
+    { id: 'каталог', label: 'Каталог', icon: Package },
+    { id: 'обучение', label: 'Обучение', icon: GraduationCap },
+    { id: 'уведомления', label: 'Уведомления', icon: Bell },
+    { id: 'профиль', label: 'Профиль', icon: UserCircle },
+    { id: 'настройки', label: 'Настройки', icon: Settings },
+    // 🆕 Админ-панель (только для админов)
+    ...(isAdmin ? [{ id: 'админ', label: 'Админ-панель', icon: Shield }] : []),
+  ];
+
+  const sidebarContent = (
+    <>
+      <div className="p-6 border-b border-[#E6E9EE]">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-xl flex items-center justify-center">
+            <Droplet size={20} className="text-white" />
+          </div>
+          <div>
+            <h1 className="text-[#39B7FF]" style={{ fontSize: '16px', fontWeight: '700' }}>
+              H₂ Платформа
+            </h1>
+            <p className="text-[#666]" style={{ fontSize: '11px' }}>Партнёрская</p>
+          </div>
+        </div>
+      </div>
+      
+      <nav className="flex-1 p-4">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = текущаяВкладка === item.id;
+          
+          return (
+            <button
+              key={item.id}
+              onClick={() => изменитьВкладку(item.id)}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${
+                isActive
+                  ? 'bg-[#39B7FF] text-white shadow-lg shadow-[#39B7FF]/30'
+                  : 'text-[#666] hover:bg-gray-50'
+              }`}
+              style={{ fontWeight: isActive ? '600' : '500' }}
+            >
+              <Icon size={20} />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+      
+      {/* Demo Mode Exit Button */}
+      {isDemo && (
+        <div className="p-4 border-t border-[#E6E9EE]">
+          <div className="bg-gradient-to-r from-[#39B7FF]/10 to-[#12C9B6]/10 rounded-xl p-4 mb-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Play size={14} className="text-[#39B7FF]" />
+              <p className="text-[#1E1E1E]" style={{ fontSize: '12px', fontWeight: '600' }}>
+                Демо режим активен
+              </p>
+            </div>
+            <p className="text-[#666]" style={{ fontSize: '11px' }}>
+              50 человек, 6 месяцев данных
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={handleExitDemo}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-all"
+              style={{ fontSize: '13px', fontWeight: '600' }}
+            >
+              <LogOut size={16} />
+              Выйти из демо
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  return (
+    <>
+      {/* Desktop Sidebar */}
+      <div className="hidden lg:flex min-h-screen bg-white border-r border-[#E6E9EE] flex-col" style={{ width: '220px' }}>
+        {sidebarContent}
+      </div>
+      
+      {/* Mobile Sidebar */}
+      <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+        <SheetContent side="left" className="p-0 w-[280px]">
+          <SheetTitle className="sr-only">Меню навигации</SheetTitle>
+          <SheetDescription className="sr-only">
+            Навигационное меню для доступа ко всем разделам приложения
+          </SheetDescription>
+          <div className="flex flex-col h-full bg-white">
+            {sidebarContent}
+          </div>
+        </SheetContent>
+      </Sheet>
+    </>
+  );
+}

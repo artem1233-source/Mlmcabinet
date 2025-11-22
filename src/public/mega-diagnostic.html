@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔬 Telegram Widget Mega Diagnostic</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        .content {
+            padding: 30px;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            border-left: 4px solid #667eea;
+        }
+        .section h2 {
+            color: #333;
+            font-size: 18px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .check-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            margin: 8px 0;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .check-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .check-icon.pending {
+            background: #ffc107;
+            color: white;
+        }
+        .check-icon.success {
+            background: #4caf50;
+            color: white;
+        }
+        .check-icon.error {
+            background: #f44336;
+            color: white;
+        }
+        .check-text {
+            flex: 1;
+            font-size: 14px;
+            color: #333;
+        }
+        .check-detail {
+            font-size: 12px;
+            color: #666;
+            font-family: 'Courier New', monospace;
+        }
+        .widget-area {
+            margin: 20px 0;
+            padding: 30px;
+            background: white;
+            border: 3px dashed #ddd;
+            border-radius: 12px;
+            text-align: center;
+            min-height: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .log-area {
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .solution {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            display: none;
+        }
+        .solution.show {
+            display: block;
+        }
+        .solution h3 {
+            color: #856404;
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+        .solution ol {
+            margin-left: 20px;
+            color: #856404;
+        }
+        .solution li {
+            margin: 8px 0;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        .success-message {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            display: none;
+        }
+        .success-message.show {
+            display: block;
+        }
+        .btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔬 Telegram Widget Mega Diagnostic</h1>
+            <p>Полная диагностика Telegram Login Widget</p>
+        </div>
+
+        <div class="content">
+            <!-- ПРОВЕРКА 1: Базовая информация -->
+            <div class="section">
+                <h2>📋 Базовая информация</h2>
+                <div class="check-item" id="check-domain">
+                    <div class="check-icon pending">⏳</div>
+                    <div class="check-text">
+                        <div>Текущий домен</div>
+                        <div class="check-detail" id="domain-value">Проверка...</div>
+                    </div>
+                </div>
+                <div class="check-item" id="check-protocol">
+                    <div class="check-icon pending">⏳</div>
+                    <div class="check-text">
+                        <div>Протокол (должен быть HTTPS)</div>
+                        <div class="check-detail" id="protocol-value">Проверка...</div>
+                    </div>
+                </div>
+                <div class="check-item" id="check-bot">
+                    <div class="check-icon pending">⏳</div>
+                    <div class="check-text">
+                        <div>Имя бота</div>
+                        <div class="check-detail">h2enterbot</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ПРОВЕРКА 2: Доступность Telegram -->
+            <div class="section">
+                <h2>🌐 Доступность Telegram.org</h2>
+                <div class="check-item" id="check-telegram-access">
+                    <div class="check-icon pending">⏳</div>
+                    <div class="check-text">
+                        <div>Доступ к telegram.org</div>
+                        <div class="check-detail">Проверка...</div>
+                    </div>
+                </div>
+                <div class="check-item" id="check-widget-script">
+                    <div class="check-icon pending">⏳</div>
+                    <div class="check-text">
+                        <div>Загрузка telegram-widget.js</div>
+                        <div class="check-detail">Проверка...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ПРОВЕРКА 3: Глобальная функция -->
+            <div class="section">
+                <h2>⚙️ Callback функция</h2>
+                <div class="check-item" id="check-callback">
+                    <div class="check-icon pending">⏳</div>
+                    <div class="check-text">
+                        <div>window.onTelegramAuth</div>
+                        <div class="check-detail">Проверка...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ПРОВЕРКА 4: Виджет -->
+            <div class="section">
+                <h2>🎯 Telegram Login Widget</h2>
+                <div class="widget-area">
+                    <div id="telegram-login-h2enterbot"></div>
+                </div>
+                <div class="check-item" id="check-iframe">
+                    <div class="check-icon pending">⏳</div>
+                    <div class="check-text">
+                        <div>Iframe виджета создан</div>
+                        <div class="check-detail">Проверка через 3 секунды...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Сообщение об успехе -->
+            <div class="success-message" id="success-message">
+                <h3>✅ Авторизация успешна!</h3>
+                <div id="user-data"></div>
+            </div>
+
+            <!-- Решение проблемы -->
+            <div class="solution" id="solution">
+                <h3>⚠️ Обнаружена проблема!</h3>
+                <div id="solution-text"></div>
+            </div>
+
+            <!-- Лог -->
+            <div class="section">
+                <h2>📝 Подробный лог</h2>
+                <button class="btn" onclick="clearLog()">Очистить лог</button>
+                <button class="btn" onclick="runDiagnostic()" style="margin-left: 10px;">Перезапустить</button>
+                <div class="log-area" id="log"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // ЛОГИРОВАНИЕ
+        // ============================================
+        const logArea = document.getElementById('log');
+        
+        function log(message, data = null) {
+            const timestamp = new Date().toLocaleTimeString();
+            let logText = `[${timestamp}] ${message}`;
+            if (data) {
+                logText += '\n' + JSON.stringify(data, null, 2);
+            }
+            logArea.textContent += logText + '\n\n';
+            logArea.scrollTop = logArea.scrollHeight;
+            console.log(message, data || '');
+        }
+
+        function clearLog() {
+            logArea.textContent = '';
+            log('Лог очищен');
+        }
+
+        function setCheckStatus(id, status, detail = '') {
+            const item = document.getElementById(id);
+            const icon = item.querySelector('.check-icon');
+            const detailEl = item.querySelector('.check-detail');
+            
+            icon.className = 'check-icon ' + status;
+            icon.textContent = status === 'success' ? '✓' : status === 'error' ? '✗' : '⏳';
+            
+            if (detail && detailEl) {
+                detailEl.textContent = detail;
+            }
+        }
+
+        function showSolution(html) {
+            const solution = document.getElementById('solution');
+            const solutionText = document.getElementById('solution-text');
+            solutionText.innerHTML = html;
+            solution.classList.add('show');
+        }
+
+        // ============================================
+        // ПРОВЕРКА 1: БАЗОВАЯ ИНФОРМАЦИЯ
+        // ============================================
+        log('🚀 Запуск мега-диагностики...');
+
+        // Домен
+        const domain = window.location.hostname;
+        const expectedDomain = 'h2touch.pro';
+        document.getElementById('domain-value').textContent = domain;
+        
+        if (domain === expectedDomain) {
+            setCheckStatus('check-domain', 'success', domain);
+            log('✅ Домен совпадает: ' + domain);
+        } else {
+            setCheckStatus('check-domain', 'error', `${domain} (ожидается: ${expectedDomain})`);
+            log('❌ Домен НЕ совпадает! Текущий: ' + domain + ', Ожидается: ' + expectedDomain);
+            showSolution(`
+                <p><strong>Проблема:</strong> Домен не совпадает с настройками в BotFather</p>
+                <ol>
+                    <li>Откройте @BotFather в Telegram</li>
+                    <li>Выполните: <code>/mybots</code> → @h2enterbot → Bot Settings → Domain</li>
+                    <li>Добавьте домен: <code>${domain}</code></li>
+                    <li>Или откройте сайт по адресу: <code>https://${expectedDomain}</code></li>
+                </ol>
+            `);
+        }
+
+        // Протокол
+        const protocol = window.location.protocol;
+        document.getElementById('protocol-value').textContent = protocol;
+        
+        if (protocol === 'https:') {
+            setCheckStatus('check-protocol', 'success', protocol);
+            log('✅ Протокол: HTTPS');
+        } else {
+            setCheckStatus('check-protocol', 'error', protocol + ' (требуется HTTPS)');
+            log('❌ Протокол должен быть HTTPS! Текущий: ' + protocol);
+        }
+
+        // Имя бота
+        setCheckStatus('check-bot', 'success');
+        log('ℹ️ Имя бота: h2enterbot');
+
+        // ============================================
+        // ПРОВЕРКА 2: ДОСТУПНОСТЬ TELEGRAM.ORG
+        // ============================================
+        log('📡 Проверка доступности telegram.org...');
+
+        // Проверяем через создание image (обходной путь для CORS)
+        const testImg = new Image();
+        testImg.onload = function() {
+            setCheckStatus('check-telegram-access', 'success', 'Доступен');
+            log('✅ telegram.org доступен');
+        };
+        testImg.onerror = function() {
+            setCheckStatus('check-telegram-access', 'error', 'Недоступен или заблокирован');
+            log('❌ telegram.org недоступен! Возможно заблокирован провайдером или файрволом');
+            showSolution(`
+                <p><strong>Проблема:</strong> Telegram.org заблокирован или недоступен</p>
+                <ol>
+                    <li>Проверьте подключение к интернету</li>
+                    <li>Попробуйте использовать VPN</li>
+                    <li>Проверьте настройки файрвола/антивируса</li>
+                    <li>Попробуйте другую сеть (например, мобильный интернет)</li>
+                </ol>
+            `);
+        };
+        testImg.src = 'https://telegram.org/favicon.ico?' + Date.now();
+
+        // ============================================
+        // ПРОВЕРКА 3: ГЛОБАЛЬНАЯ ФУНКЦИЯ
+        // ============================================
+        log('⚙️ Создание глобальной функции onTelegramAuth...');
+
+        window.onTelegramAuth = function(user) {
+            log('🎉 CALLBACK ВЫЗВАН! Получены данные пользователя:', user);
+            setCheckStatus('check-callback', 'success', 'Вызвана успешно');
+            
+            // Показываем данные пользователя
+            const successMsg = document.getElementById('success-message');
+            const userData = document.getElementById('user-data');
+            userData.innerHTML = `
+                <p><strong>ID:</strong> ${user.id}</p>
+                <p><strong>Имя:</strong> ${user.first_name} ${user.last_name || ''}</p>
+                ${user.username ? `<p><strong>Username:</strong> @${user.username}</p>` : ''}
+                <p><strong>Auth Date:</strong> ${new Date(user.auth_date * 1000).toLocaleString()}</p>
+            `;
+            successMsg.classList.add('show');
+        };
+
+        if (typeof window.onTelegramAuth === 'function') {
+            setCheckStatus('check-callback', 'success', 'Функция создана');
+            log('✅ window.onTelegramAuth создана');
+        } else {
+            setCheckStatus('check-callback', 'error', 'Функция не создана');
+            log('❌ window.onTelegramAuth НЕ создана');
+        }
+
+        // ============================================
+        // ПРОВЕРКА 4: ЗАГРУЗКА ВИДЖЕТА
+        // ============================================
+        log('📥 Загрузка Telegram Login Widget...');
+
+        const container = document.getElementById('telegram-login-h2enterbot');
+
+        if (container) {
+            log('✅ Контейнер найден');
+
+            // Создаём скрипт виджета
+            const script = document.createElement('script');
+            script.src = 'https://telegram.org/js/telegram-widget.js?22';
+            script.setAttribute('data-telegram-login', 'h2enterbot');
+            script.setAttribute('data-size', 'large');
+            script.setAttribute('data-radius', '10');
+            script.setAttribute('data-request-access', 'write');
+            script.setAttribute('data-onauth', 'onTelegramAuth');
+            script.async = true;
+
+            script.onload = function() {
+                setCheckStatus('check-widget-script', 'success', 'Загружен успешно');
+                log('✅ telegram-widget.js загружен');
+                log('📋 Атрибуты скрипта:', {
+                    src: script.src,
+                    'data-telegram-login': script.getAttribute('data-telegram-login'),
+                    'data-onauth': script.getAttribute('data-onauth')
+                });
+            };
+
+            script.onerror = function() {
+                setCheckStatus('check-widget-script', 'error', 'Ошибка загрузки');
+                log('❌ Ошибка загрузки telegram-widget.js');
+                showSolution(`
+                    <p><strong>Проблема:</strong> Не удалось загрузить скрипт виджета</p>
+                    <ol>
+                        <li>Проверьте подключение к интернету</li>
+                        <li>Проверьте что telegram.org не заблокирован</li>
+                        <li>Попробуйте очистить кеш браузера (Ctrl+Shift+Del)</li>
+                        <li>Попробуйте другой браузер</li>
+                    </ol>
+                `);
+            };
+
+            container.appendChild(script);
+            log('✅ Скрипт добавлен в DOM');
+
+            // Проверка iframe через 3 секунды
+            setTimeout(function() {
+                const iframe = container.querySelector('iframe');
+                
+                if (iframe) {
+                    setCheckStatus('check-iframe', 'success', 'Создан: ' + iframe.src);
+                    log('✅ IFRAME СОЗДАН! Виджет инициализирован', {
+                        src: iframe.src,
+                        width: iframe.width,
+                        height: iframe.height
+                    });
+                } else {
+                    setCheckStatus('check-iframe', 'error', 'НЕ создан');
+                    log('❌ IFRAME НЕ СОЗДАН! Виджет не инициализировался');
+                    log('📋 HTML контейнера:', container.innerHTML);
+                    
+                    showSolution(`
+                        <p><strong>Проблема:</strong> Iframe виджета не создан - бот не настроен!</p>
+                        <p><strong>РЕШЕНИЕ:</strong></p>
+                        <ol>
+                            <li>Откройте Telegram и найдите <code>@BotFather</code></li>
+                            <li>Отправьте команду: <code>/mybots</code></li>
+                            <li>Выберите бота: <code>@h2enterbot</code></li>
+                            <li>Нажмите: <code>Bot Settings</code></li>
+                            <li>Нажмите: <code>Domain</code></li>
+                            <li>Введите домен: <code>${domain}</code></li>
+                            <li>Обновите эту страницу (F5)</li>
+                        </ol>
+                        <p><strong>Альтернатива:</strong> Возможно имя бота написано неправильно. Проверьте что в @BotFather есть бот <code>@h2enterbot</code> (без опечаток).</p>
+                    `);
+                }
+            }, 3000);
+
+        } else {
+            log('❌ Контейнер #telegram-login-h2enterbot не найден!');
+        }
+
+        // ============================================
+        // ФУНКЦИЯ ПЕРЕЗАПУСКА
+        // ============================================
+        function runDiagnostic() {
+            location.reload();
+        }
+
+        log('✅ Диагностика запущена. Ожидание результатов...');
+    </script>
+</body>
+</html>

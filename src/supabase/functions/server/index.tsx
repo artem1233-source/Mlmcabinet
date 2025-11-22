@@ -1,0 +1,2745 @@
+import { Hono } from "npm:hono";
+import { cors } from "npm:hono/cors";
+import { logger } from "npm:hono/logger";
+import * as kv from "./kv_store.tsx";
+import { createHmac } from "node:crypto";
+import { createClient } from "npm:@supabase/supabase-js@2";
+
+const app = new Hono();
+
+// Initialize Supabase client
+const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+// Enable logger
+app.use('*', logger(console.log));
+
+// Enable CORS for all routes and methods
+app.use(
+  "/*",
+  cors({
+    origin: "*",
+    allowHeaders: ["Content-Type", "Authorization", "X-User-Id"],
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    exposeHeaders: ["Content-Length"],
+    maxAge: 600,
+  }),
+);
+
+// ======================
+// HELPER FUNCTIONS
+// ======================
+
+// Verify user authorization - using custom header to bypass Supabase JWT validation
+async function verifyUser(userIdHeader: string | null) {
+  if (!userIdHeader) {
+    console.log("Authorization error: No X-User-Id header provided");
+    throw new Error("No user ID provided");
+  }
+  
+  console.log(`Verifying user with ID: ${userIdHeader}`);
+  
+  // Special handling for DEMO_USER (client-side demo mode)
+  if (userIdHeader === 'DEMO_USER') {
+    console.log('🎭 Demo user detected - returning mock admin user');
+    return {
+      id: 'DEMO_USER',
+      email: 'admin@admin.com',
+      имя: 'Администратор',
+      фамилия: 'Системы',
+      isAdmin: true,
+      уровень: 3
+    };
+  }
+  
+  // Get user by ID
+  const user = await kv.get(`user:id:${userIdHeader}`);
+  
+  if (!user) {
+    console.log(`Authorization error: User not found for ID: ${userIdHeader}`);
+    throw new Error("User not found");
+  }
+  
+  console.log(`User verified: ${user.имя} (${user.id})`);
+  return user;
+}
+
+// Calculate MLM payouts
+async function calculatePayouts(price: number, isPartner: boolean, sku: string, upline: any) {
+  const payouts: any[] = [];
+  
+  // 🆕 Получаем товар из базы данных
+  const products = await kv.getByPrefix('product:');
+  const product = products.find((p: any) => p.sku === sku);
+  
+  if (!product) {
+    // Fallback to hardcoded products for backward compatibility
+    const productConfig: any = {
+      'H2-1': {
+        retail: 6500,
+        partner: 4900,
+        d0: 1600,
+        d1: 1500,
+        d2: 900,
+        d3: 600
+      },
+      'H2-3': {
+        retail: 18000,
+        partner: 13500,
+        d0: 4500,
+        d1: 4000,
+        d2: 2500,
+        d3: 1500
+      }
+    };
+    
+    const config = productConfig[sku];
+    if (!config) {
+      throw new Error(`Unknown product SKU: ${sku}`);
+    }
+    
+    const actualPrice = isPartner ? config.partner : config.retail;
+    
+    if (!isPartner) {
+      // Guest purchase - L0 gets d0
+      if (upline.u0) {
+        payouts.push({
+          userId: upline.u0,
+          amount: config.d0,
+          level: 'L0'
+        });
+      }
+    } else {
+      // Partner purchase - distribute d1, d2, d3 to upline
+      if (upline.u1) {
+        payouts.push({
+          userId: upline.u1,
+          amount: config.d1,
+          level: 'L1'
+        });
+      }
+      if (upline.u2) {
+        payouts.push({
+          userId: upline.u2,
+          amount: config.d2,
+          level: 'L2'
+        });
+      }
+      if (upline.u3) {
+        payouts.push({
+          userId: upline.u3,
+          amount: config.d3,
+          level: 'L3'
+        });
+      }
+    }
+    
+    return { price: actualPrice, payouts };
+  }
+  
+  // 🆕 Получаем цены и комиссии из товара
+  const retailPrice = Number(product.цена_розница || product.розничнаяЦена || 0);
+  const partnerPrice = Number(product.цена1 || product.партнёрскаяЦена || 0);
+  
+  // Получаем комиссии из товара или используем дефолтные
+  const commissions = product.комиссии || {
+    d0: 1600,
+    d1: 1500,
+    d2: 900,
+    d3: 600
+  };
+  
+  const actualPrice = isPartner ? partnerPrice : retailPrice;
+  
+  if (!isPartner) {
+    // Guest purchase - L0 gets d0
+    if (upline.u0) {
+      payouts.push({
+        userId: upline.u0,
+        amount: commissions.d0 || 0,
+        level: 'L0'
+      });
+    }
+  } else {
+    // Partner purchase - distribute d1, d2, d3 to upline
+    if (upline.u1) {
+      payouts.push({
+        userId: upline.u1,
+        amount: commissions.d1 || 0,
+        level: 'L1'
+      });
+    }
+    if (upline.u2) {
+      payouts.push({
+        userId: upline.u2,
+        amount: commissions.d2 || 0,
+        level: 'L2'
+      });
+    }
+    if (upline.u3) {
+      payouts.push({
+        userId: upline.u3,
+        amount: commissions.d3 || 0,
+        level: 'L3'
+      });
+    }
+  }
+  
+  return { price: actualPrice, payouts };
+}
+
+// Find upline chain
+async function findUplineChain(userId: string) {
+  const user = await kv.get(`user:id:${userId}`);
+  if (!user) {
+    return { u0: userId, u1: null, u2: null, u3: null };
+  }
+  
+  const upline = { u0: userId, u1: null, u2: null, u3: null };
+  
+  // Find u1 (direct sponsor)
+  if (user.спонсорId) {
+    const u1 = await kv.get(`user:id:${user.спонсорId}`);
+    if (u1) {
+      upline.u1 = u1.id;
+      
+      // Find u2
+      if (u1.спонсорId) {
+        const u2 = await kv.get(`user:id:${u1.спонсорId}`);
+        if (u2) {
+          upline.u2 = u2.id;
+          
+          // Find u3
+          if (u2.спонсорId) {
+            const u3 = await kv.get(`user:id:${u2.спонсорId}`);
+            if (u3) {
+              upline.u3 = u3.id;
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  return upline;
+}
+
+// Check admin access
+async function requireAdmin(c: any, user: any) {
+  if (!user || !user.isAdmin) {
+    throw new Error('Admin access required');
+  }
+}
+
+// ======================
+// AUTHENTICATION
+// ======================
+
+// Health check endpoint
+app.get("/make-server-05aa3c8a/health", (c) => {
+  return c.json({ status: "ok" });
+});
+
+// Simple auth (for demo)
+app.post("/make-server-05aa3c8a/auth", async (c) => {
+  try {
+    const { name } = await c.req.json();
+    
+    if (!name || !name.trim()) {
+      return c.json({ error: "Name is required" }, 400);
+    }
+    
+    // Create or get demo user
+    const userId = `u_demo_${name.toLowerCase().replace(/\s+/g, '_')}`;
+    const userKey = `user:id:${userId}`;
+    
+    let user = await kv.get(userKey);
+    
+    if (!user) {
+      // Create new user
+      user = {
+        id: userId,
+        имя: name.trim(),
+        username: name.toLowerCase().replace(/\s+/g, '_'),
+        уровень: 1, // Новые партнёры начинают с уровня 1
+        рефКод: `REF${Date.now().toString().slice(-6)}`,
+        спонсорId: null,
+        баланс: 0,
+        зарегистрирован: new Date().toISOString(),
+        lastLogin: new Date().toISOString()
+      };
+      
+      await kv.set(userKey, user);
+      console.log(`New user registered: ${user.имя}`);
+    } else {
+      // Update last login
+      user.lastLogin = new Date().toISOString();
+      await kv.set(userKey, user);
+      console.log(`User logged in: ${user.имя}`);
+    }
+    
+    return c.json({ 
+      success: true, 
+      user,
+      token: userId // Using userId as token for simplicity
+    });
+    
+  } catch (error) {
+    console.log(`Auth error: ${error}`);
+    return c.json({ error: `Authentication failed: ${error}` }, 500);
+  }
+});
+
+// Email signup
+app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
+  try {
+    // Log all headers for debugging
+    console.log('Signup request headers:', Object.fromEntries(c.req.raw.headers.entries()));
+    
+    const { email, password, name } = await c.req.json();
+    
+    if (!email || !password || !name) {
+      console.log('Signup validation failed: missing fields');
+      return c.json({ error: "Email, password, and name are required" }, 400);
+    }
+    
+    console.log(`Email signup attempt for: ${email}`);
+    
+    // Check if email already exists in KV store
+    const emailKey = `user:email:${email.trim().toLowerCase()}`;
+    const existingUser = await kv.get(emailKey);
+    if (existingUser) {
+      console.log(`Signup failed: Email already exists: ${email}`);
+      return c.json({ error: "Email уже зарегистрирован" }, 400);
+    }
+    
+    console.log('Creating user in Supabase Auth...');
+    
+    // Create user in Supabase Auth
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      email: email.trim(),
+      password: password,
+      user_metadata: { name: name.trim() },
+      email_confirm: true // Auto-confirm since no email server configured
+    });
+    
+    if (authError) {
+      console.log(`Supabase Auth error: ${authError.message}`, authError);
+      return c.json({ error: `Ошибка создания аккаунта: ${authError.message}` }, 400);
+    }
+    
+    if (!authData.user) {
+      console.log('Supabase Auth returned no user data');
+      return c.json({ error: "Failed to create user" }, 500);
+    }
+    
+    console.log(`Supabase user created: ${authData.user.id}`);
+    
+    // Create user in KV store
+    const userId = `u_email_${authData.user.id}`;
+    const userKey = `user:id:${userId}`;
+    // emailKey already declared above for checking existing user
+    
+    // Check if this is the first user (will be admin) OR admin@admin.com
+    const allUsers = await kv.getByPrefix('user:id:');
+    const isFirstUser = allUsers.length === 0;
+    const isAdminEmail = email.trim().toLowerCase() === 'admin@admin.com';
+    
+    const newUser = {
+      id: userId,
+      supabaseId: authData.user.id,
+      email: email.trim(),
+      имя: isAdminEmail ? 'Администратор' : name.trim(),
+      username: email.split('@')[0],
+      уровень: 1, // Новые партнёры начинают с уровня 1
+      рефКод: `REF${Date.now().toString().slice(-6)}`,
+      спонсорId: null,
+      баланс: 0,
+      зарегистрирован: new Date().toISOString(),
+      lastLogin: new Date().toISOString(),
+      isAdmin: isFirstUser || isAdminEmail, // First user OR admin@admin.com is admin
+      // Дополнительные поля профиля (дозаполняются пользователем)
+      телефон: '',
+      telegram: '',
+      instagram: '',
+      vk: '',
+      facebook: '',
+      аватарка: ''
+    };
+    
+    console.log('Saving user to KV store...');
+    await kv.set(userKey, newUser);
+    await kv.set(emailKey, newUser);
+    
+    console.log(`✅ New user registered via email: ${newUser.имя} (${email})${(isFirstUser || isAdminEmail) ? ' [ADMIN]' : ''}`);
+    
+    return c.json({ 
+      success: true, 
+      user: newUser,
+      message: 'Registration successful'
+    });
+    
+  } catch (error) {
+    console.error(`❌ Email signup critical error:`, error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return c.json({ error: `Ошибка регистрации: ${errorMessage}` }, 500);
+  }
+});
+
+// Email login
+app.post("/make-server-05aa3c8a/auth/login", async (c) => {
+  try {
+    // Log all headers for debugging
+    console.log('Login request headers:', Object.fromEntries(c.req.raw.headers.entries()));
+    
+    const { email, password } = await c.req.json();
+    
+    if (!email || !password) {
+      return c.json({ error: "Email and password are required" }, 400);
+    }
+    
+    console.log(`Email login attempt for: ${email}`);
+    
+    // Create a Supabase client with anon key for sign in
+    const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+    
+    // Sign in with Supabase Auth
+    const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({
+      email: email.trim(),
+      password: password,
+    });
+    
+    if (authError) {
+      console.log(`Email login error: ${authError.message}`);
+      return c.json({ error: authError.message || 'Invalid credentials' }, 401);
+    }
+    
+    if (!authData.session || !authData.user) {
+      return c.json({ error: "Invalid credentials" }, 401);
+    }
+    
+    // Get user from KV store
+    const emailKey = `user:email:${email.trim().toLowerCase()}`;
+    let userData = await kv.get(emailKey);
+    
+    if (!userData) {
+      // User might have been created in Auth but not in KV, create them now
+      const userId = `u_email_${authData.user.id}`;
+      const userKey = `user:id:${userId}`;
+      
+      // Check if this is admin email
+      const isAdminEmail = email.trim().toLowerCase() === 'admin@admin.com';
+      
+      userData = {
+        id: userId,
+        supabaseId: authData.user.id,
+        email: email.trim(),
+        имя: authData.user.user_metadata?.name || (isAdminEmail ? 'Администратор' : email.split('@')[0]),
+        username: email.split('@')[0],
+        уровень: 1,
+        рефКод: `REF${Date.now().toString().slice(-6)}`,
+        спонсорId: null,
+        баланс: 0,
+        зарегистрирован: new Date().toISOString(),
+        lastLogin: new Date().toISOString(),
+        // Дополнительные поля профиля
+        телефон: '',
+        telegram: '',
+        instagram: '',
+        vk: '',
+        facebook: '',
+        аватарка: '',
+        // Admin flag
+        isAdmin: isAdminEmail
+      };
+      
+      await kv.set(userKey, userData);
+      await kv.set(emailKey, userData);
+      
+      console.log(`User data created during login: ${userData.имя}${isAdminEmail ? ' (ADMIN)' : ''}`);
+    } else {
+      // Update last login
+      userData.lastLogin = new Date().toISOString();
+      
+      // Ensure admin flag is set for admin@admin.com
+      const isAdminEmail = email.trim().toLowerCase() === 'admin@admin.com';
+      if (isAdminEmail && !userData.isAdmin) {
+        userData.isAdmin = true;
+        console.log(`✅ Admin flag added to user: ${userData.имя}`);
+      }
+      
+      await kv.set(emailKey, userData);
+      await kv.set(`user:id:${userData.id}`, userData);
+      
+      console.log(`User logged in via email: ${userData.имя} (${email})${isAdminEmail ? ' (ADMIN)' : ''}`);
+    }
+    
+    return c.json({ 
+      success: true, 
+      user: userData,
+      access_token: authData.session.access_token
+    });
+    
+  } catch (error) {
+    console.log(`Email login error: ${error}`);
+    return c.json({ error: `Login failed: ${error}` }, 500);
+  }
+});
+
+// Password reset request
+app.post("/make-server-05aa3c8a/auth/reset-password", async (c) => {
+  try {
+    console.log('Password reset request headers:', Object.fromEntries(c.req.raw.headers.entries()));
+    
+    const { email } = await c.req.json();
+    
+    if (!email) {
+      return c.json({ error: "Email is required" }, 400);
+    }
+    
+    console.log(`Password reset request for: ${email}`);
+    
+    // Check if user exists in KV store
+    const emailKey = `user:email:${email.trim().toLowerCase()}`;
+    const userData = await kv.get(emailKey);
+    
+    if (!userData) {
+      // For security, don't reveal if email exists or not
+      console.log(`Password reset: Email not found: ${email}`);
+      return c.json({ 
+        success: true, 
+        message: "If this email is registered, you will receive a password reset link shortly." 
+      });
+    }
+    
+    // Create a Supabase client with anon key for password reset
+    const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+    
+    // Send password reset email
+    const { error: resetError } = await supabaseClient.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${c.req.header('origin') || 'http://localhost:5173'}/reset-password`,
+    });
+    
+    if (resetError) {
+      console.error(`Password reset error: ${resetError.message}`, resetError);
+      
+      // Check if it's an SMTP configuration error
+      if (resetError.message.includes('SMTP') || resetError.message.includes('email')) {
+        return c.json({ 
+          error: "Восстановление пароля временно недоступно. Пожалуйста, свяжитесь с администратором.",
+          details: "SMTP не настроен. См. инструкцию по настройке email в документации."
+        }, 500);
+      }
+      
+      return c.json({ error: `Ошибка отправки письма: ${resetError.message}` }, 500);
+    }
+    
+    console.log(`✅ Password reset email sent to: ${email}`);
+    
+    return c.json({ 
+      success: true, 
+      message: "Письмо со ссылкой для восстановления пароля отправлено на ваш email!" 
+    });
+    
+  } catch (error) {
+    console.error(`Password reset error: ${error}`);
+    return c.json({ error: `Password reset failed: ${error}` }, 500);
+  }
+});
+
+// Update password (after reset)
+app.post("/make-server-05aa3c8a/auth/update-password", async (c) => {
+  try {
+    const { access_token, new_password } = await c.req.json();
+    
+    if (!access_token || !new_password) {
+      return c.json({ error: "Access token and new password are required" }, 400);
+    }
+    
+    if (new_password.length < 6) {
+      return c.json({ error: "Пароль должен быть минимум 6 символов" }, 400);
+    }
+    
+    console.log(`Password update attempt with token`);
+    
+    // Create a Supabase client with the user's access token
+    const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${access_token}`
+        }
+      }
+    });
+    
+    // First verify the session with the access token
+    const { data: sessionData, error: sessionError } = await supabaseClient.auth.getUser(access_token);
+    
+    if (sessionError || !sessionData.user) {
+      console.error(`Session verification error: ${sessionError?.message || 'No user found'}`);
+      return c.json({ error: `Ошибка обновления пароля: Auth session missing!` }, 401);
+    }
+    
+    console.log(`Session verified for user: ${sessionData.user.id}`);
+    
+    // Update the password using the Service Role Key for direct access
+    const { data, error: updateError } = await supabase.auth.admin.updateUserById(
+      sessionData.user.id,
+      { password: new_password }
+    );
+    
+    if (updateError) {
+      console.error(`Password update error: ${updateError.message}`);
+      return c.json({ error: `Ошибка обновления пароля: ${updateError.message}` }, 500);
+    }
+    
+    console.log(`✅ Password updated for user: ${sessionData.user.id}`);
+    
+    return c.json({ 
+      success: true, 
+      message: "Пароль успешно обновлён!" 
+    });
+    
+  } catch (error) {
+    console.error(`Password update error: ${error}`);
+    return c.json({ error: `Password update failed: ${error}` }, 500);
+  }
+});
+
+// Debug: Get all users (no admin check for diagnostic purposes)
+app.get("/make-server-05aa3c8a/debug/users", async (c) => {
+  try {
+    console.log('Debug: Getting all users for diagnostic...');
+    
+    const users = await kv.getByPrefix('user:id:');
+    
+    console.log(`Debug: Found ${users.length} users in KV store`);
+    console.log(`Debug: Is array? ${Array.isArray(users)}`);
+    
+    // Ensure users is always an array
+    const userArray = Array.isArray(users) ? users : [];
+    
+    return c.json({
+      success: true,
+      users: userArray,
+      count: userArray.length
+    });
+    
+  } catch (error) {
+    console.error('Debug get users error:', error);
+    return c.json({ 
+      success: false, 
+      error: String(error),
+      users: []
+    }, 500);
+  }
+});
+
+// Make user admin (for manual admin assignment)
+app.post("/make-server-05aa3c8a/users/:userId/make-admin", async (c) => {
+  try {
+    const userId = c.req.param('userId');
+    const requestorId = c.req.header('X-User-Id');
+    
+    console.log(`Make admin request: userId=${userId}, requestor=${requestorId}`);
+    
+    // Get the user to update
+    const userKey = `user:id:${userId}`;
+    const user = await kv.get(userKey);
+    
+    if (!user) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+    
+    // Update user with admin flag
+    user.isAdmin = true;
+    await kv.set(userKey, user);
+    
+    // Also update email key
+    if (user.email) {
+      const emailKey = `user:email:${user.email.trim().toLowerCase()}`;
+      await kv.set(emailKey, user);
+    }
+    
+    console.log(`✅ User ${userId} (${user.имя}) is now admin`);
+    
+    return c.json({
+      success: true,
+      message: 'User is now admin',
+      user: user
+    });
+    
+  } catch (error) {
+    console.error('Make admin error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// OAuth login/signup (Google, Apple, GitHub)
+app.post("/make-server-05aa3c8a/auth/oauth", async (c) => {
+  try {
+    console.log('OAuth auth request headers:', Object.fromEntries(c.req.raw.headers.entries()));
+    
+    const { access_token } = await c.req.json();
+    
+    if (!access_token) {
+      return c.json({ error: "Access token is required" }, 400);
+    }
+    
+    console.log(`OAuth auth attempt with access token`);
+    
+    // Create a Supabase client with the user's access token
+    const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${access_token}`
+        }
+      }
+    });
+    
+    // Verify the session with the access token
+    const { data: sessionData, error: sessionError } = await supabaseClient.auth.getUser(access_token);
+    
+    if (sessionError || !sessionData.user) {
+      console.error(`OAuth session verification error: ${sessionError?.message || 'No user found'}`);
+      return c.json({ error: `OAuth verification failed` }, 401);
+    }
+    
+    console.log(`OAuth session verified for user: ${sessionData.user.id} (${sessionData.user.email})`);
+    
+    // Check if user exists in KV store
+    const emailKey = `user:email:${sessionData.user.email?.trim().toLowerCase()}`;
+    let userData = await kv.get(emailKey);
+    
+    if (!userData) {
+      // Create new user in KV store
+      const userId = `u_oauth_${sessionData.user.id}`;
+      const userKey = `user:id:${userId}`;
+      
+      // Check if this is the first user (will be admin)
+      const allUsers = await kv.getByPrefix('user:id:');
+      const isFirstUser = allUsers.length === 0;
+      
+      userData = {
+        id: userId,
+        supabaseId: sessionData.user.id,
+        email: sessionData.user.email?.trim() || '',
+        имя: sessionData.user.user_metadata?.full_name || sessionData.user.user_metadata?.name || sessionData.user.email?.split('@')[0] || 'Пользователь',
+        username: sessionData.user.email?.split('@')[0] || 'user',
+        уровень: 1, // Новые партнёры начинают с уровня 1
+        рефКод: `REF${Date.now().toString().slice(-6)}`,
+        спонсорId: null,
+        баланс: 0,
+        зарегистрирован: new Date().toISOString(),
+        lastLogin: new Date().toISOString(),
+        isAdmin: isFirstUser, // First user is admin
+        // Дополнительные поля профиля (дозаполняются пользователем)
+        телефон: '',
+        telegram: '',
+        instagram: '',
+        vk: '',
+        facebook: '',
+        аватарка: sessionData.user.user_metadata?.avatar_url || sessionData.user.user_metadata?.picture || ''
+      };
+      
+      await kv.set(userKey, userData);
+      await kv.set(emailKey, userData);
+      
+      console.log(`✅ New user created via OAuth: ${userData.имя} (${userData.email})${isFirstUser ? ' [ADMIN]' : ''}`);
+    } else {
+      // Update last login
+      userData.lastLogin = new Date().toISOString();
+      await kv.set(emailKey, userData);
+      await kv.set(`user:id:${userData.id}`, userData);
+      
+      console.log(`✅ User logged in via OAuth: ${userData.имя} (${userData.email})`);
+    }
+    
+    return c.json({ 
+      success: true, 
+      user: userData,
+      token: userData.id // Using userId as token for API calls
+    });
+    
+  } catch (error) {
+    console.error(`❌ OAuth auth error:`, error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return c.json({ error: `OAuth authentication failed: ${errorMessage}` }, 500);
+  }
+});
+
+// Telegram auth verification
+app.post("/make-server-05aa3c8a/telegram-auth", async (c) => {
+  try {
+    const telegramData = await c.req.json();
+    const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
+    
+    if (!botToken) {
+      console.log("Telegram auth error: Bot token not configured");
+      return c.json({ error: "Bot token not configured" }, 500);
+    }
+
+    // Verify Telegram data signature (if hash is provided)
+    if (telegramData.hash) {
+      const { hash, ...dataToCheck } = telegramData;
+      
+      const dataCheckArr = Object.keys(dataToCheck)
+        .sort()
+        .map(key => `${key}=${dataToCheck[key]}`);
+      const dataCheckString = dataCheckArr.join('\n');
+      
+      const secretKey = createHmac('sha256', 'WebAppData')
+        .update(botToken)
+        .digest();
+      
+      const calculatedHash = createHmac('sha256', secretKey)
+        .update(dataCheckString)
+        .digest('hex');
+      
+      if (calculatedHash !== hash) {
+        console.log("Telegram auth error: Invalid hash");
+        return c.json({ error: "Invalid authentication data" }, 401);
+      }
+      
+      const authDate = parseInt(dataToCheck.auth_date);
+      const currentTime = Math.floor(Date.now() / 1000);
+      if (currentTime - authDate > 86400) {
+        console.log("Telegram auth error: Data too old");
+        return c.json({ error: "Authentication data expired" }, 401);
+      }
+    }
+    
+    // Get or create user
+    const telegramId = telegramData.id;
+    const userKey = `user:tg:${telegramId}`;
+    
+    let userData = await kv.get(userKey);
+    
+    if (!userData) {
+      // Find sponsor by referral code if provided
+      let sponsorId = null;
+      let refCodeToUse = telegramData.refCode || telegramData.start_param; // start_param from Telegram Mini Apps
+      
+      if (refCodeToUse) {
+        console.log(`Looking for sponsor with ref code: ${refCodeToUse}`);
+        const allUsers = await kv.getByPrefix('user:id:');
+        const sponsor = allUsers.find((u: any) => u.рефКод === refCodeToUse);
+        if (sponsor) {
+          sponsorId = sponsor.id;
+          console.log(`Found sponsor: ${sponsor.имя} (${sponsor.id})`);
+        } else {
+          console.log(`No sponsor found for ref code: ${refCodeToUse}`);
+        }
+      }
+      
+      // Check if this is the first user (will be admin)
+      const allUsers = await kv.getByPrefix('user:id:');
+      const isFirstUser = allUsers.length === 0;
+      
+      // Create new user
+      const newUser = {
+        id: `u_tg_${telegramId}`,
+        telegramId: telegramId,
+        имя: telegramData.first_name + (telegramData.last_name ? ` ${telegramData.last_name}` : ''),
+        username: telegramData.username || '',
+        photoUrl: telegramData.photo_url || '',
+        уровень: 1, // Новые партнёры начинают с уровня 1
+        рефКод: `REF${telegramId.toString().slice(-6)}`,
+        спонсорId: sponsorId,
+        баланс: 0,
+        зарегистрирован: new Date().toISOString(),
+        lastLogin: new Date().toISOString(),
+        isAdmin: isFirstUser // First user is admin
+      };
+      
+      await kv.set(userKey, newUser);
+      await kv.set(`user:id:${newUser.id}`, newUser);
+      
+      console.log(`New user registered: ${newUser.имя} (${telegramId})${sponsorId ? ` with sponsor ${sponsorId}` : ' without sponsor'}${isFirstUser ? ' [ADMIN]' : ''}`);
+      
+      return c.json({ 
+        success: true, 
+        user: newUser,
+        token: newUser.id,
+        isNewUser: true
+      });
+    } else {
+      // Update last login
+      userData.lastLogin = new Date().toISOString();
+      await kv.set(userKey, userData);
+      await kv.set(`user:id:${userData.id}`, userData);
+      
+      console.log(`User logged in: ${userData.имя} (${telegramId})`);
+      
+      return c.json({ 
+        success: true, 
+        user: userData,
+        token: userData.id,
+        isNewUser: false
+      });
+    }
+    
+  } catch (error) {
+    console.log(`Telegram auth error: ${error}`);
+    return c.json({ error: `Authentication failed: ${error}` }, 500);
+  }
+});
+
+// ======================
+// USER MANAGEMENT
+// ======================
+
+// Get current user
+app.get("/make-server-05aa3c8a/user/me", async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('X-User-Id'));
+    return c.json({ success: true, user });
+  } catch (error) {
+    return c.json({ error: `${error}` }, 401);
+  }
+});
+
+// Update user profile
+app.put("/make-server-05aa3c8a/user/profile", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    const profileData = await c.req.json();
+    
+    console.log(`Updating profile for user: ${currentUser.id}`);
+    
+    // Разрешённые поля для обновления
+    const allowedFields = ['имя', 'телефон', 'telegram', 'instagram', 'vk', 'facebook', 'аватарка'];
+    
+    // Обновляем только разрешённые поля
+    const updates: any = {};
+    for (const field of allowedFields) {
+      if (profileData.hasOwnProperty(field)) {
+        updates[field] = profileData[field];
+      }
+    }
+    
+    console.log('📝 Profile updates to apply:', updates);
+    
+    // Проверка: имя не может быть пустым
+    if (updates.hasOwnProperty('имя') && !updates.имя?.trim()) {
+      return c.json({ error: 'Имя не может быть пустым' }, 400);
+    }
+    
+    // Применяем обновления
+    const updatedUser = {
+      ...currentUser,
+      ...updates
+    };
+    
+    console.log('👤 Updated user object:', updatedUser);
+    console.log('📋 Social media fields:', {
+      telegram: updatedUser.telegram,
+      instagram: updatedUser.instagram,
+      vk: updatedUser.vk,
+      facebook: updatedUser.facebook
+    });
+    
+    // Сохраняем обновлённого пользователя
+    const userKey = `user:id:${currentUser.id}`;
+    await kv.set(userKey, updatedUser);
+    
+    // Если есть email, обновляем и по email ключу
+    if (currentUser.email) {
+      const emailKey = `user:email:${currentUser.email.trim().toLowerCase()}`;
+      await kv.set(emailKey, updatedUser);
+    }
+    
+    // Если есть telegramId, обновляем и по telegram ключу
+    if (currentUser.telegramId) {
+      await kv.set(`user:tg:${currentUser.telegramId}`, updatedUser);
+    }
+    
+    console.log(`✅ Profile updated for: ${updatedUser.имя} (${currentUser.id})`);
+    
+    return c.json({ 
+      success: true, 
+      user: updatedUser,
+      message: 'Профиль успешно обновлён' 
+    });
+    
+  } catch (error) {
+    console.error(`❌ Profile update error:`, error);
+    return c.json({ error: `Failed to update profile: ${error}` }, 500);
+  }
+});
+
+// Get user by ID
+app.get("/make-server-05aa3c8a/user/:userId", async (c) => {
+  try {
+    const userId = c.req.param('userId');
+    const userData = await kv.get(`user:id:${userId}`);
+    
+    if (!userData) {
+      return c.json({ error: "User not found" }, 404);
+    }
+    
+    return c.json({ success: true, user: userData });
+  } catch (error) {
+    console.log(`Get user error: ${error}`);
+    return c.json({ error: `Failed to get user: ${error}` }, 500);
+  }
+});
+
+// Get user's team structure
+app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
+  try {
+    await verifyUser(c.req.header('X-User-Id'));
+    const userId = c.req.param('userId');
+    
+    // Get all users with this sponsor
+    const allUsers = await kv.getByPrefix('user:id:');
+    const allUsersArray = Array.isArray(allUsers) ? allUsers : [];
+    const teamMembers = allUsersArray.filter((u: any) => u.спонсорId === userId);
+    
+    return c.json({ success: true, team: teamMembers });
+  } catch (error) {
+    console.log(`Get team error: ${error}`);
+    return c.json({ 
+      success: false,
+      error: `Failed to get team: ${error}`,
+      team: []
+    }, 500);
+  }
+});
+
+// ======================
+// PRODUCTS
+// ======================
+
+app.get("/make-server-05aa3c8a/products", async (c) => {
+  try {
+    // Get custom products from KV store with keys
+    const allProductEntries = await kv.getByPrefixWithKeys('product:');
+    
+    console.log(`📦 GET /products - Total entries from KV: ${allProductEntries.length}`);
+    console.log(`📦 Entry keys preview:`, allProductEntries.slice(0, 5).map((e: any) => e.key));
+    
+    // Filter to get only product records (not SKU lookup keys)
+    // Product keys have format "product:prod_XXX", SKU lookup keys have format "product:sku:XXX"
+    const productEntries = allProductEntries.filter((entry: any) => 
+      entry.key.startsWith('product:prod_')
+    );
+    
+    console.log(`📦 Filtered product entries (by key): ${productEntries.length}`);
+    
+    // Extract values and filter active
+    const products = productEntries.map((e: any) => e.value);
+    const activeProducts = products.filter((p: any) => p.активен !== false);
+    
+    console.log(`📦 Active products: ${activeProducts.length}`);
+    
+    return c.json({ success: true, products: activeProducts });
+  } catch (error) {
+    console.log(`Get products error: ${error}`);
+    return c.json({ error: `Failed to get products: ${error}` }, 500);
+  }
+});
+
+// Upload product image
+app.post("/make-server-05aa3c8a/upload/product-image", async (c) => {
+  try {
+    console.log('Upload image - headers:', {
+      'X-User-Id': c.req.header('X-User-Id'),
+      'Authorization': c.req.header('Authorization') ? 'present' : 'missing',
+      'Content-Type': c.req.header('Content-Type')
+    });
+    
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const formData = await c.req.formData();
+    const file = formData.get('file') as File;
+    
+    if (!file) {
+      return c.json({ error: 'No file provided' }, 400);
+    }
+    
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+    if (!allowedTypes.includes(file.type)) {
+      return c.json({ error: 'Invalid file type. Only JPEG, PNG, and WebP allowed' }, 400);
+    }
+    
+    // Validate file size (max 5MB)
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      return c.json({ error: 'File too large. Max size is 5MB' }, 400);
+    }
+    
+    // Create bucket if it doesn't exist
+    const bucketName = 'make-05aa3c8a-product-images';
+    const { data: buckets } = await supabase.storage.listBuckets();
+    const bucketExists = buckets?.some(bucket => bucket.name === bucketName);
+    
+    if (!bucketExists) {
+      await supabase.storage.createBucket(bucketName, {
+        public: true, // Make images publicly accessible
+        fileSizeLimit: maxSize
+      });
+      console.log(`Created storage bucket: ${bucketName}`);
+    }
+    
+    // Generate unique filename
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+    const filePath = `products/${fileName}`;
+    
+    // Convert File to ArrayBuffer
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = new Uint8Array(arrayBuffer);
+    
+    // Upload to Supabase Storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from(bucketName)
+      .upload(filePath, buffer, {
+        contentType: file.type,
+        upsert: false
+      });
+    
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      return c.json({ error: `Upload failed: ${uploadError.message}` }, 500);
+    }
+    
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from(bucketName)
+      .getPublicUrl(filePath);
+    
+    console.log(`Image uploaded: ${filePath}`);
+    
+    return c.json({
+      success: true,
+      imageUrl: urlData.publicUrl,
+      fileName: fileName
+    });
+    
+  } catch (error) {
+    console.error('Upload product image error:', error);
+    return c.json({ error: `${error}` }, 500);
+  }
+});
+
+// Upload course material
+app.post("/make-server-05aa3c8a/upload/course-material", async (c) => {
+  try {
+    console.log('Upload course material - headers:', {
+      'X-User-Id': c.req.header('X-User-Id'),
+      'Authorization': c.req.header('Authorization') ? 'present' : 'missing',
+      'Content-Type': c.req.header('Content-Type')
+    });
+    
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const formData = await c.req.formData();
+    const file = formData.get('file') as File;
+    
+    if (!file) {
+      return c.json({ error: 'No file provided' }, 400);
+    }
+    
+    // Validate file type (более широкий набор)
+    const allowedTypes = [
+      'image/jpeg', 'image/png', 'image/webp', 'image/jpg', 'image/gif',
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'video/mp4', 'video/webm', 'video/ogg'
+    ];
+    
+    if (!allowedTypes.includes(file.type)) {
+      return c.json({ 
+        error: 'Invalid file type. Allowed: images, PDF, documents, videos' 
+      }, 400);
+    }
+    
+    // Validate file size (max 50MB для курсов)
+    const maxSize = 50 * 1024 * 1024;
+    if (file.size > maxSize) {
+      return c.json({ error: 'File too large. Max size is 50MB' }, 400);
+    }
+    
+    // Create bucket if it doesn't exist
+    const bucketName = 'make-05aa3c8a-course-materials';
+    const { data: buckets } = await supabase.storage.listBuckets();
+    const bucketExists = buckets?.some(bucket => bucket.name === bucketName);
+    
+    if (!bucketExists) {
+      await supabase.storage.createBucket(bucketName, {
+        public: true, // Make materials publicly accessible
+        fileSizeLimit: maxSize
+      });
+      console.log(`Created storage bucket: ${bucketName}`);
+    }
+    
+    // Generate unique filename
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+    const filePath = `materials/${fileName}`;
+    
+    // Convert File to ArrayBuffer
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = new Uint8Array(arrayBuffer);
+    
+    // Upload to Supabase Storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from(bucketName)
+      .upload(filePath, buffer, {
+        contentType: file.type,
+        upsert: false
+      });
+    
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      return c.json({ error: `Upload failed: ${uploadError.message}` }, 500);
+    }
+    
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from(bucketName)
+      .getPublicUrl(filePath);
+    
+    console.log(`Course material uploaded: ${filePath}`);
+    
+    return c.json({
+      success: true,
+      url: urlData.publicUrl,
+      fileName: fileName
+    });
+    
+  } catch (error) {
+    console.error('Upload course material error:', error);
+    return c.json({ error: `${error}` }, 500);
+  }
+});
+
+// ======================
+// ORDERS
+// ======================
+
+// Create order
+app.post("/make-server-05aa3c8a/orders", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    const { sku, isPartner, quantity = 1 } = await c.req.json();
+    
+    console.log(`📦 Creating order: SKU=${sku}, isPartner=${isPartner}, quantity=${quantity}`);
+    
+    if (!sku) {
+      return c.json({ error: "SKU is required" }, 400);
+    }
+    
+    // Валидация SKU
+    if (!sku || sku.length < 2) {
+      console.error(`❌ Invalid SKU: "${sku}"`);
+      return c.json({ error: `Invalid SKU format: "${sku}"` }, 400);
+    }
+    
+    // Find upline chain
+    const upline = await findUplineChain(currentUser.id);
+    
+    // Calculate payouts (function calculates price internally)
+    const { price, payouts } = await calculatePayouts(0, isPartner, sku, upline);
+    
+    // Calculate total commission
+    const комиссии: { [userId: string]: number } = {};
+    const комиссииУровни: { [userId: string]: string } = {};
+    
+    payouts.forEach(payout => {
+      комиссии[payout.userId] = payout.amount;
+      комиссииУровни[payout.userId] = payout.level;
+    });
+    
+    // Create order
+    const orderId = `ORD-${Date.now()}`;
+    const order = {
+      id: orderId,
+      покупательId: currentUser.id,
+      sku: sku,
+      количество: quantity,
+      цена: price * quantity,
+      комиссии: комиссии,
+      комиссииУровни: комиссииУровни,
+      партнёрскаяПокупка: isPartner,
+      дата: new Date().toISOString(),
+      статус: 'pending' // pending, paid, cancelled
+    };
+    
+    await kv.set(`order:${orderId}`, order);
+    await kv.set(`order:user:${currentUser.id}:${orderId}`, order);
+    
+    console.log(`Order created: ${orderId} by ${currentUser.имя}`);
+    
+    return c.json({ 
+      success: true, 
+      order,
+      paymentUrl: `/payment/${orderId}` // Would be real payment URL
+    });
+    
+  } catch (error) {
+    console.log(`Create order error: ${error}`);
+    return c.json({ error: `Failed to create order: ${error}` }, 500);
+  }
+});
+
+// Get user's orders
+app.get("/make-server-05aa3c8a/orders", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    // Get all orders for this user
+    const orders = await kv.getByPrefix(`order:user:${currentUser.id}:`);
+    const ordersArray = Array.isArray(orders) ? orders : [];
+    
+    return c.json({ success: true, orders: ordersArray });
+  } catch (error) {
+    console.log(`Get orders error: ${error}`);
+    return c.json({ 
+      success: false,
+      error: `Failed to get orders: ${error}`,
+      orders: []
+    }, 500);
+  }
+});
+
+// Confirm payment (webhook from payment provider)
+app.post("/make-server-05aa3c8a/orders/:orderId/confirm", async (c) => {
+  try {
+    const orderId = c.req.param('orderId');
+    const order = await kv.get(`order:${orderId}`);
+    
+    if (!order) {
+      return c.json({ error: "Order not found" }, 404);
+    }
+    
+    if (order.статус === 'paid') {
+      return c.json({ error: "Order already paid" }, 400);
+    }
+    
+    // Update order status
+    order.статус = 'paid';
+    order.paidAt = new Date().toISOString();
+    await kv.set(`order:${orderId}`, order);
+    await kv.set(`order:user:${order.покупательId}:${orderId}`, order);
+    
+    // Process payouts from комиссии
+    if (order.комиссии) {
+      for (const [userId, amount] of Object.entries(order.комиссии)) {
+        if (amount > 0) {
+          // Update user balance
+          const user = await kv.get(`user:id:${userId}`);
+          if (user) {
+            user.баланс = (user.баланс || 0) + amount;
+            await kv.set(`user:id:${userId}`, user);
+            
+            if (user.telegramId) {
+              await kv.set(`user:tg:${user.telegramId}`, user);
+            }
+            
+            // Create earning record
+            const earningId = `earning:${Date.now()}-${userId}`;
+            const earning = {
+              id: earningId,
+              userId: userId,
+              orderId: orderId,
+              amount: amount,
+              level: order.комиссииУровни?.[userId] || 'L0',
+              fromUserId: order.покупательId,
+              createdAt: new Date().toISOString()
+            };
+            await kv.set(earningId, earning);
+            await kv.set(`earning:user:${userId}:${earningId}`, earning);
+            
+            console.log(`Payout processed: ${amount} to ${user.имя} (${order.комиссииУровни?.[userId] || 'L0'})`);
+          }
+        }
+      }
+    }
+    
+    console.log(`Order ${orderId} confirmed and paid`);
+    
+    return c.json({ success: true, order });
+    
+  } catch (error) {
+    console.log(`Confirm order error: ${error}`);
+    return c.json({ error: `Failed to confirm order: ${error}` }, 500);
+  }
+});
+
+// ======================
+// EARNINGS & BALANCE
+// ======================
+
+// Get earnings
+app.get("/make-server-05aa3c8a/earnings", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    const earnings = await kv.getByPrefix(`earning:user:${currentUser.id}:`);
+    const earningsArray = Array.isArray(earnings) ? earnings : [];
+    
+    return c.json({ success: true, earnings: earningsArray });
+  } catch (error) {
+    console.log(`Get earnings error: ${error}`);
+    return c.json({ 
+      success: false,
+      error: `Failed to get earnings: ${error}`,
+      earnings: []
+    }, 500);
+  }
+});
+
+// Request withdrawal
+app.post("/make-server-05aa3c8a/withdrawal", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    const { amount, method, details } = await c.req.json();
+    
+    if (!amount || amount <= 0) {
+      return c.json({ error: "Invalid amount" }, 400);
+    }
+    
+    if (currentUser.баланс < amount) {
+      return c.json({ error: "Insufficient balance" }, 400);
+    }
+    
+    // Create withdrawal request
+    const withdrawalId = `withdrawal:${Date.now()}`;
+    const withdrawal = {
+      id: withdrawalId,
+      userId: currentUser.id,
+      amount,
+      method, // USDT, bank, etc.
+      details, // wallet address, bank account, etc.
+      status: 'pending', // pending, processing, completed, rejected
+      createdAt: new Date().toISOString()
+    };
+    
+    await kv.set(withdrawalId, withdrawal);
+    await kv.set(`withdrawal:user:${currentUser.id}:${withdrawalId}`, withdrawal);
+    
+    // Deduct from balance (will be refunded if rejected)
+    currentUser.баланс -= amount;
+    await kv.set(`user:id:${currentUser.id}`, currentUser);
+    if (currentUser.telegramId) {
+      await kv.set(`user:tg:${currentUser.telegramId}`, currentUser);
+    }
+    
+    console.log(`Withdrawal requested: ${amount} by ${currentUser.имя}`);
+    
+    return c.json({ success: true, withdrawal });
+    
+  } catch (error) {
+    console.log(`Withdrawal error: ${error}`);
+    return c.json({ error: `Failed to process withdrawal: ${error}` }, 500);
+  }
+});
+
+// Get withdrawal history
+app.get("/make-server-05aa3c8a/withdrawals", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    const withdrawals = await kv.getByPrefix(`withdrawal:user:${currentUser.id}:`);
+    const withdrawalsArray = Array.isArray(withdrawals) ? withdrawals : [];
+    
+    return c.json({ success: true, withdrawals: withdrawalsArray });
+  } catch (error) {
+    console.log(`Get withdrawals error: ${error}`);
+    return c.json({ 
+      success: false,
+      error: `Failed to get withdrawals: ${error}`,
+      withdrawals: []
+    }, 500);
+  }
+});
+
+// ======================
+// PAYMENTS
+// ======================
+
+// Get available payment methods
+app.get("/make-server-05aa3c8a/payment/methods", (c) => {
+  try {
+    const methods = [
+      { id: 'demo', name: 'Демо-оплата', enabled: true },
+      { id: 'yookassa', name: 'ЮКасса', enabled: false },
+      { id: 'usdt', name: 'USDT (Crypto)', enabled: false }
+    ];
+    return c.json({ success: true, methods });
+  } catch (error) {
+    console.log(`Get payment methods error: ${error}`);
+    return c.json({ error: `Failed to get payment methods: ${error}` }, 500);
+  }
+});
+
+// Create payment for order
+app.post("/make-server-05aa3c8a/payment/create", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    const { orderId, method } = await c.req.json();
+    
+    const order = await kv.get(`order:${orderId}`);
+    
+    if (!order) {
+      return c.json({ error: "Order not found" }, 404);
+    }
+    
+    if (order.покупательId !== currentUser.id) {
+      return c.json({ error: "Unauthorized" }, 403);
+    }
+    
+    if (order.статус === 'paid') {
+      return c.json({ error: "Order already paid" }, 400);
+    }
+    
+    let paymentData;
+    
+    if (method === 'yookassa') {
+      // TODO: Implement YooKassa payment integration
+      return c.json({ error: 'YooKassa not yet configured' }, 501);
+    } else if (method === 'usdt') {
+      // TODO: Implement crypto payment integration
+      return c.json({ error: 'Crypto payments not yet configured' }, 501);
+    } else if (method === 'demo') {
+      // Demo payment - auto confirm after 2 seconds
+      setTimeout(async () => {
+        try {
+          const confirmOrder = await kv.get(`order:${orderId}`);
+          if (confirmOrder && confirmOrder.статус !== 'paid') {
+            // Update order status
+            confirmOrder.статус = 'paid';
+            confirmOrder.paidAt = new Date().toISOString();
+            await kv.set(`order:${orderId}`, confirmOrder);
+            await kv.set(`order:user:${confirmOrder.покупательId}:${orderId}`, confirmOrder);
+            
+            // Process payouts from комиссии
+            if (confirmOrder.комиссии) {
+              for (const [userId, amount] of Object.entries(confirmOrder.комиссии)) {
+                if (amount > 0) {
+                  const user = await kv.get(`user:id:${userId}`);
+                  if (user) {
+                    user.баланс = (user.баланс || 0) + amount;
+                    await kv.set(`user:id:${userId}`, user);
+                    
+                    if (user.telegramId) {
+                      await kv.set(`user:tg:${user.telegramId}`, user);
+                    }
+                    
+                    const earningId = `earning:${Date.now()}-${userId}`;
+                    const earning = {
+                      id: earningId,
+                      userId: userId,
+                      orderId: orderId,
+                      amount: amount,
+                      level: confirmOrder.комиссииУровни?.[userId] || 'L0',
+                      fromUserId: confirmOrder.покупательId,
+                      createdAt: new Date().toISOString()
+                    };
+                    await kv.set(earningId, earning);
+                    await kv.set(`earning:user:${userId}:${earningId}`, earning);
+                  }
+                }
+              }
+            }
+            console.log(`Demo payment auto-confirmed for ${orderId}`);
+          }
+        } catch (err) {
+          console.error(`Demo payment confirmation error: ${err}`);
+        }
+      }, 2000);
+      
+      paymentData = {
+        paymentId: `demo-${orderId}`,
+        paymentUrl: null,
+        status: 'processing',
+        message: 'Демо-оплата будет подтверждена автоматически через 2 секунды'
+      };
+    } else {
+      return c.json({ error: "Invalid payment method" }, 400);
+    }
+    
+    // Save payment info
+    const payment = {
+      id: paymentData.paymentId,
+      orderId,
+      userId: currentUser.id,
+      method,
+      amount: order.цена,
+      status: paymentData.status || 'pending',
+      createdAt: new Date().toISOString(),
+      ...paymentData
+    };
+    
+    await kv.set(`payment:${payment.id}`, payment);
+    await kv.set(`payment:order:${orderId}`, payment);
+    
+    console.log(`Payment created: ${payment.id} for order ${orderId} (${method})`);
+    
+    return c.json({ success: true, payment });
+    
+  } catch (error) {
+    console.log(`Create payment error: ${error}`);
+    return c.json({ error: `Failed to create payment: ${error}` }, 500);
+  }
+});
+
+// YooKassa webhook
+app.post("/make-server-05aa3c8a/webhook/yookassa", async (c) => {
+  try {
+    const body = await c.req.text();
+    const signature = c.req.header('X-Yookassa-Signature');
+    
+    // TODO: Implement webhook signature verification
+    // For now, we'll accept all webhooks (should be secured in production)
+    console.log("YooKassa webhook received");
+    
+    const event = JSON.parse(body);
+    
+    if (event.event === 'payment.succeeded') {
+      const orderId = event.object.metadata.orderId;
+      
+      // Confirm order
+      const order = await kv.get(`order:${orderId}`);
+      if (order && order.статус !== 'paid') {
+        order.статус = 'paid';
+        order.paidAt = new Date().toISOString();
+        await kv.set(`order:${orderId}`, order);
+        await kv.set(`order:user:${order.продавецId}:${orderId}`, order);
+        
+        // Process payouts
+        for (const payout of order.выплаты) {
+          const user = await kv.get(`user:id:${payout.userId}`);
+          if (user) {
+            user.баланс = (user.баланс || 0) + payout.amount;
+            await kv.set(`user:id:${payout.userId}`, user);
+            
+            if (user.telegramId) {
+              await kv.set(`user:tg:${user.telegramId}`, user);
+            }
+            
+            const earningId = `earning:${Date.now()}-${payout.userId}`;
+            const earning = {
+              id: earningId,
+              userId: payout.userId,
+              orderId: orderId,
+              amount: payout.amount,
+              level: payout.level,
+              fromUserId: order.продавецId,
+              createdAt: new Date().toISOString()
+            };
+            await kv.set(earningId, earning);
+            await kv.set(`earning:user:${payout.userId}:${earningId}`, earning);
+          }
+        }
+        
+        console.log(`YooKassa payment confirmed for order ${orderId}`);
+      }
+    }
+    
+    return c.json({ success: true });
+    
+  } catch (error) {
+    console.log(`YooKassa webhook error: ${error}`);
+    return c.json({ error: `Webhook processing failed: ${error}` }, 500);
+  }
+});
+
+// ======================
+// ADMIN ROUTES
+// ======================
+
+// Get system statistics
+app.get("/make-server-05aa3c8a/admin/stats", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    // Calculate stats from KV store
+    const allUsers = await kv.getByPrefix('user:id:');
+    const allOrders = await kv.getByPrefix('order:');
+    const allWithdrawals = await kv.getByPrefix('withdrawal:');
+    
+    const stats = {
+      totalUsers: allUsers.length,
+      totalOrders: allOrders.filter((o: any) => o.id && o.продавецId).length,
+      totalRevenue: allOrders.filter((o: any) => o.статус === 'paid').reduce((sum: number, o: any) => sum + (o.цена || 0), 0),
+      pendingWithdrawals: allWithdrawals.filter((w: any) => w.status === 'pending').length
+    };
+    
+    return c.json({ success: true, stats });
+  } catch (error) {
+    console.log(`Admin stats error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Get all users
+app.get("/make-server-05aa3c8a/admin/users", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const users = await kv.getByPrefix('user:id:');
+    const userArray = Array.isArray(users) ? users : [];
+    
+    return c.json({ success: true, users: userArray });
+  } catch (error) {
+    console.log(`Admin get users error: ${error}`);
+    return c.json({ 
+      success: false, 
+      error: `${error}`,
+      users: []
+    }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Get all orders
+app.get("/make-server-05aa3c8a/admin/orders", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const allOrders = await kv.getByPrefix('order:');
+    const ordersArray = Array.isArray(allOrders) ? allOrders : [];
+    const orders = ordersArray.filter((o: any) => o.id && o.продавецId);
+    
+    return c.json({ success: true, orders });
+  } catch (error) {
+    console.log(`Admin get orders error: ${error}`);
+    return c.json({ 
+      success: false,
+      error: `${error}`,
+      orders: []
+    }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Get all withdrawals
+app.get("/make-server-05aa3c8a/admin/withdrawals", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const withdrawals = await kv.getByPrefix('withdrawal:');
+    const withdrawalsArray = Array.isArray(withdrawals) ? withdrawals : [];
+    
+    return c.json({ success: true, withdrawals: withdrawalsArray });
+  } catch (error) {
+    console.log(`Admin get withdrawals error: ${error}`);
+    return c.json({ 
+      success: false,
+      error: `${error}`,
+      withdrawals: []
+    }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Update withdrawal status
+app.post("/make-server-05aa3c8a/admin/withdrawals/:withdrawalId/status", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const withdrawalId = c.req.param('withdrawalId');
+    const { status, note } = await c.req.json();
+    
+    if (!['pending', 'processing', 'completed', 'rejected'].includes(status)) {
+      return c.json({ error: 'Invalid status' }, 400);
+    }
+    
+    const withdrawal = await kv.get(`withdrawal:${withdrawalId}`);
+    if (!withdrawal) {
+      return c.json({ error: 'Withdrawal not found' }, 404);
+    }
+    
+    withdrawal.status = status;
+    withdrawal.note = note || withdrawal.note;
+    withdrawal.updatedAt = new Date().toISOString();
+    
+    await kv.set(`withdrawal:${withdrawalId}`, withdrawal);
+    await kv.set(`withdrawal:user:${withdrawal.userId}:${withdrawalId}`, withdrawal);
+    
+    console.log(`Admin updated withdrawal ${withdrawalId} to ${status}`);
+    
+    return c.json({ success: true, withdrawal });
+  } catch (error) {
+    console.log(`Admin update withdrawal error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Update user level
+app.post("/make-server-05aa3c8a/admin/users/:userId/level", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const userId = c.req.param('userId');
+    const { level } = await c.req.json();
+    
+    const user = await kv.get(`user:id:${userId}`);
+    if (!user) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+    
+    user.уровень = level;
+    await kv.set(`user:id:${userId}`, user);
+    
+    if (user.telegramId) {
+      await kv.set(`user:tg:${user.telegramId}`, user);
+    }
+    
+    console.log(`Admin updated user ${userId} to level ${level}`);
+    
+    return c.json({ success: true, user });
+  } catch (error) {
+    console.log(`Admin update user level error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Adjust user balance
+app.post("/make-server-05aa3c8a/admin/users/:userId/balance", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const userId = c.req.param('userId');
+    const { amount, reason } = await c.req.json();
+    
+    if (!amount || !reason) {
+      return c.json({ error: 'Amount and reason are required' }, 400);
+    }
+    
+    const user = await kv.get(`user:id:${userId}`);
+    if (!user) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+    
+    user.баланс = (user.баланс || 0) + amount;
+    await kv.set(`user:id:${userId}`, user);
+    
+    if (user.telegramId) {
+      await kv.set(`user:tg:${user.telegramId}`, user);
+    }
+    
+    console.log(`Admin adjusted balance for ${userId}: ${amount} (${reason})`);
+    
+    return c.json({ success: true, user });
+  } catch (error) {
+    console.log(`Admin adjust balance error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Delete user
+app.delete("/make-server-05aa3c8a/admin/users/:userId", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const userId = c.req.param('userId');
+    
+    const user = await kv.get(`user:id:${userId}`);
+    if (!user) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+    
+    // Delete user data
+    await kv.del(`user:id:${userId}`);
+    if (user.telegramId) {
+      await kv.del(`user:tg:${user.telegramId}`);
+    }
+    
+    console.log(`Admin deleted user ${userId}`);
+    
+    return c.json({ success: true, message: 'User deleted' });
+  } catch (error) {
+    console.log(`Admin delete user error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Set admin status
+app.post("/make-server-05aa3c8a/admin/users/:userId/set-admin", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const userId = c.req.param('userId');
+    const { isAdmin } = await c.req.json();
+    
+    const user = await kv.get(`user:id:${userId}`);
+    if (!user) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+    
+    user.isAdmin = isAdmin;
+    await kv.set(`user:id:${userId}`, user);
+    if (user.telegramId) {
+      await kv.set(`user:tg:${user.telegramId}`, user);
+    }
+    
+    console.log(`Admin status for user ${userId} set to ${isAdmin}`);
+    
+    return c.json({ success: true, user });
+  } catch (error) {
+    console.log(`Set admin error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// ======================
+// ADMIN - PRODUCTS MANAGEMENT
+// ======================
+
+// Get all products (admin view with full details)
+app.get("/make-server-05aa3c8a/admin/products", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const allProductEntries = await kv.getByPrefixWithKeys('product:');
+    
+    // Filter to get only product records by key (not SKU lookup keys)
+    // Product keys: "product:prod_XXX", SKU lookups: "product:sku:XXX"
+    const productEntries = allProductEntries.filter((entry: any) => 
+      entry.key.startsWith('product:prod_')
+    );
+    
+    const productsArray = productEntries.map((e: any) => e.value);
+    
+    return c.json({ success: true, products: productsArray });
+  } catch (error) {
+    console.log(`Admin get products error: ${error}`);
+    return c.json({ 
+      success: false,
+      error: `${error}`,
+      products: []
+    }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Create product
+app.post("/make-server-05aa3c8a/admin/products", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const { название, описание, sku, изображение, цена1, цена2, цена3, цена4, цена_розница, категория, в_архиве } = await c.req.json();
+    
+    if (!название || !sku) {
+      return c.json({ error: 'Название и SKU обязательны' }, 400);
+    }
+    
+    // Check if SKU already exists
+    const existingProduct = await kv.get(`product:sku:${sku}`);
+    if (existingProduct) {
+      return c.json({ error: 'Продукт с таким SKU уже существует' }, 400);
+    }
+    
+    const productId = `prod_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    const product = {
+      id: productId,
+      название: название || '',
+      описание: описание || '',
+      sku: sku,
+      изображение: изображение || '',
+      цена1: Number(цена1) || 0,
+      цена2: Number(цена2) || 0,
+      цена3: Number(цена3) || 0,
+      цена4: Number(цена4) || 0,
+      цена_розница: Number(цена_розница) || 0,
+      категория: категория || 'general',
+      в_архиве: в_архиве === true,  // false = активен, true = в архиве
+      archived: в_архиве === true,   // для совместимости
+      создан: new Date().toISOString(),
+      обновлён: new Date().toISOString()
+    };
+    
+    console.log(`💾 Saving product with ID: ${productId}, SKU: ${sku}`);
+    await kv.set(`product:${productId}`, product);
+    await kv.set(`product:sku:${sku}`, product);
+    
+    console.log(`✅ Product created: ${productId}, SKU: ${sku}`);
+    console.log(`📋 Product data:`, { id: product.id, название: product.название, sku: product.sku });
+    
+    return c.json({ success: true, product });
+  } catch (error) {
+    console.log(`Admin create product error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Update product
+app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const productId = c.req.param('productId');
+    const updates = await c.req.json();
+    
+    const product = await kv.get(`product:${productId}`);
+    if (!product) {
+      return c.json({ error: 'Продукт не найден' }, 404);
+    }
+    
+    const oldSku = product.sku;
+    
+    // Update product fields
+    Object.keys(updates).forEach(key => {
+      if (key !== 'id' && key !== 'создан') {
+        product[key] = updates[key];
+      }
+    });
+    
+    product.обновлён = new Date().toISOString();
+    
+    await kv.set(`product:${productId}`, product);
+    
+    // Update SKU index if changed
+    if (updates.sku && updates.sku !== oldSku) {
+      await kv.del(`product:sku:${oldSku}`);
+      await kv.set(`product:sku:${updates.sku}`, product);
+    } else {
+      await kv.set(`product:sku:${oldSku}`, product);
+    }
+    
+    console.log(`Product updated: ${productId}`);
+    
+    return c.json({ success: true, product });
+  } catch (error) {
+    console.log(`Admin update product error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Archive/Unarchive product
+app.put("/make-server-05aa3c8a/admin/products/:productId/archive", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const productId = c.req.param('productId');
+    const { archived } = await c.req.json();
+    
+    const product = await kv.get(`product:${productId}`);
+    if (!product) {
+      return c.json({ error: 'Продукт не найден' }, 404);
+    }
+    
+    // Update archived status
+    product.в_архиве = archived;
+    product.archived = archived; // для совместимости
+    product.обновлён = new Date().toISOString();
+    
+    await kv.set(`product:${productId}`, product);
+    await kv.set(`product:sku:${product.sku}`, product);
+    
+    console.log(`Product ${archived ? 'archived' : 'unarchived'}: ${productId}`);
+    
+    return c.json({ 
+      success: true, 
+      message: archived ? 'Товар перемещён в архив' : 'Товар восстановлен из архива',
+      product 
+    });
+  } catch (error) {
+    console.log(`Admin archive product error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Delete product
+app.delete("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const productId = c.req.param('productId');
+    
+    const product = await kv.get(`product:${productId}`);
+    if (!product) {
+      return c.json({ error: 'Продукт не найден' }, 404);
+    }
+    
+    await kv.del(`product:${productId}`);
+    await kv.del(`product:sku:${product.sku}`);
+    
+    console.log(`Product deleted: ${productId}`);
+    
+    return c.json({ success: true, message: 'Товар удалён' });
+  } catch (error) {
+    console.log(`Admin delete product error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// TEMPORARY: Clean duplicate products
+app.post("/make-server-05aa3c8a/admin/products/clean-duplicates", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    console.log('🧹 Starting product cleanup...');
+    
+    // Get all product entries with keys
+    const allEntries = await kv.getByPrefixWithKeys('product:');
+    console.log(`Found ${allEntries.length} product entries`);
+    
+    // Separate into product records and SKU lookups by KEY
+    const productEntries = allEntries.filter((e: any) => e.key.startsWith('product:prod_'));
+    const skuEntries = allEntries.filter((e: any) => e.key.startsWith('product:sku:'));
+    
+    console.log(`Product entries: ${productEntries.length}, SKU lookup entries: ${skuEntries.length}`);
+    
+    // Get unique product IDs from actual product entries
+    const uniqueProductIds = new Set<string>();
+    const seenSkus = new Set<string>();
+    let duplicateProducts = 0;
+    
+    // Check for duplicate products with same ID
+    for (const entry of productEntries) {
+      const productId = entry.value.id;
+      if (uniqueProductIds.has(productId)) {
+        console.log(`⚠️ Duplicate product found: ${productId} at key ${entry.key}`);
+        duplicateProducts++;
+      } else {
+        uniqueProductIds.add(productId);
+        seenSkus.add(entry.value.sku);
+      }
+    }
+    
+    // Now clean up SKU lookups - keep only those that match valid products
+    let deletedCount = 0;
+    
+    for (const skuEntry of skuEntries) {
+      const sku = skuEntry.value.sku;
+      if (!seenSkus.has(sku)) {
+        // Orphaned SKU lookup - no matching product
+        await kv.del(skuEntry.key);
+        deletedCount++;
+        console.log(`🗑️ Deleted orphaned SKU lookup: ${skuEntry.key}`);
+      }
+    }
+    
+    console.log(`✅ Cleanup complete. Found ${duplicateProducts} duplicate products, deleted ${deletedCount} orphaned SKU lookups`);
+    
+    return c.json({ 
+      success: true, 
+      message: `Проверено ${allEntries.length} записей. Удалено ${deletedCount} дубликатов SKU.${duplicateProducts > 0 ? ` Найдено ${duplicateProducts} дубликатов товаров (требуется ручная проверка).` : ''}`,
+      details: {
+        totalEntries: allEntries.length,
+        productEntries: productEntries.length,
+        skuEntries: skuEntries.length,
+        duplicateProducts: duplicateProducts,
+        deletedSkuLookups: deletedCount
+      }
+    });
+  } catch (error) {
+    console.log(`Clean duplicates error: ${error}`);
+    return c.json({ error: `${error}` }, 500);
+  }
+});
+
+// ======================
+// ADMIN - TRAINING MANAGEMENT
+// ======================
+
+// Get all training lessons
+app.get("/make-server-05aa3c8a/admin/training", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const lessons = await kv.getByPrefix('lesson:');
+    const lessonsArray = Array.isArray(lessons) ? lessons : [];
+    
+    return c.json({ success: true, lessons: lessonsArray });
+  } catch (error) {
+    console.log(`Admin get training error: ${error}`);
+    return c.json({ 
+      success: false,
+      error: `${error}`,
+      lessons: []
+    }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Create training lesson
+app.post("/make-server-05aa3c8a/admin/training", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const { название, описание, видео, категория, уровень, порядок, активен } = await c.req.json();
+    
+    if (!название) {
+      return c.json({ error: 'Название обязательно' }, 400);
+    }
+    
+    const lessonId = `lesson_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    const lesson = {
+      id: lessonId,
+      название: название || '',
+      описание: описание || '',
+      видео: видео || '',
+      категория: категория || 'general',
+      уровень: Number(уровень) || 1, // Минимальный уровень для доступа
+      порядок: Number(порядок) || 0,
+      активен: активен !== false,
+      просмотры: 0,
+      создан: new Date().toISOString(),
+      обновлён: new Date().toISOString()
+    };
+    
+    await kv.set(`lesson:${lessonId}`, lesson);
+    
+    console.log(`Training lesson created: ${lessonId}`);
+    
+    return c.json({ success: true, lesson });
+  } catch (error) {
+    console.log(`Admin create lesson error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Update training lesson
+app.put("/make-server-05aa3c8a/admin/training/:lessonId", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const lessonId = c.req.param('lessonId');
+    const updates = await c.req.json();
+    
+    const lesson = await kv.get(`lesson:${lessonId}`);
+    if (!lesson) {
+      return c.json({ error: 'Урок не найден' }, 404);
+    }
+    
+    // Update lesson fields
+    Object.keys(updates).forEach(key => {
+      if (key !== 'id' && key !== 'создан' && key !== 'просмотры') {
+        lesson[key] = updates[key];
+      }
+    });
+    
+    lesson.обновлён = new Date().toISOString();
+    
+    await kv.set(`lesson:${lessonId}`, lesson);
+    
+    console.log(`Training lesson updated: ${lessonId}`);
+    
+    return c.json({ success: true, lesson });
+  } catch (error) {
+    console.log(`Admin update lesson error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Delete training lesson
+app.delete("/make-server-05aa3c8a/admin/training/:lessonId", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const lessonId = c.req.param('lessonId');
+    
+    const lesson = await kv.get(`lesson:${lessonId}`);
+    if (!lesson) {
+      return c.json({ error: 'Урок не найден' }, 404);
+    }
+    
+    await kv.del(`lesson:${lessonId}`);
+    
+    console.log(`Training lesson deleted: ${lessonId}`);
+    
+    return c.json({ success: true, message: 'Урок удалён' });
+  } catch (error) {
+    console.log(`Admin delete lesson error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// ======================
+// COURSES / TRAINING
+// ======================
+
+// Get all courses (public endpoint)
+app.get("/make-server-05aa3c8a/courses", async (c) => {
+  try {
+    const courses = await kv.getByPrefix('course:');
+    const coursesArray = Array.isArray(courses) ? courses : [];
+    
+    // Сортируем по порядку
+    coursesArray.sort((a: any, b: any) => (a.порядок || 0) - (b.порядок || 0));
+    
+    return c.json({ success: true, courses: coursesArray });
+  } catch (error) {
+    console.log(`Get courses error: ${error}`);
+    return c.json({ 
+      success: false,
+      error: `${error}`,
+      courses: []
+    }, 500);
+  }
+});
+
+// Create course
+app.post("/make-server-05aa3c8a/admin/courses", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const { название, описание, icon, длительность, модули, цвет, уроки } = await c.req.json();
+    
+    if (!название || !описание) {
+      return c.json({ error: 'Название и описание обязательны' }, 400);
+    }
+    
+    const courseId = `course_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Получаем текущее количество курсов для определения порядка
+    const allCourses = await kv.getByPrefix('course:');
+    const maxOrder = Array.isArray(allCourses) && allCourses.length > 0
+      ? Math.max(...allCourses.map((c: any) => c.порядок || 0))
+      : 0;
+    
+    const course = {
+      id: courseId,
+      название: название || '',
+      описание: описание || '',
+      iconName: icon || 'BookOpen',
+      длительность: длительность || '30 мин',
+      модули: модули || уроки?.length || 0,
+      цвет: цвет || '#39B7FF',
+      уроки: уроки || [],
+      порядок: maxOrder + 1,
+      создан: new Date().toISOString(),
+      обновлён: new Date().toISOString()
+    };
+    
+    await kv.set(`course:${courseId}`, course);
+    
+    console.log(`Course created: ${courseId}`);
+    
+    return c.json({ success: true, course });
+  } catch (error) {
+    console.log(`Admin create course error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Update course
+app.put("/make-server-05aa3c8a/admin/courses/:courseId", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const courseId = c.req.param('courseId');
+    const updates = await c.req.json();
+    
+    const course = await kv.get(`course:${courseId}`);
+    if (!course) {
+      return c.json({ error: 'Курс не найден' }, 404);
+    }
+    
+    // Update course fields
+    course.название = updates.название || course.название;
+    course.описание = updates.описание || course.описание;
+    course.iconName = updates.icon || course.iconName;
+    course.длительность = updates.длительность || course.длительность;
+    course.модули = updates.модули || updates.уроки?.length || course.модули;
+    course.цвет = updates.цвет || course.цвет;
+    course.уроки = updates.уроки || course.уроки;
+    course.обновлён = new Date().toISOString();
+    
+    await kv.set(`course:${courseId}`, course);
+    
+    console.log(`Course updated: ${courseId}`);
+    
+    return c.json({ success: true, course });
+  } catch (error) {
+    console.log(`Admin update course error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Delete course
+app.delete("/make-server-05aa3c8a/admin/courses/:courseId", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const courseId = c.req.param('courseId');
+    
+    const course = await kv.get(`course:${courseId}`);
+    if (!course) {
+      return c.json({ error: 'Курс не найден' }, 404);
+    }
+    
+    await kv.del(`course:${courseId}`);
+    
+    console.log(`Course deleted: ${courseId}`);
+    
+    return c.json({ success: true, message: 'Курс удалён' });
+  } catch (error) {
+    console.log(`Admin delete course error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// ======================
+// ADMIN - PROMO CODES
+// ======================
+
+// Get all promo codes
+app.get("/make-server-05aa3c8a/admin/promos", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const promos = await kv.getByPrefix('promo:');
+    const promosArray = Array.isArray(promos) ? promos : [];
+    
+    return c.json({ success: true, promos: promosArray });
+  } catch (error) {
+    console.log(`Admin get promos error: ${error}`);
+    return c.json({ 
+      success: false,
+      error: `${error}`,
+      promos: []
+    }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Create promo code
+app.post("/make-server-05aa3c8a/admin/promos", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const { код, тип, значение, макс_использований, срок_действия, активен } = await c.req.json();
+    
+    if (!код) {
+      return c.json({ error: 'Код обязателен' }, 400);
+    }
+    
+    // Check if code already exists
+    const existingPromo = await kv.get(`promo:code:${код}`);
+    if (existingPromo) {
+      return c.json({ error: 'Промокод уже существует' }, 400);
+    }
+    
+    const promoId = `promo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    const promo = {
+      id: promoId,
+      код: код.toUpperCase(),
+      тип: тип || 'percent', // 'percent' or 'fixed'
+      значение: Number(значение) || 0,
+      использовано: 0,
+      макс_использований: Number(макс_использований) || null,
+      срок_действия: срок_действия || null,
+      активен: активен !== false,
+      создан: new Date().toISOString()
+    };
+    
+    await kv.set(`promo:${promoId}`, promo);
+    await kv.set(`promo:code:${код.toUpperCase()}`, promo);
+    
+    console.log(`Promo code created: ${код}`);
+    
+    return c.json({ success: true, promo });
+  } catch (error) {
+    console.log(`Admin create promo error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Update promo code
+app.put("/make-server-05aa3c8a/admin/promos/:promoId", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const promoId = c.req.param('promoId');
+    const updates = await c.req.json();
+    
+    const promo = await kv.get(`promo:${promoId}`);
+    if (!promo) {
+      return c.json({ error: 'Промокод не найден' }, 404);
+    }
+    
+    const oldCode = promo.код;
+    
+    // Update promo fields
+    Object.keys(updates).forEach(key => {
+      if (key !== 'id' && key !== 'создан' && key !== 'использовано') {
+        promo[key] = updates[key];
+      }
+    });
+    
+    await kv.set(`promo:${promoId}`, promo);
+    
+    // Update code index if changed
+    if (updates.код && updates.код !== oldCode) {
+      await kv.del(`promo:code:${oldCode}`);
+      await kv.set(`promo:code:${updates.код.toUpperCase()}`, promo);
+    } else {
+      await kv.set(`promo:code:${oldCode}`, promo);
+    }
+    
+    console.log(`Promo code updated: ${promoId}`);
+    
+    return c.json({ success: true, promo });
+  } catch (error) {
+    console.log(`Admin update promo error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Delete promo code
+app.delete("/make-server-05aa3c8a/admin/promos/:promoId", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const promoId = c.req.param('promoId');
+    
+    const promo = await kv.get(`promo:${promoId}`);
+    if (!promo) {
+      return c.json({ error: 'Промокод не найден' }, 404);
+    }
+    
+    await kv.del(`promo:${promoId}`);
+    await kv.del(`promo:code:${promo.код}`);
+    
+    console.log(`Promo code deleted: ${promoId}`);
+    
+    return c.json({ success: true, message: 'Промокод удалён' });
+  } catch (error) {
+    console.log(`Admin delete promo error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// ======================
+// ADMIN - MLM SETTINGS
+// ======================
+
+// Get MLM settings
+app.get("/make-server-05aa3c8a/admin/settings", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const settings = await kv.get('system:settings') || {
+      минимальный_вывод: 1000,
+      комиссия_d1: 1500,
+      комиссия_d2: 900,
+      комиссия_d3: 600,
+      методы_оплаты: ['card', 'sbp', 'crypto']
+    };
+    
+    return c.json({ success: true, settings });
+  } catch (error) {
+    console.log(`Admin get settings error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Update MLM settings
+app.put("/make-server-05aa3c8a/admin/settings", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const updates = await c.req.json();
+    
+    const settings = await kv.get('system:settings') || {};
+    
+    Object.keys(updates).forEach(key => {
+      settings[key] = updates[key];
+    });
+    
+    settings.обновлён = new Date().toISOString();
+    settings.обновил = currentUser.id;
+    
+    await kv.set('system:settings', settings);
+    
+    console.log(`MLM settings updated by ${currentUser.id}`);
+    
+    return c.json({ success: true, settings });
+  } catch (error) {
+    console.log(`Admin update settings error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// ======================
+// ADMIN - LOGS
+// ======================
+
+// Get admin action logs
+app.get("/make-server-05aa3c8a/admin/logs", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const logs = await kv.getByPrefix('log:admin:');
+    
+    // Sort by date descending
+    logs.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    
+    return c.json({ success: true, logs: logs.slice(0, 100) }); // Last 100 logs
+  } catch (error) {
+    console.log(`Admin get logs error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Log admin action (helper function)
+async function logAdminAction(adminId: string, action: string, details: any) {
+  const logId = `log:admin:${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const log = {
+    id: logId,
+    adminId,
+    action,
+    details,
+    timestamp: new Date().toISOString()
+  };
+  await kv.set(logId, log);
+}
+
+// Get analytics data
+app.get("/make-server-05aa3c8a/admin/analytics", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const allUsers = await kv.getByPrefix('user:id:');
+    const allOrders = await kv.getByPrefix('order:');
+    
+    // Calculate daily sales for last 30 days
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    const dailySales: any = {};
+    for (let d = new Date(thirtyDaysAgo); d <= now; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().split('T')[0];
+      dailySales[dateStr] = { orders: 0, revenue: 0 };
+    }
+    
+    allOrders.forEach((order: any) => {
+      if (order.статус === 'paid' && order.дата) {
+        const dateStr = order.дата.split('T')[0];
+        if (dailySales[dateStr]) {
+          dailySales[dateStr].orders++;
+          dailySales[dateStr].revenue += order.цена || 0;
+        }
+      }
+    });
+    
+    // Top partners by revenue
+    const partnerRevenue: any = {};
+    allOrders.forEach((order: any) => {
+      if (order.статус === 'paid' && order.продавецId) {
+        if (!partnerRevenue[order.продавецId]) {
+          partnerRevenue[order.продавецId] = 0;
+        }
+        partnerRevenue[order.продавецId] += order.цена || 0;
+      }
+    });
+    
+    const topPartners = Object.entries(partnerRevenue)
+      .map(([userId, revenue]) => ({ userId, revenue }))
+      .sort((a: any, b: any) => b.revenue - a.revenue)
+      .slice(0, 10);
+    
+    // Get partner names
+    for (const partner of topPartners) {
+      const user = await kv.get(`user:id:${partner.userId}`);
+      if (user) {
+        (partner as any).name = user.имя;
+      }
+    }
+    
+    // Conversion rate
+    const totalUsers = allUsers.length;
+    const usersWithOrders = new Set(allOrders.map((o: any) => o.покупательId)).size;
+    const conversionRate = totalUsers > 0 ? (usersWithOrders / totalUsers * 100).toFixed(2) : 0;
+    
+    // Average order value
+    const paidOrders = allOrders.filter((o: any) => o.статус === 'paid');
+    const totalRevenue = paidOrders.reduce((sum: number, o: any) => sum + (o.цена || 0), 0);
+    const avgOrderValue = paidOrders.length > 0 ? Math.round(totalRevenue / paidOrders.length) : 0;
+    
+    return c.json({ 
+      success: true, 
+      analytics: {
+        dailySales: Object.entries(dailySales).map(([date, data]) => ({ date, ...(data as any) })),
+        topPartners,
+        conversionRate,
+        avgOrderValue
+      }
+    });
+  } catch (error) {
+    console.log(`Admin get analytics error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// ======================
+// INITIALIZATION
+// ======================
+
+// Initialize database with default data (call once)
+app.post("/make-server-05aa3c8a/admin/initialize", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    console.log('Initializing database...');
+    
+    // Check if already initialized
+    const initFlag = await kv.get('system:initialized');
+    if (initFlag) {
+      return c.json({ error: 'Database already initialized' }, 400);
+    }
+    
+    // No need to create products - they're returned dynamically from /products endpoint
+    
+    // Mark as initialized
+    await kv.set('system:initialized', {
+      initialized: true,
+      date: new Date().toISOString(),
+      by: currentUser.id
+    });
+    
+    console.log('Database initialized successfully');
+    
+    return c.json({ 
+      success: true, 
+      message: 'Database initialized successfully',
+      note: 'Products are dynamically generated - no initialization needed'
+    });
+    
+  } catch (error) {
+    console.log(`Initialization error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+Deno.serve(app.fetch);
