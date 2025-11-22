@@ -2,8 +2,10 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
-// Vercel может использовать environment variable для output directory
-const outputDir = process.env.OUTPUT_DIR || 'dist';
+// Читаем из environment variable (для Vercel) или используем build по умолчанию
+const outputDir = process.env.OUTPUT_DIR || 'build';
+
+console.log('🔧 Vite will output to:', outputDir);
 
 export default defineConfig({
   root: process.cwd(),

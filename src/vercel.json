@@ -1,12 +1,7 @@
 {
-  "buildCommand": "npm run build",
+  "buildCommand": "OUTPUT_DIR=build npm run build && ls -la build/ && echo '✅ build/ folder exists'",
   "outputDirectory": "build",
   "framework": "vite",
-  "build": {
-    "env": {
-      "OUTPUT_DIR": "build"
-    }
-  },
   "rewrites": [
     {
       "source": "/(?!.*\\.html$)(.*)",

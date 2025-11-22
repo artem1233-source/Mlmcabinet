@@ -358,6 +358,17 @@ export async function demoGetUserOrders(userId: string) {
   };
 }
 
+export async function demoGetAllOrders() {
+  await delay(400);
+  const data = getDemoData();
+  
+  // Возвращаем ВСЕ заказы (для админ-панели)
+  return {
+    success: true,
+    orders: data.orders || []
+  };
+}
+
 export async function demoCreateOrder(orderData: any) {
   await delay(500);
   
@@ -545,6 +556,151 @@ export async function demoGetUserEarnings(userId: string) {
   return {
     success: true,
     earnings: userEarnings
+  };
+}
+
+// ============= WITHDRAWALS =============
+
+export async function demoRequestWithdrawal(withdrawalData: { amount: number; method: string; details: any }) {
+  await delay(500);
+  console.log('🎭 Demo: Requesting withdrawal...', withdrawalData);
+  const data = getDemoData();
+  
+  // Получаем текущего пользователя
+  const currentUserId = getCurrentDemoUserId();
+  if (!currentUserId) {
+    return { success: false, error: 'Not authenticated' };
+  }
+  
+  const user = data.users.find((u: any) => u.id === currentUserId);
+  if (!user) {
+    return { success: false, error: 'User not found' };
+  }
+  
+  // Проверяем баланс
+  if ((user.доступныйБаланс || 0) < withdrawalData.amount) {
+    return { 
+      success: false, 
+      error: 'Insufficient balance' 
+    };
+  }
+  
+  // Инициализируем withdrawals если нет
+  if (!data.withdrawals) {
+    data.withdrawals = [];
+  }
+  
+  // Создаём запрос на вывод
+  const newWithdrawal = {
+    id: `withdrawal_demo_${Date.now()}`,
+    userId: currentUserId,
+    amount: withdrawalData.amount,
+    method: withdrawalData.method,
+    details: withdrawalData.details,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  
+  // Уменьшаем доступный баланс
+  user.доступныйБаланс = (user.доступныйБаланс || 0) - withdrawalData.amount;
+  
+  data.withdrawals.push(newWithdrawal);
+  saveDemoDataToStorage(data);
+  
+  console.log('✅ Demo withdrawal requested:', newWithdrawal);
+  
+  return {
+    success: true,
+    withdrawal: newWithdrawal
+  };
+}
+
+export async function demoGetWithdrawals() {
+  await delay(400);
+  const data = getDemoData();
+  
+  // Получаем текущего пользователя
+  const currentUserId = getCurrentDemoUserId();
+  if (!currentUserId) {
+    return {
+      success: true,
+      withdrawals: []
+    };
+  }
+  
+  // Инициализируем withdrawals если нет
+  if (!data.withdrawals) {
+    data.withdrawals = [];
+  }
+  
+  // Фильтруем по текущему пользователю
+  const userWithdrawals = data.withdrawals.filter((w: any) => w.userId === currentUserId);
+  
+  return {
+    success: true,
+    withdrawals: userWithdrawals
+  };
+}
+
+export async function demoGetAllWithdrawals() {
+  await delay(400);
+  const data = getDemoData();
+  
+  // Инициализируем withdrawals если нет
+  if (!data.withdrawals) {
+    data.withdrawals = [];
+  }
+  
+  return {
+    success: true,
+    withdrawals: data.withdrawals
+  };
+}
+
+export async function demoUpdateWithdrawalStatus(withdrawalId: string, status: string, note?: string) {
+  await delay(400);
+  console.log('🎭 Demo: Updating withdrawal status...', withdrawalId, status);
+  const data = getDemoData();
+  
+  // Инициализируем withdrawals если нет
+  if (!data.withdrawals) {
+    data.withdrawals = [];
+  }
+  
+  const withdrawalIndex = data.withdrawals.findIndex((w: any) => w.id === withdrawalId);
+  
+  if (withdrawalIndex === -1) {
+    return {
+      success: false,
+      error: 'Withdrawal not found'
+    };
+  }
+  
+  const withdrawal = data.withdrawals[withdrawalIndex];
+  const user = data.users.find((u: any) => u.id === withdrawal.userId);
+  
+  // Если отклоняем - возвращаем деньги на баланс
+  if (status === 'rejected' && user) {
+    user.доступныйБаланс = (user.доступныйБаланс || 0) + withdrawal.amount;
+  }
+  
+  // Обновляем статус
+  data.withdrawals[withdrawalIndex] = {
+    ...withdrawal,
+    status,
+    note,
+    updatedAt: new Date().toISOString(),
+    processedAt: new Date().toISOString()
+  };
+  
+  saveDemoDataToStorage(data);
+  
+  console.log('✅ Demo withdrawal status updated:', data.withdrawals[withdrawalIndex]);
+  
+  return {
+    success: true,
+    withdrawal: data.withdrawals[withdrawalIndex]
   };
 }
 
@@ -1478,6 +1634,76 @@ export async function demoMoveUser(userId: string, newSponsorId: string) {
   return {
     success: true,
     message: `${user.имя} ${user.фамилия} перемещён к ${newSponsor.имя} ${newSponsor.фамилия}`
+  };
+}
+
+/**
+ * Изменить уровень пользователя (1-3)
+ */
+export async function demoSetUserLevel(userId: string, level: number) {
+  await delay(400);
+  console.log('🎭 Setting user level:', userId, 'to level:', level);
+  const data = getDemoData();
+  
+  // Валидация уровня
+  if (level < 1 || level > 3) {
+    return {
+      success: false,
+      error: 'Level must be between 1 and 3'
+    };
+  }
+  
+  // Находим пользователя
+  const userIndex = data.users.findIndex((u: any) => u.id === userId);
+  if (userIndex === -1) {
+    return {
+      success: false,
+      error: 'User not found'
+    };
+  }
+  
+  // Обновляем уровень
+  data.users[userIndex].уровень = level;
+  
+  // Сохраняем
+  saveDemoDataToStorage(data);
+  
+  console.log('✅ User level updated:', data.users[userIndex].имя, data.users[userIndex].фамилия, '→ Level', level);
+  
+  return {
+    success: true,
+    user: data.users[userIndex]
+  };
+}
+
+/**
+ * Назначить/снять статус администратора
+ */
+export async function demoSetUserAdmin(userId: string, isAdmin: boolean) {
+  await delay(400);
+  console.log('🎭 Setting user admin status:', userId, 'to:', isAdmin);
+  const data = getDemoData();
+  
+  // Находим пользователя
+  const userIndex = data.users.findIndex((u: any) => u.id === userId);
+  if (userIndex === -1) {
+    return {
+      success: false,
+      error: 'User not found'
+    };
+  }
+  
+  // Обновляем статус админа
+  data.users[userIndex].isAdmin = isAdmin;
+  
+  // Сохраняем
+  saveDemoDataToStorage(data);
+  
+  console.log('✅ User admin status updated:', data.users[userIndex].имя, data.users[userIndex].фамилия, '→', isAdmin ? 'Admin' : 'Regular user');
+  
+  return {
+    success: true,
+    user: data.users[userIndex]
   };
 }
 

@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "rm -rf dist build && vite build",
+    "build": "echo '📦 Building...' && echo OUTPUT_DIR=$OUTPUT_DIR && rm -rf dist build && vite build && ls -la",
     "preview": "vite preview"
   },
   "dependencies": {
