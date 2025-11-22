@@ -1,8 +1,7 @@
 {
-  "buildCommand": "npm run build",
+  "buildCommand": "bash build-vercel.sh",
   "outputDirectory": "dist",
   "devCommand": "npm run dev",
-  "installCommand": "npm install",
   "framework": "vite",
   "rewrites": [
     {
@@ -10,10 +9,10 @@
       "destination": "/index.html"
     }
   ],
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD ./",
-  "functions": {
-    "supabase/functions/**": {
-      "excludeFiles": "**"
+  "git": {
+    "deploymentEnabled": {
+      "main": true
     }
-  }
+  },
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD ./ ':!supabase'"
 }

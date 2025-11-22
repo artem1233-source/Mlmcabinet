@@ -9,6 +9,8 @@ export default defineConfig({
       '@': path.resolve(__dirname, './'),
     },
   },
+  // Полностью игнорировать папку supabase
+  exclude: ['**/supabase/**'],
   build: {
     outDir: 'dist',
     sourcemap: true,
