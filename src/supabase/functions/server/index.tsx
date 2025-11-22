@@ -2,8 +2,24 @@ import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
 import * as kv from "./kv_store.tsx";
-import { createHmac } from "node:crypto";
 import { createClient } from "npm:@supabase/supabase-js@2";
+
+// Helper function for HMAC using Web Crypto API (works in Deno, no node:crypto needed)
+async function createHmacSha256(key: string | Uint8Array, data: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const keyData = typeof key === 'string' ? encoder.encode(key) : key;
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    keyData,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(data));
+  return Array.from(new Uint8Array(signature))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 const app = new Hono();
 
@@ -789,13 +805,12 @@ app.post("/make-server-05aa3c8a/telegram-auth", async (c) => {
         .map(key => `${key}=${dataToCheck[key]}`);
       const dataCheckString = dataCheckArr.join('\n');
       
-      const secretKey = createHmac('sha256', 'WebAppData')
-        .update(botToken)
-        .digest();
+      // Generate secret key using Web Crypto API
+      const secretKeyHex = await createHmacSha256('WebAppData', botToken);
+      const secretKey = new Uint8Array(secretKeyHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
       
-      const calculatedHash = createHmac('sha256', secretKey)
-        .update(dataCheckString)
-        .digest('hex');
+      // Calculate hash using Web Crypto API
+      const calculatedHash = await createHmacSha256(secretKey, dataCheckString);
       
       if (calculatedHash !== hash) {
         console.log("Telegram auth error: Invalid hash");
