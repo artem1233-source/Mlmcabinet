@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "preinstall": "rm -rf supabase || true",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"

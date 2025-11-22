@@ -1,18 +1,12 @@
 {
-  "buildCommand": "bash build-vercel.sh",
+  "installCommand": "rm -rf supabase && npm install",
+  "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "devCommand": "npm run dev",
   "framework": "vite",
   "rewrites": [
     {
       "source": "/(?!.*\\.html$)(.*)",
       "destination": "/index.html"
     }
-  ],
-  "git": {
-    "deploymentEnabled": {
-      "main": true
-    }
-  },
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD ./ ':!supabase'"
+  ]
 }
