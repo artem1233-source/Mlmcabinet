@@ -1,7 +1,12 @@
 {
-  "buildCommand": "npx vite build --outDir dist",
-  "outputDirectory": "dist",
+  "buildCommand": "npm run build",
+  "outputDirectory": "build",
   "framework": "vite",
+  "build": {
+    "env": {
+      "OUTPUT_DIR": "build"
+    }
+  },
   "rewrites": [
     {
       "source": "/(?!.*\\.html$)(.*)",
