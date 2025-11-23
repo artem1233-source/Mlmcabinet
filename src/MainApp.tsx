@@ -18,6 +18,8 @@ import { SettingsRu } from './components/SettingsRu';
 import { AdminRu } from './components/AdminRu';
 import { AdminPanel } from './components/AdminPanel';
 import { AdminDebug } from './components/AdminDebug';
+import { Menu } from 'lucide-react';
+import { Button } from './components/ui/button';
 import * as api from './utils/api.ts';
 
 interface MainAppProps {
@@ -31,6 +33,7 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
   const [activeSection, setActiveSection] = useState('дашборд');
   const [loading, setLoading] = useState(true);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleRefresh = () => {
     setRefreshTrigger(prev => prev + 1);
@@ -245,10 +248,29 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
     <div className="flex h-screen bg-[#F7FAFC] overflow-hidden">
       <SidebarRu 
         текущаяВкладка={activeSection} 
-        изменитьВкладку={setActiveSection}
+        изменитьВкладку={(tab) => {
+          setActiveSection(tab);
+          setMobileMenuOpen(false);
+        }}
         currentUser={currentUser}
+        mobileMenuOpen={mobileMenuOpen}
+        setMobileMenuOpen={setMobileMenuOpen}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Mobile Header */}
+        <header className="lg:hidden bg-white border-b border-[#E6E9EE] px-4 py-3 flex items-center justify-between">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setMobileMenuOpen(true)}
+            className="text-[#666]"
+          >
+            <Menu className="w-5 h-5" />
+          </Button>
+          <h1 className="text-[#39B7FF] font-bold">H₂ Платформа</h1>
+          <div className="w-9" /> {/* Spacer for centering */}
+        </header>
+        
         <main className="flex-1 overflow-y-auto">
           {renderSection()}
         </main>

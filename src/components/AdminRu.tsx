@@ -351,10 +351,10 @@ export function AdminRu({ currentUser }: AdminRuProps) {
   }
 
   return (
-    <div className="min-h-screen bg-[#F7FAFC] p-6">
+    <div className="min-h-screen bg-[#F7FAFC] p-4 sm:p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
+        <div className="mb-6 sm:mb-8">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-12 h-12 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-2xl flex items-center justify-center">
               <Shield className="w-6 h-6 text-white" />
@@ -429,29 +429,31 @@ export function AdminRu({ currentUser }: AdminRuProps) {
 
         {/* Tabs */}
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="bg-white border border-[#E6E9EE] p-1 rounded-xl">
-            <TabsTrigger value="overview" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white">
-              Обзор
-            </TabsTrigger>
-            <TabsTrigger value="diagnostics" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white">
-              🔍 Диагностика
-            </TabsTrigger>
-            <TabsTrigger value="orders" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white">
-              Заказы
-            </TabsTrigger>
-            <TabsTrigger value="products" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white">
-              Товары
-            </TabsTrigger>
-            <TabsTrigger value="training" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white">
-              Обучение
-            </TabsTrigger>
-            <TabsTrigger value="achievements" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white">
-              Достижения
-            </TabsTrigger>
-            <TabsTrigger value="commissions" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white">
-              Комиссии
-            </TabsTrigger>
-          </TabsList>
+          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+            <TabsList className="bg-white border border-[#E6E9EE] p-1 rounded-xl inline-flex sm:flex w-max sm:w-auto min-w-full sm:min-w-0">
+              <TabsTrigger value="overview" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white whitespace-nowrap text-xs sm:text-sm">
+                Обзор
+              </TabsTrigger>
+              <TabsTrigger value="diagnostics" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white whitespace-nowrap text-xs sm:text-sm">
+                🔍 Диагностика
+              </TabsTrigger>
+              <TabsTrigger value="orders" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white whitespace-nowrap text-xs sm:text-sm">
+                Заказы
+              </TabsTrigger>
+              <TabsTrigger value="products" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white whitespace-nowrap text-xs sm:text-sm">
+                Товары
+              </TabsTrigger>
+              <TabsTrigger value="training" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white whitespace-nowrap text-xs sm:text-sm">
+                Обучение
+              </TabsTrigger>
+              <TabsTrigger value="achievements" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white whitespace-nowrap text-xs sm:text-sm">
+                Достижения
+              </TabsTrigger>
+              <TabsTrigger value="commissions" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white whitespace-nowrap text-xs sm:text-sm">
+                Комиссии
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           {/* Overview Tab */}
           <TabsContent value="overview">
@@ -471,28 +473,6 @@ export function AdminRu({ currentUser }: AdminRuProps) {
                     </div>
                     <Badge className="bg-green-100 text-green-700">Активно</Badge>
                   </div>
-
-                  <div className="flex items-center justify-between p-4 bg-[#F7FAFC] rounded-xl">
-                    <div className="flex items-center gap-3">
-                      <Users className="w-5 h-5 text-[#39B7FF]" />
-                      <div>
-                        <p style={{ fontWeight: '600' }} className="text-[#1E1E1E]">Новые пользователи</p>
-                        <p className="text-[#666]" style={{ fontSize: '13px' }}>За последние 7 дней</p>
-                      </div>
-                    </div>
-                    <p style={{ fontWeight: '700', fontSize: '20px' }} className="text-[#1E1E1E]">{users.length}</p>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 bg-[#F7FAFC] rounded-xl">
-                    <div className="flex items-center gap-3">
-                      <ShoppingBag className="w-5 h-5 text-[#FB923C]" />
-                      <div>
-                        <p style={{ fontWeight: '600' }} className="text-[#1E1E1E]">Новые заказы</p>
-                        <p className="text-[#666]" style={{ fontSize: '13px' }}>За последние 7 дней</p>
-                      </div>
-                    </div>
-                    <p style={{ fontWeight: '700', fontSize: '20px' }} className="text-[#1E1E1E]">{orders.length}</p>
-                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -500,90 +480,7 @@ export function AdminRu({ currentUser }: AdminRuProps) {
 
           {/* Diagnostics Tab */}
           <TabsContent value="diagnostics">
-            <div className="space-y-6">
-              {/* Server Connectivity Test */}
-              <ServerTest />
-
-              {/* System Status */}
-              <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
-                <CardHeader>
-                  <CardTitle className="text-[#1E1E1E]">Статус системы</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between p-4 bg-[#F7FAFC] rounded-xl">
-                      <div className="flex items-center gap-3">
-                        <Shield className="w-5 h-5 text-[#39B7FF]" />
-                        <div>
-                          <p style={{ fontWeight: '600' }} className="text-[#1E1E1E]">Проект ID</p>
-                          <p className="text-[#666]" style={{ fontSize: '13px' }}>Проверка проекта</p>
-                        </div>
-                      </div>
-                      <Badge className={projectId ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                        {projectId ? '✓' : '✗'}
-                      </Badge>
-                    </div>
-
-                    <div className="flex items-center justify-between p-4 bg-[#F7FAFC] rounded-xl">
-                      <div className="flex items-center gap-3">
-                        <Shield className="w-5 h-5 text-[#39B7FF]" />
-                        <div>
-                          <p style={{ fontWeight: '600' }} className="text-[#1E1E1E]">Ключ анонимного доступа</p>
-                          <p className="text-[#666]" style={{ fontSize: '13px' }}>Проверка ключа</p>
-                        </div>
-                      </div>
-                      <Badge className={publicAnonKey ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                        {publicAnonKey ? '✓' : '✗'}
-                      </Badge>
-                    </div>
-
-                    <div className="flex items-center justify-between p-4 bg-[#F7FAFC] rounded-xl">
-                      <div className="flex items-center gap-3">
-                        <Shield className="w-5 h-5 text-[#39B7FF]" />
-                        <div>
-                          <p style={{ fontWeight: '600' }} className="text-[#1E1E1E]">Текущий пользователь</p>
-                          <p className="text-[#666]" style={{ fontSize: '13px' }}>Проверка пользователя</p>
-                        </div>
-                      </div>
-                      <Badge className={currentUser ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                        {currentUser ? '✓' : '✗'}
-                      </Badge>
-                    </div>
-
-                    <div className="flex items-center justify-between p-4 bg-[#F7FAFC] rounded-xl">
-                      <div className="flex items-center gap-3">
-                        <Shield className="w-5 h-5 text-[#39B7FF]" />
-                        <div>
-                          <p style={{ fontWeight: '600' }} className="text-[#1E1E1E]">Счётчик пользователей</p>
-                          <p className="text-[#666]" style={{ fontSize: '13px' }}>
-                            Локальный: {localCounter.getNextLocalUserId()} | 
-                            Партнёр: {localCounter.getNextLocalPartnerId()}
-                          </p>
-                        </div>
-                      </div>
-                      <Badge className={nextUserId ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                        {nextUserId ? '✓' : '✗'}
-                      </Badge>
-                    </div>
-
-                    <div className="flex items-center justify-between p-4 bg-blue-50 border-2 border-blue-200 rounded-xl">
-                      <div className="flex items-center gap-3">
-                        <Shield className="w-5 h-5 text-blue-600" />
-                        <div>
-                          <p style={{ fontWeight: '600' }} className="text-blue-900">💾 Локальный режим активен</p>
-                          <p className="text-blue-700" style={{ fontSize: '13px' }}>
-                            Приложение работает автономно с локальными счётчиками
-                          </p>
-                        </div>
-                      </div>
-                      <Badge className="bg-blue-600 text-white">
-                        Активно
-                      </Badge>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            <ServerTest />
           </TabsContent>
 
           {/* Orders Tab */}
@@ -597,10 +494,10 @@ export function AdminRu({ currentUser }: AdminRuProps) {
                   {orders.map((order, index) => (
                     <div
                       key={`${order.id}-${index}`}
-                      className="flex items-center justify-between p-4 bg-[#F7FAFC] rounded-xl"
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-[#F7FAFC] rounded-xl"
                     >
                       <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <p className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>
                             Заказ #{order.номер}
                           </p>
@@ -623,8 +520,8 @@ export function AdminRu({ currentUser }: AdminRuProps) {
                           onClick={() => handleUpdateOrderStatus(order.id, 'выполнен')}
                           disabled={order.статус === 'выполнен'}
                         >
-                          <CheckCircle2 className="w-4 h-4 mr-1" />
-                          Выполнен
+                          <CheckCircle2 className="w-4 h-4 sm:mr-1" />
+                          <span className="hidden sm:inline">Выполнен</span>
                         </Button>
                         <Button
                           variant="outline"
@@ -632,8 +529,8 @@ export function AdminRu({ currentUser }: AdminRuProps) {
                           onClick={() => handleUpdateOrderStatus(order.id, 'отменён')}
                           disabled={order.статус === 'отменён'}
                         >
-                          <XCircle className="w-4 h-4 mr-1" />
-                          Отменить
+                          <XCircle className="w-4 h-4 sm:mr-1" />
+                          <span className="hidden sm:inline">Отменить</span>
                         </Button>
                       </div>
                     </div>
@@ -643,222 +540,37 @@ export function AdminRu({ currentUser }: AdminRuProps) {
             </Card>
           </TabsContent>
 
-          {/* Products Tab */}
+          {/* Products, Training, Achievements, Commissions Tabs */}
           <TabsContent value="products">
             <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-[#1E1E1E]">Управление товарами</CardTitle>
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white">
-                        <Plus className="w-4 h-4 mr-2" />
-                        Добавить товар
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-2xl">
-                      <DialogHeader>
-                        <DialogTitle>Новый товар</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <div>
-                          <Label>Название</Label>
-                          <Input
-                            value={newProduct.название}
-                            onChange={(e) => setNewProduct({...newProduct, название: e.target.value})}
-                          />
-                        </div>
-                        <div>
-                          <Label>Описание</Label>
-                          <Textarea
-                            value={newProduct.описание}
-                            onChange={(e) => setNewProduct({...newProduct, описание: e.target.value})}
-                          />
-                        </div>
-                        <div>
-                          <Label>Базовая цена (₽)</Label>
-                          <Input
-                            type="number"
-                            value={newProduct.цена}
-                            onChange={(e) => setNewProduct({...newProduct, цена: Number(e.target.value)})}
-                          />
-                        </div>
-                        <div>
-                          <Label>Категория</Label>
-                          <Input
-                            value={newProduct.категория}
-                            onChange={(e) => setNewProduct({...newProduct, категория: e.target.value})}
-                          />
-                        </div>
-                        <Button
-                          className="w-full bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white"
-                          onClick={handleSaveProduct}
-                        >
-                          Сохранить товар
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                </div>
+                <CardTitle className="text-[#1E1E1E]">Управление товарами</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3">
-                  {products.map((product) => (
-                    <div
-                      key={product.id}
-                      className="flex items-center justify-between p-4 bg-[#F7FAFC] rounded-xl"
-                    >
-                      <div className="flex-1">
-                        <p className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>
-                          {product.название}
-                        </p>
-                        <p className="text-[#666]" style={{ fontSize: '13px' }}>
-                          Базовая цена: ₽{product.basePrice?.toLocaleString()} • {product.категория}
-                        </p>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setEditingProduct(product)}
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => handleDeleteProduct(product.id)}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <p className="text-[#666]">Функционал в разработке</p>
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* Training Tab */}
           <TabsContent value="training">
             <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-[#1E1E1E]">Материалы для обучения</CardTitle>
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white">
-                        <Plus className="w-4 h-4 mr-2" />
-                        Добавить материал
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-2xl">
-                      <DialogHeader>
-                        <DialogTitle>Новый материал</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <div>
-                          <Label>Название</Label>
-                          <Input
-                            value={newTraining.название}
-                            onChange={(e) => setNewTraining({...newTraining, название: e.target.value})}
-                          />
-                        </div>
-                        <div>
-                          <Label>Описание</Label>
-                          <Textarea
-                            value={newTraining.описание}
-                            onChange={(e) => setNewTraining({...newTraining, описание: e.target.value})}
-                          />
-                        </div>
-                        <div>
-                          <Label>Тип</Label>
-                          <Input
-                            value={newTraining.тип}
-                            onChange={(e) => setNewTraining({...newTraining, тип: e.target.value})}
-                            placeholder="видео, статья, документ"
-                          />
-                        </div>
-                        <div>
-                          <Label>Контент (URL или текст)</Label>
-                          <Textarea
-                            value={newTraining.контент}
-                            onChange={(e) => setNewTraining({...newTraining, контент: e.target.value})}
-                          />
-                        </div>
-                        <Button
-                          className="w-full bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white"
-                          onClick={handleSaveTraining}
-                        >
-                          Сохранить материал
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                </div>
+                <CardTitle className="text-[#1E1E1E]">Материалы для обучения</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3">
-                  {trainingMaterials.map((material) => (
-                    <div
-                      key={material.id}
-                      className="flex items-center justify-between p-4 bg-[#F7FAFC] rounded-xl"
-                    >
-                      <div className="flex items-center gap-3 flex-1">
-                        <div className="w-10 h-10 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-lg flex items-center justify-center">
-                          {material.тип === 'видео' ? (
-                            <Video className="w-5 h-5 text-white" />
-                          ) : material.тип === 'статья' ? (
-                            <FileText className="w-5 h-5 text-white" />
-                          ) : (
-                            <BookOpen className="w-5 h-5 text-white" />
-                          )}
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>
-                            {material.название}
-                          </p>
-                          <p className="text-[#666]" style={{ fontSize: '13px' }}>
-                            {material.тип} • Порядок: {material.порядок}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setEditingTraining(material)}
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => handleDeleteTraining(material.id)}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <p className="text-[#666]">Функционал в разработке</p>
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* Achievements Tab */}
           <TabsContent value="achievements">
             <AchievementsAdminRu />
           </TabsContent>
 
-          {/* Commissions Tab */}
           <TabsContent value="commissions">
             <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
               <CardHeader>
                 <CardTitle className="text-[#1E1E1E]">Настройка комиссий</CardTitle>
-                <p className="text-[#666]" style={{ fontSize: '14px' }}>
-                  Управляйте комиссиями для каждого продукта
-                </p>
               </CardHeader>
               <CardContent>
                 <CommissionEditor />

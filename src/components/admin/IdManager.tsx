@@ -178,18 +178,18 @@ export function IdManager({ currentUser }: IdManagerProps) {
     <>
       <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <CardTitle className="flex items-center gap-3 text-[#1E1E1E]">
               <div className="w-10 h-10 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-xl flex items-center justify-center">
                 <Hash className="w-5 h-5 text-white" />
               </div>
-              Управление ID номерами (001-9999)
+              <span className="text-base sm:text-lg">Управление ID номерами (001-9999)</span>
             </CardTitle>
             <Button variant="outline" size="sm" onClick={loadData}>
               Обновить
             </Button>
           </div>
-          <div className="flex items-center gap-4 mt-4 text-sm">
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4 mt-4 text-xs sm:text-sm">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 bg-gray-300 rounded" />
               <span className="text-[#666]">Занятые: {occupiedIds.length}</span>
@@ -202,15 +202,15 @@ export function IdManager({ currentUser }: IdManagerProps) {
               <div className="w-3 h-3 bg-purple-500 rounded" />
               <span className="text-[#666]">Зарезервированные: {reservedIds.length}</span>
             </div>
-            <div className="ml-auto">
-              <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white">
+            <div className="sm:ml-auto">
+              <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white text-xs">
                 Следующий: {nextId}
               </Badge>
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
             {/* Column 1: Occupied IDs */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
