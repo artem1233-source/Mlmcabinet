@@ -156,7 +156,9 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
 
       if (!response.ok) {
         console.error('Login failed:', data);
-        throw new Error(data.error || 'Ошибка входа');
+        // Show more detailed error message if available
+        const errorMsg = data.details ? `${data.error}\n\n${data.details}` : data.error;
+        throw new Error(errorMsg || 'Ошибка входа');
       }
 
       if (data.user && data.access_token) {
@@ -420,9 +422,23 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
               <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="text-red-700" style={{ fontSize: '14px', fontWeight: '600' }}>Ошибка</p>
-                <p className="text-red-600" style={{ fontSize: '13px' }}>{error}</p>
+                <p className="text-red-600 whitespace-pre-line" style={{ fontSize: '13px' }}>{error}</p>
               </div>
             </div>
+            
+            {/* Auth Diagnostic Link */}
+            {mode === 'login' && error.includes('пароль') && (
+              <div className="mt-3 pt-3 border-t border-red-200">
+                <a 
+                  href="/auth-diagnostic" 
+                  className="text-sm text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1"
+                >
+                  <AlertCircle className="w-4 h-4" />
+                  Проверить статус учетной записи
+                </a>
+              </div>
+            )}
+            
             {debugInfo && (
               <details className="mt-3 text-xs">
                 <summary className="cursor-pointer text-red-600 hover:text-red-700 font-semibold">

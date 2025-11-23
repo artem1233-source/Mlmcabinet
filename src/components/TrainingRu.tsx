@@ -31,7 +31,11 @@ interface Lesson {
 }
 
 export function TrainingRu({ currentUser }: TrainingRuProps) {
-  const isAdmin = currentUser?.isAdmin === true || currentUser?.email === 'admin@admin.com';
+  // 🔐 Проверка прав администратора: CEO, admin email, или флаг isAdmin
+  const isAdmin = currentUser?.isAdmin === true || 
+                  currentUser?.email === 'admin@admin.com' || 
+                  currentUser?.id === 'ceo' || 
+                  currentUser?.id === '1';
   
   const [выбранныйУрок, setВыбранныйУрок] = useState<any>(null);
   const [курсы, setКурсы] = useState<any[]>([]);
@@ -460,7 +464,7 @@ export function TrainingRu({ currentUser }: TrainingRuProps) {
       <Card className="border-0 rounded-2xl shadow-sm mb-6 lg:mb-8 bg-gradient-to-r from-[#39B7FF] to-[#12C9B6]">
         <CardContent className="p-6 lg:p-8">
           <h2 className="text-white mb-3" style={{ fontSize: '20px', fontWeight: '700' }}>
-            Добро пожаловать в академию H₂
+            Добро пожаловать в академию H��
           </h2>
           <p className="text-white/90 mb-6 max-w-3xl">
             Инвестируйте в свой успех. Наша комплексная программа обучения поможет вам освоить знания о продуктах, 
@@ -497,7 +501,7 @@ export function TrainingRu({ currentUser }: TrainingRuProps) {
           <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
             <CardContent className="p-12 text-center">
               <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <p className="text-[#666] mb-4">Пока нет курсов</p>
+              <p className="text-[#666] mb-4">Пока нет курсв</p>
               {isAdmin && (
                 <Button
                   onClick={() => {

@@ -17,7 +17,11 @@ interface DashboardRuProps {
 }
 
 export function DashboardRu({ currentUser, onRefresh, refreshTrigger }: DashboardRuProps) {
-  const isAdmin = currentUser?.isAdmin === true || currentUser?.email === 'admin@admin.com';
+  // 🔐 Проверка прав администратора: CEO, admin email, или флаг isAdmin
+  const isAdmin = currentUser?.isAdmin === true || 
+                  currentUser?.email === 'admin@admin.com' || 
+                  currentUser?.id === 'ceo' || 
+                  currentUser?.id === '1';
   const showAdminToolbar = isAdmin;
   
   const effectiveUserId = currentUser?.id;

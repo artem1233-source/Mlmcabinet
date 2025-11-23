@@ -352,6 +352,66 @@ export async function deleteProduct(productId: string) {
   });
 }
 
+// Archive/restore product
+export async function archiveProduct(productId: string, archive: boolean = true) {
+  console.log('📦 Archiving product:', productId, archive);
+  
+  return apiCall(`/admin/products/${productId}/archive`, {
+    method: 'POST',
+    body: JSON.stringify({ archive }),
+  });
+}
+
+// Clean duplicate products
+export async function cleanDuplicateProducts() {
+  console.log('🧹 Cleaning duplicate products');
+  
+  return apiCall('/admin/products/clean-duplicates', {
+    method: 'POST',
+  });
+}
+
+// Upload product image
+export async function uploadImage(file: File) {
+  console.log('📤 Uploading image:', file.name, file.type, file.size);
+  
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  const userId = getAuthToken();
+  const headers: HeadersInit = {
+    'Authorization': `Bearer ${ANON_KEY}`,
+  };
+  
+  if (userId) {
+    headers['X-User-Id'] = userId;
+  }
+  
+  const response = await fetch(`${API_BASE}/admin/products/upload-image`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    let error;
+    try {
+      error = JSON.parse(errorText);
+    } catch (e) {
+      error = { error: errorText || 'Upload failed' };
+    }
+    throw new Error(error.error || `Upload failed: ${response.status}`);
+  }
+  
+  return response.json();
+}
+
+// Legacy compatibility
+export async function uploadProductImage(file: File) {
+  return uploadImage(file);
+}
+
 // ======================
 // NOTIFICATIONS
 // ======================

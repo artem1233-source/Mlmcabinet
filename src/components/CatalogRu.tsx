@@ -9,6 +9,7 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { AdminToolbar } from './AdminToolbar';
+import { CatalogDebug } from './CatalogDebug';
 import { toast } from 'sonner';
 import { CheckoutRu } from './CheckoutRu';
 import * as api from '../utils/api';
@@ -23,7 +24,18 @@ interface CatalogRuProps {
 }
 
 export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogRuProps) {
-  const isAdmin = currentUser?.isAdmin === true || currentUser?.email === 'admin@admin.com';
+  // 🔐 Проверка прав администратора: CEO, admin email, или флаг isAdmin
+  const isAdmin = currentUser?.isAdmin === true || 
+                  currentUser?.email === 'admin@admin.com' || 
+                  currentUser?.id === 'ceo' || 
+                  currentUser?.id === '1';
+  const showAdminToolbar = isAdmin;
+  
+  // 🔍 Debug: проверяем статус админа
+  console.log('🔍 CatalogRu: currentUser:', currentUser);
+  console.log('🔍 CatalogRu: isAdmin:', isAdmin);
+  console.log('🔍 CatalogRu: currentUser.isAdmin:', currentUser?.isAdmin);
+  console.log('🔍 CatalogRu: currentUser.email:', currentUser?.email);
   
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,6 +81,27 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
       .replace(/_+/g, '_')
       .replace(/^_|_$/g, '');
   };
+  
+  // Функция для генерации уникального SKU
+  const generateUniqueSKU = (baseName: string = ''): string => {
+    const timestamp = Date.now().toString().slice(-6); // Последние 6 цифр timestamp
+    const random = Math.random().toString(36).substring(2, 5).toUpperCase(); // 3 случайных символа
+    
+    if (baseName) {
+      // Если есть название, используем первые буквы + timestamp
+      const prefix = baseName
+        .split(' ')
+        .map(word => word[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 3);
+      return `${prefix}-${timestamp}`;
+    }
+    
+    // Иначе просто SKU + timestamp + random
+    return `SKU-${timestamp}${random}`;
+  };
+  
   const [productForm, setProductForm] = useState({
     название: '',
     описание: '',
@@ -482,7 +515,19 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
       }
     } catch (error) {
       console.error('❌ Create product error:', error);
-      toast.error('Ошибка создания товара');
+      const errorMessage = error instanceof Error ? error.message : 'Ошибка создания товара';
+      
+      // Если ошибка связана с дублированием SKU, предлагаем сгенерировать новый
+      if (errorMessage.includes('SKU уже существует')) {
+        toast.error('Продукт с таким SKU уже существует', {
+          description: 'Нажмите кнопку "Генерировать" для создания нового уникального SKU',
+          duration: 5000
+        });
+      } else {
+        toast.error('Ошибка создания товара', {
+          description: errorMessage
+        });
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -637,6 +682,9 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
       {showAdminToolbar && <AdminToolbar userName={currentUser.имя} onUserChange={() => loadProducts()} />}
       
       <div className="p-4 lg:p-8 max-w-full overflow-x-hidden" style={{ backgroundColor: '#F7FAFC' }}>
+        {/* 🔧 ДИАГНОСТИЧЕСКИЙ КОМПОНЕНТ */}
+        <CatalogDebug currentUser={currentUser} />
+        
         <div className="mb-6 lg:mb-8">
           <div className="flex items-start justify-between mb-6">
             <div>
@@ -654,6 +702,8 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
                   onClick={() => {
                     setEditingProduct(null);
                     resetProductForm();
+                    // Автоматически генерируем уникальный SKU для нового товара
+                    setProductForm(prev => ({ ...prev, sku: generateUniqueSKU() }));
                     setShowProductModal(true);
                   }}
                   className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] hover:opacity-90"
@@ -1076,6 +1126,11 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
             setEditingProduct(null);
             resetProductForm();
             setIsSubmitting(false);
+          } else if (!editingProduct) {
+            // При открытии диалога для создания нового товара, генерируем SKU если его нет
+            if (!productForm.sku) {
+              setProductForm(prev => ({ ...prev, sku: generateUniqueSKU() }));
+            }
           }
         }}>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -1125,18 +1180,40 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
 
               <div>
                 <Label>SKU (артикул) *</Label>
-                <Input
-                  id="product-sku"
-                  value={productForm.sku}
-                  onChange={(e) => setProductForm({ ...productForm, sku: e.target.value.toUpperCase() })}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      document.getElementById('price-retail')?.focus();
-                    }
-                  }}
-                  placeholder="H2-1"
-                />
+                <div className="flex gap-2">
+                  <Input
+                    id="product-sku"
+                    value={productForm.sku}
+                    onChange={(e) => setProductForm({ ...productForm, sku: e.target.value.toUpperCase() })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        document.getElementById('price-retail')?.focus();
+                      }
+                    }}
+                    placeholder="H2-1"
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const newSKU = generateUniqueSKU(productForm.название);
+                      setProductForm({ ...productForm, sku: newSKU });
+                      toast.success('SKU сгенерирован', { description: newSKU });
+                    }}
+                    className="whitespace-nowrap"
+                    title="Сгенерировать уникальный SKU"
+                  >
+                    🔄 Генерировать
+                  </Button>
+                </div>
+                {!editingProduct && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    💡 SKU генерируется автоматически. Можно изменить вручную или нажать "Генерировать"
+                  </p>
+                )}
               </div>
 
               <div>
@@ -1220,7 +1297,7 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
                 
                 {/* Подсказка по навигации */}
                 <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-900">
-                  <strong>⌨️ Клавиатурная навигация:</strong> Enter = вниз по столбцу цен | ↑↓ = вверх/вниз | ←→ = влево/вправо между столбцами
+                  <strong>⌨️ Клавиатурная навигация:</strong> Enter = вниз по столбцу цен (из последней ячейки — к кнопке "Создать") | ↑↓ = вверх/вниз | ←→ = влево/вправо между столбцами
                 </div>
 
                 {/* Строка 1: Розничная цена ↔ L0 */}
@@ -1402,7 +1479,9 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
                       value={productForm.цена4}
                       onChange={(e) => setProductForm({ ...productForm, цена4: e.target.value })}
                       onKeyDown={(e) => handlePriceFieldNavigation(e, 'price-company', {
-                        up: 'price-level3'
+                        enter: 'submit-product-button',
+                        up: 'price-level3',
+                        down: 'submit-product-button'
                       })}
                       placeholder="3300"
                       className="text-lg"
@@ -1576,6 +1655,7 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
 
               <div className="flex gap-2 pt-4">
                 <Button
+                  id="submit-product-button"
                   type="button"
                   onClick={editingProduct ? handleUpdateProduct : handleCreateProduct}
                   className="bg-[#39B7FF]"

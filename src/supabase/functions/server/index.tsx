@@ -57,16 +57,41 @@ async function verifyUser(userIdHeader: string | null) {
   
   console.log(`Verifying user with ID: ${userIdHeader}`);
   
-  // Get user by ID
-  const user = await kv.get(`user:id:${userIdHeader}`);
+  // Try to get user by ID - check both regular users and admins
+  let user = await kv.get(`user:id:${userIdHeader}`);
+  
+  if (!user) {
+    // Check if it's an admin
+    user = await kv.get(`admin:id:${userIdHeader}`);
+  }
   
   if (!user) {
     console.log(`Authorization error: User not found for ID: ${userIdHeader}`);
     throw new Error("User not found");
   }
   
-  console.log(`User verified: ${user.имя} (${user.id})`);
+  // 🆕 ИСПРАВЛЕНИЕ: Проверяем и восстанавливаем флаг isAdmin для первого пользователя, admin@admin.com и CEO
+  const isFirstUser = user.id === '1';
+  const isAdminEmail = user.email?.toLowerCase() === 'admin@admin.com';
+  const isCEO = user.id === 'ceo';
+  
+  if ((isFirstUser || isAdminEmail || isCEO) && !user.isAdmin) {
+    console.log(`⚠️ User ${user.id} (${user.email}) should be admin but isAdmin flag is missing. Fixing...`);
+    user.isAdmin = true;
+    await kv.set(`user:id:${user.id}`, user);
+    console.log(`✅ Fixed isAdmin flag for user ${user.id}`);
+  }
+  
+  console.log(`User verified: ${user.имя} (${user.id})${user.isAdmin ? ' [ADMIN]' : ''}`);
   return user;
+}
+
+// 🔐 Check if user has admin rights
+function isUserAdmin(user: any): boolean {
+  return user?.isAdmin === true || 
+         user?.email?.toLowerCase() === 'admin@admin.com' || 
+         user?.id === 'ceo' || 
+         user?.id === '1';
 }
 
 // Calculate MLM payouts
@@ -231,7 +256,7 @@ async function findUplineChain(userId: string) {
 
 // Check admin access
 async function requireAdmin(c: any, user: any) {
-  if (!user || !user.isAdmin) {
+  if (!user || !isUserAdmin(user)) {
     throw new Error('Admin access required');
   }
 }
@@ -254,28 +279,42 @@ app.post("/make-server-05aa3c8a/auth", async (c) => {
       return c.json({ error: "Name is required" }, 400);
     }
     
-    // Create or get demo user
-    const userId = `u_demo_${name.toLowerCase().replace(/\s+/g, '_')}`;
-    const userKey = `user:id:${userId}`;
+    // Special handling for "ceo" user
+    let userId: string;
+    let userKey: string;
+    
+    if (name.toLowerCase() === 'ceo') {
+      userId = 'ceo';
+      userKey = 'user:id:ceo';
+    } else {
+      // Create or get demo user
+      userId = `u_demo_${name.toLowerCase().replace(/\s+/g, '_')}`;
+      userKey = `user:id:${userId}`;
+    }
     
     let user = await kv.get(userKey);
     
     if (!user) {
       // Create new user
+      const isFirstUser = userId === 'ceo';
       user = {
         id: userId,
         имя: name.trim(),
+        фамилия: isFirstUser ? 'Admin' : '',
         username: name.toLowerCase().replace(/\s+/g, '_'),
-        уровень: 1, // Новые партнёры начинают с уровня 1
+        уровень: isFirstUser ? 3 : 1, // CEO gets level 3, others start at 1
         рефКод: `REF${Date.now().toString().slice(-6)}`,
         спонсорId: null,
         баланс: 0,
         зарегистрирован: new Date().toISOString(),
-        lastLogin: new Date().toISOString()
+        lastLogin: new Date().toISOString(),
+        isAdmin: isFirstUser, // CEO is admin
+        type: isFirstUser ? 'admin' : 'user',
+        role: isFirstUser ? 'ceo' : null
       };
       
       await kv.set(userKey, user);
-      console.log(`New user registered: ${user.имя}`);
+      console.log(`New user registered: ${user.имя} (admin: ${isFirstUser})`);
     } else {
       // Update last login
       user.lastLogin = new Date().toISOString();
@@ -556,8 +595,33 @@ app.post("/make-server-05aa3c8a/auth/login", async (c) => {
     });
     
     if (authError) {
-      console.log(`Supabase Auth login error: ${authError.message}`);
-      return c.json({ error: "Неверный пароль" }, 401);
+      console.log(`❌ Supabase Auth login error:`, {
+        message: authError.message,
+        status: authError.status,
+        code: authError.code,
+        name: authError.name,
+        email: userEmail
+      });
+      
+      // More specific error messages
+      if (authError.message.includes('Invalid login credentials')) {
+        return c.json({ 
+          error: "Неверный пароль или пользователь не найден в Supabase Auth. Проверьте пароль или зарегистрируйтесь заново.",
+          details: authError.message 
+        }, 401);
+      }
+      
+      if (authError.message.includes('Email not confirmed')) {
+        return c.json({ 
+          error: "Email не подтверждён. Проверьте почту или обратитесь к администратору.",
+          details: authError.message 
+        }, 401);
+      }
+      
+      return c.json({ 
+        error: `Ошибка авторизации: ${authError.message}`,
+        details: authError.message 
+      }, 401);
     }
     
     if (!authData.session || !authData.user) {
@@ -2250,6 +2314,140 @@ app.post("/make-server-05aa3c8a/admin/products/clean-duplicates", async (c) => {
   }
 });
 
+// Archive/Unarchive product (POST method for compatibility)
+app.post("/make-server-05aa3c8a/admin/products/:productId/archive", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const productId = c.req.param('productId');
+    const { archive } = await c.req.json();
+    
+    const product = await kv.get(`product:${productId}`);
+    if (!product) {
+      return c.json({ error: 'Продукт не найден' }, 404);
+    }
+    
+    // Update archived status
+    product.в_архиве = archive;
+    product.archived = archive; // для совместимости
+    product.обновлён = new Date().toISOString();
+    
+    await kv.set(`product:${productId}`, product);
+    await kv.set(`product:sku:${product.sku}`, product);
+    
+    console.log(`Product ${archive ? 'archived' : 'unarchived'}: ${productId}`);
+    
+    return c.json({ 
+      success: true, 
+      message: archive ? 'Товар перемещён в архив' : 'Товар восстановлен из архива',
+      product 
+    });
+  } catch (error) {
+    console.log(`Admin archive product error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Upload product image
+app.post("/make-server-05aa3c8a/admin/products/upload-image", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    console.log('📤 Processing image upload request...');
+    
+    // Parse multipart form data
+    const formData = await c.req.formData();
+    const file = formData.get('file') as File;
+    
+    if (!file) {
+      console.error('❌ No file in request');
+      return c.json({ error: 'No file uploaded' }, 400);
+    }
+    
+    console.log('📦 File received:', file.name, file.type, file.size);
+    
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+    if (!allowedTypes.includes(file.type)) {
+      console.error('❌ Invalid file type:', file.type);
+      return c.json({ error: 'Invalid file type. Only JPEG, PNG and WebP are allowed.' }, 400);
+    }
+    
+    // Validate file size (5MB limit)
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      console.error('❌ File too large:', file.size);
+      return c.json({ error: 'File too large. Maximum size is 5MB.' }, 400);
+    }
+    
+    // Generate unique filename
+    const timestamp = Date.now();
+    const randomId = Math.random().toString(36).substring(2, 15);
+    const extension = file.name.split('.').pop() || 'jpg';
+    const filename = `product-${timestamp}-${randomId}.${extension}`;
+    
+    console.log('💾 Saving file as:', filename);
+    
+    // Convert file to buffer
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = new Uint8Array(arrayBuffer);
+    
+    // Upload to Supabase Storage
+    const bucketName = 'make-05aa3c8a-products';
+    
+    // Ensure bucket exists
+    const { data: buckets } = await supabase.storage.listBuckets();
+    const bucketExists = buckets?.some(bucket => bucket.name === bucketName);
+    
+    if (!bucketExists) {
+      console.log('📦 Creating storage bucket:', bucketName);
+      const { error: createError } = await supabase.storage.createBucket(bucketName, {
+        public: true,
+        fileSizeLimit: maxSize
+      });
+      
+      if (createError) {
+        console.error('❌ Failed to create bucket:', createError);
+        return c.json({ error: `Failed to create storage bucket: ${createError.message}` }, 500);
+      }
+    }
+    
+    // Upload file
+    const { data, error } = await supabase.storage
+      .from(bucketName)
+      .upload(filename, buffer, {
+        contentType: file.type,
+        cacheControl: '3600',
+        upsert: false
+      });
+    
+    if (error) {
+      console.error('❌ Upload error:', error);
+      return c.json({ error: `Upload failed: ${error.message}` }, 500);
+    }
+    
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from(bucketName)
+      .getPublicUrl(filename);
+    
+    const imageUrl = urlData.publicUrl;
+    console.log('✅ Image uploaded successfully:', imageUrl);
+    
+    return c.json({ 
+      success: true, 
+      url: imageUrl,
+      imageUrl: imageUrl, // For compatibility
+      filename: filename
+    });
+  } catch (error) {
+    console.error('❌ Image upload error:', error);
+    return c.json({ error: `${error}` }, 500);
+  }
+});
+
 // ======================
 // ADMIN - TRAINING MANAGEMENT
 // ======================
@@ -3029,6 +3227,475 @@ app.get("/make-server-05aa3c8a/admins", async (c) => {
     
   } catch (error) {
     console.error(`Get admins error:`, error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// ======================
+// NOTIFICATIONS
+// ======================
+
+// Get user notifications
+app.get("/make-server-05aa3c8a/notifications", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    const notifications = await kv.getByPrefix(`notification:user:${currentUser.id}:`);
+    
+    // Sort by timestamp descending
+    notifications.sort((a: any, b: any) => b.timestamp - a.timestamp);
+    
+    return c.json({
+      success: true,
+      notifications
+    });
+  } catch (error) {
+    console.error('Get notifications error:', error);
+    return c.json({ 
+      success: false,
+      error: `Failed to get notifications: ${error}`,
+      notifications: []
+    }, 500);
+  }
+});
+
+// Mark notification as read
+app.post("/make-server-05aa3c8a/notifications/:id/read", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    const notificationId = c.req.param('id');
+    
+    const notification = await kv.get(`notification:user:${currentUser.id}:${notificationId}`);
+    
+    if (!notification) {
+      return c.json({ error: 'Notification not found' }, 404);
+    }
+    
+    notification.read = true;
+    await kv.set(`notification:user:${currentUser.id}:${notificationId}`, notification);
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Mark notification as read error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// Mark all notifications as read
+app.post("/make-server-05aa3c8a/notifications/mark-all-read", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    const notifications = await kv.getByPrefix(`notification:user:${currentUser.id}:`);
+    
+    for (const notification of notifications) {
+      notification.read = true;
+      const key = `notification:user:${currentUser.id}:${notification.id}`;
+      await kv.set(key, notification);
+    }
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Mark all notifications as read error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// Delete notification
+app.delete("/make-server-05aa3c8a/notifications/:id", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    const notificationId = c.req.param('id');
+    
+    await kv.del(`notification:user:${currentUser.id}:${notificationId}`);
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Delete notification error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// ======================
+// ACHIEVEMENTS & GAMIFICATION
+// ======================
+
+// Get user achievements
+app.get("/make-server-05aa3c8a/achievements", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    const achievements = await kv.getByPrefix(`achievement:user:${currentUser.id}:`);
+    
+    return c.json({
+      success: true,
+      achievements
+    });
+  } catch (error) {
+    console.error('Get achievements error:', error);
+    return c.json({ 
+      success: false,
+      error: `Failed to get achievements: ${error}`,
+      achievements: []
+    }, 500);
+  }
+});
+
+// Get challenges
+app.get("/make-server-05aa3c8a/challenges", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    const challenges = await kv.getByPrefix(`challenge:`);
+    
+    // Filter active challenges
+    const activeChallenges = challenges.filter((ch: any) => ch.active !== false);
+    
+    return c.json({
+      success: true,
+      challenges: activeChallenges
+    });
+  } catch (error) {
+    console.error('Get challenges error:', error);
+    return c.json({ 
+      success: false,
+      error: `Failed to get challenges: ${error}`,
+      challenges: []
+    }, 500);
+  }
+});
+
+// Get leaderboard
+app.get("/make-server-05aa3c8a/leaderboard", async (c) => {
+  try {
+    await verifyUser(c.req.header('X-User-Id'));
+    
+    const users = await kv.getByPrefix('user:id:');
+    
+    // Sort users by balance/earnings
+    const leaderboard = users
+      .map((user: any) => ({
+        id: user.id,
+        имя: user.имя,
+        фамилия: user.фамилия,
+        баланс: user.баланс || 0,
+        команда_размер: user.команда_размер || 0,
+        уровень: user.уровень
+      }))
+      .sort((a: any, b: any) => b.баланс - a.баланс)
+      .slice(0, 100); // Top 100
+    
+    return c.json({
+      success: true,
+      leaderboard
+    });
+  } catch (error) {
+    console.error('Get leaderboard error:', error);
+    return c.json({ 
+      success: false,
+      error: `Failed to get leaderboard: ${error}`,
+      leaderboard: []
+    }, 500);
+  }
+});
+
+// Get all achievements (admin)
+app.get("/make-server-05aa3c8a/admin/achievements", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    if (!isUserAdmin(currentUser)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    const achievements = await kv.getByPrefix('achievement:config:');
+    
+    return c.json({
+      success: true,
+      achievements
+    });
+  } catch (error) {
+    console.error('Get achievements admin error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// Create achievement (admin)
+app.post("/make-server-05aa3c8a/admin/achievements", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    if (!isUserAdmin(currentUser)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    const achievementData = await c.req.json();
+    const id = `achievement_${Date.now()}`;
+    
+    await kv.set(`achievement:config:${id}`, {
+      id,
+      ...achievementData,
+      created_at: Date.now()
+    });
+    
+    return c.json({ success: true, id });
+  } catch (error) {
+    console.error('Create achievement error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// Update achievement (admin)
+app.put("/make-server-05aa3c8a/admin/achievements/:id", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    if (!isUserAdmin(currentUser)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    const id = c.req.param('id');
+    const updates = await c.req.json();
+    
+    const achievement = await kv.get(`achievement:config:${id}`);
+    
+    if (!achievement) {
+      return c.json({ error: 'Achievement not found' }, 404);
+    }
+    
+    await kv.set(`achievement:config:${id}`, {
+      ...achievement,
+      ...updates,
+      updated_at: Date.now()
+    });
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Update achievement error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// Delete achievement (admin)
+app.delete("/make-server-05aa3c8a/admin/achievements/:id", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    if (!isUserAdmin(currentUser)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    const id = c.req.param('id');
+    await kv.del(`achievement:config:${id}`);
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Delete achievement error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// Get all challenges (admin)
+app.get("/make-server-05aa3c8a/admin/challenges", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    if (!isUserAdmin(currentUser)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    const challenges = await kv.getByPrefix('challenge:');
+    
+    return c.json({
+      success: true,
+      challenges
+    });
+  } catch (error) {
+    console.error('Get challenges admin error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// Create challenge (admin)
+app.post("/make-server-05aa3c8a/admin/challenges", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    if (!isUserAdmin(currentUser)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    const challengeData = await c.req.json();
+    const id = `challenge_${Date.now()}`;
+    
+    await kv.set(`challenge:${id}`, {
+      id,
+      ...challengeData,
+      created_at: Date.now()
+    });
+    
+    return c.json({ success: true, id });
+  } catch (error) {
+    console.error('Create challenge error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// Update challenge (admin)
+app.put("/make-server-05aa3c8a/admin/challenges/:id", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    if (!isUserAdmin(currentUser)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    const id = c.req.param('id');
+    const updates = await c.req.json();
+    
+    const challenge = await kv.get(`challenge:${id}`);
+    
+    if (!challenge) {
+      return c.json({ error: 'Challenge not found' }, 404);
+    }
+    
+    await kv.set(`challenge:${id}`, {
+      ...challenge,
+      ...updates,
+      updated_at: Date.now()
+    });
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Update challenge error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// Delete challenge (admin)
+app.delete("/make-server-05aa3c8a/admin/challenges/:id", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    if (!isUserAdmin(currentUser)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    const id = c.req.param('id');
+    await kv.del(`challenge:${id}`);
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Delete challenge error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// 🆕 Migration endpoint: Fix isAdmin flag for existing users
+app.post("/make-server-05aa3c8a/admin/migrate-admin-flags", async (c) => {
+  try {
+    console.log('🔧 Starting admin flag migration...');
+    
+    // Get all users
+    const users = await kv.getByPrefix('user:id:');
+    let fixed = 0;
+    let alreadyCorrect = 0;
+    
+    for (const user of users) {
+      const isFirstUser = user.id === '1';
+      const isAdminEmail = user.email?.toLowerCase() === 'admin@admin.com';
+      
+      if (isFirstUser || isAdminEmail) {
+        if (!user.isAdmin) {
+          console.log(`⚠️ Fixing user ${user.id} (${user.email})`);
+          user.isAdmin = true;
+          await kv.set(`user:id:${user.id}`, user);
+          fixed++;
+        } else {
+          console.log(`✅ User ${user.id} (${user.email}) already has isAdmin flag`);
+          alreadyCorrect++;
+        }
+      }
+    }
+    
+    console.log(`✅ Migration complete: fixed ${fixed}, already correct ${alreadyCorrect}`);
+    
+    return c.json({ 
+      success: true, 
+      message: 'Migration complete',
+      fixed,
+      alreadyCorrect,
+      totalUsers: users.length
+    });
+  } catch (error) {
+    console.error('Migration error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// 🆕 Debug endpoint: Check user authentication status
+app.post("/make-server-05aa3c8a/debug/check-auth", async (c) => {
+  try {
+    const { email } = await c.req.json();
+    
+    if (!email) {
+      return c.json({ error: "Email is required" }, 400);
+    }
+    
+    console.log(`🔍 Checking auth for email: ${email}`);
+    
+    // Check KV store
+    const userEmailKey = `user:email:${email.trim().toLowerCase()}`;
+    const userEmailData = await kv.get(userEmailKey);
+    
+    let userData = null;
+    if (userEmailData && userEmailData.id) {
+      const userKey = `user:id:${userEmailData.id}`;
+      userData = await kv.get(userKey);
+    }
+    
+    // Check Supabase Auth
+    const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+    let supabaseUser = null;
+    
+    try {
+      // Try to get user from Supabase by email
+      const { data: { users }, error } = await supabase.auth.admin.listUsers();
+      
+      if (!error && users) {
+        supabaseUser = users.find((u: any) => u.email?.toLowerCase() === email.trim().toLowerCase());
+      }
+    } catch (e) {
+      console.log('Error checking Supabase users:', e);
+    }
+    
+    return c.json({
+      success: true,
+      email: email.trim().toLowerCase(),
+      kvStore: {
+        exists: !!userData,
+        userId: userData?.id || null,
+        email: userData?.email || null,
+        isAdmin: userData?.isAdmin || false,
+        supabaseId: userData?.supabaseId || null
+      },
+      supabaseAuth: {
+        exists: !!supabaseUser,
+        id: supabaseUser?.id || null,
+        email: supabaseUser?.email || null,
+        confirmed: supabaseUser?.email_confirmed_at ? true : false,
+        createdAt: supabaseUser?.created_at || null
+      },
+      recommendation: !userData && !supabaseUser 
+        ? "User not found in either KV store or Supabase Auth. Please register."
+        : !userData && supabaseUser
+        ? "User exists in Supabase Auth but not in KV store. This is a data inconsistency."
+        : userData && !supabaseUser
+        ? "User exists in KV store but not in Supabase Auth. Please register again to sync."
+        : "User exists in both systems. Login should work."
+    });
+  } catch (error) {
+    console.error('Check auth error:', error);
     return c.json({ error: String(error) }, 500);
   }
 });

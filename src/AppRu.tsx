@@ -25,6 +25,7 @@ import * as api from './utils/api';
 import { AdminRu } from './components/AdminRu';
 import { AdminPanel } from './components/AdminPanel';
 import { MarketingToolsRu } from './components/MarketingToolsRu';
+import { AuthDiagnostic } from './components/AuthDiagnostic';
 
 export default function AppRu() {
   // Если URL содержит /test-widget, показываем тестовую страницу
@@ -35,6 +36,11 @@ export default function AppRu() {
   // Если URL содержит /diagnostic, показываем диагностику
   if (window.location.pathname === '/diagnostic') {
     return <TelegramDiagnostic />;
+  }
+  
+  // Если URL содержит /auth-diagnostic, показываем диагностику авторизации
+  if (window.location.pathname === '/auth-diagnostic') {
+    return <AuthDiagnostic />;
   }
   
   // Если URL содержит /health-check, показываем проверку сервера
