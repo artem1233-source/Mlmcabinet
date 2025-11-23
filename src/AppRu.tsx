@@ -28,6 +28,7 @@ import { isDemoMode, getCurrentDemoUser } from './utils/demoApi';
 import { loadDemoDataFromStorage, generateAllDemoData, saveDemoDataToStorage } from './utils/demoData';
 import { DemoUserSelector } from './components/DemoUserSelector';
 import { AdminRu } from './components/AdminRu';
+import { AdminPanel } from './components/AdminPanel';
 import { MarketingToolsRu } from './components/MarketingToolsRu';
 import { useDemoUser } from './contexts/DemoUserContext'; // 🆕 Импортируем хук
 
@@ -190,7 +191,7 @@ export default function AppRu() {
       console.log('Current URL:', window.location.href);
       console.log('URL Hash:', window.location.hash);
       
-      // ПРОВЕРКА ДЕМО ДАННЫХ: если старая версия - пересоздаём
+      // ПРОВЕРКА ДЕМО ДАННЫХ: если старая версия - пере��оздаём
       const demoData = loadDemoDataFromStorage();
       if (!demoData) {
         // Демо данх нет - создаём новые
@@ -514,6 +515,12 @@ export default function AppRu() {
       case 'админ':
         return (
           <AdminRu
+            currentUser={currentUser}
+          />
+        );
+      case 'управление-админами':
+        return (
+          <AdminPanel
             currentUser={currentUser}
           />
         );

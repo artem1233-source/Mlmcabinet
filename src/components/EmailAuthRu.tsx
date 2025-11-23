@@ -262,38 +262,6 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
   const handleAppleLogin = () => handleOAuthLogin('apple');
   const handleGitHubLogin = () => handleOAuthLogin('github');
 
-  const handleDemoLogin = async () => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      console.log('🎭 Activating DEMO MODE as ADMIN...');
-      
-      // Import demo data functions
-      const { generateAllDemoData, saveDemoDataToStorage } = await import('../utils/demoData');
-      const { setAuthToken } = await import('../utils/api');
-      
-      // Generate demo data (with admin as main user)
-      const demoData = generateAllDemoData();
-      
-      // Save to localStorage
-      saveDemoDataToStorage(demoData);
-      
-      // Set auth token for demo mode
-      setAuthToken('DEMO_TOKEN');
-      
-      console.log('✅ Demo mode activated! Admin user:', demoData.currentUser);
-      
-      // Log in as admin
-      onAuth(demoData.currentUser);
-    } catch (err) {
-      console.error('Demo login error:', err);
-      setError(err instanceof Error ? err.message : 'Ошибка входа');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleAdminRegister = async () => {
     setLoading(true);
     setError(null);
@@ -687,36 +655,6 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
               </button>
             </div>
 
-            {/* Demo Login */}
-            <div className="relative mb-6">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-amber-200"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-4 bg-white text-amber-700" style={{ fontWeight: '600' }}>✨ Быстрый тест-райв</span>
-              </div>
-            </div>
-
-            <button
-              onClick={handleDemoLogin}
-              disabled={loading}
-              className="w-full py-3 px-6 border-2 border-amber-500 bg-gradient-to-r from-amber-50 to-orange-50 text-amber-700 hover:from-amber-500 hover:to-orange-500 hover:text-white rounded-xl transition-all disabled:opacity-50 shadow-md"
-            >
-              <div className="flex items-center justify-center gap-2">
-                <span style={{ fontWeight: '700', fontSize: '14px' }}>👑 Войти как Администратор (демо)</span>
-              </div>
-            </button>
-            
-            {/* Demo Info */}
-            <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <p className="text-amber-800 text-center" style={{ fontSize: '12px', fontWeight: '600' }}>
-                🎭 Полный функционал администратора с тестовыми данными
-              </p>
-              <p className="text-amber-700 text-center mt-1" style={{ fontSize: '11px' }}>
-                50 пользователей • 6 месяцев истории • Все возможности
-              </p>
-            </div>
-            
             {/* Admin Registration Link */}
             {mode === 'login' && (
               <div className="mt-4 text-center">
@@ -785,7 +723,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
             </div>
             <div>
               <p className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '14px' }}>Прозрачные выплаты</p>
-              <p className="text-[#666]" style={{ fontSize: '13px' }}>Комиссии по 3 уровням вниз</p>
+              <p className="text-[#666]" style={{ fontSize: '13px' }}>Комиссии по 3 уровням ��низ</p>
             </div>
           </div>
           

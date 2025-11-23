@@ -14,6 +14,7 @@ interface SidebarProps {
 export function SidebarRu({ текущаяВкладка, изменитьВкладку, mobileMenuOpen, setMobileMenuOpen, currentUser }: SidebarProps) {
   const isDemo = isDemoMode();
   const isAdmin = currentUser?.isAdmin || false;
+  const isCEO = currentUser?.type === 'admin' && currentUser?.role === 'ceo';
   
   const handleExitDemo = () => {
     if (confirm('Выйти из демо режима? Все демо данные будут удалены.')) {
@@ -37,6 +38,8 @@ export function SidebarRu({ текущаяВкладка, изменитьВкл
     { id: 'настройки', label: 'Настройки', icon: Settings },
     // 🆕 Админ-панель (только для админов)
     ...(isAdmin ? [{ id: 'админ', label: 'Админ-панель', icon: Shield }] : []),
+    // 👑 Управление админами (только для CEO)
+    ...(isCEO ? [{ id: 'управление-админами', label: 'Управление админами', icon: Shield }] : []),
   ];
 
   const sidebarContent = (

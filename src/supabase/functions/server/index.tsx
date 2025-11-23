@@ -57,19 +57,6 @@ async function verifyUser(userIdHeader: string | null) {
   
   console.log(`Verifying user with ID: ${userIdHeader}`);
   
-  // Special handling for DEMO_USER (client-side demo mode)
-  if (userIdHeader === 'DEMO_USER') {
-    console.log('🎭 Demo user detected - returning mock admin user');
-    return {
-      id: 'DEMO_USER',
-      email: 'admin@admin.com',
-      имя: 'Администратор',
-      фамилия: 'Системы',
-      isAdmin: true,
-      уровень: 3
-    };
-  }
-  
   // Get user by ID
   const user = await kv.get(`user:id:${userIdHeader}`);
   
