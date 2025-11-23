@@ -82,11 +82,15 @@ export function AchievementsAdminRu() {
         api.getChallengesAdmin()
       ]);
       
-      setAchievements(achievementsData);
-      setChallenges(challengesData);
+      // ✅ Обрабатываем ответ API правильно
+      setAchievements(Array.isArray(achievementsData?.achievements) ? achievementsData.achievements : []);
+      setChallenges(Array.isArray(challengesData?.challenges) ? challengesData.challenges : []);
     } catch (error) {
       console.error('Error loading data:', error);
       toast.error('Ошибка загрузки данных');
+      // Устанавливаем пустые массивы при ошибке
+      setAchievements([]);
+      setChallenges([]);
     } finally {
       setLoading(false);
     }

@@ -65,20 +65,20 @@ const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-// Enable logger
-app.use('*', logger(console.log));
-
-// Enable CORS for all routes and methods
+// ✅ Enable CORS first (must be before logger and other middleware)
 app.use(
-  "/*",
+  "*",
   cors({
     origin: "*",
     allowHeaders: ["Content-Type", "Authorization", "X-User-Id"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     exposeHeaders: ["Content-Length"],
-    maxAge: 600,
+    maxAge: 86400, // 24 hours
   }),
 );
+
+// Enable logger
+app.use('*', logger(console.log));
 
 // ======================
 // HELPER FUNCTIONS
@@ -416,7 +416,17 @@ async function requireAdmin(c: any, user: any) {
 
 // Health check endpoint
 app.get("/make-server-05aa3c8a/health", (c) => {
-  return c.json({ status: "ok" });
+  return c.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// Admin health check (no auth required - for debugging)
+app.get("/make-server-05aa3c8a/admin/health", (c) => {
+  console.log('🏥 Admin health check called');
+  return c.json({ 
+    status: "ok", 
+    timestamp: new Date().toISOString(),
+    message: "Admin endpoints are reachable"
+  });
 });
 
 // Simple auth (for demo)
@@ -2477,6 +2487,38 @@ app.get("/make-server-05aa3c8a/admin/orders", async (c) => {
   }
 });
 
+// Update order status
+app.post("/make-server-05aa3c8a/admin/orders/:orderId/status", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const orderId = c.req.param('orderId');
+    const { status } = await c.req.json();
+    
+    if (!['pending', 'processing', 'completed', 'cancelled'].includes(status)) {
+      return c.json({ error: 'Неверный статус' }, 400);
+    }
+    
+    const order = await kv.get(`order:${orderId}`);
+    if (!order) {
+      return c.json({ error: 'Заказ не найден' }, 404);
+    }
+    
+    order.статус = status;
+    order.обновлён = new Date().toISOString();
+    
+    await kv.set(`order:${orderId}`, order);
+    
+    console.log(`Order ${orderId} status updated to: ${status}`);
+    
+    return c.json({ success: true, order });
+  } catch (error) {
+    console.log(`Admin update order status error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
 // Get all withdrawals
 app.get("/make-server-05aa3c8a/admin/withdrawals", async (c) => {
   try {
@@ -2845,8 +2887,8 @@ app.get("/make-server-05aa3c8a/admin/ids-status", async (c) => {
   }
 });
 
-// Reserve IDs
-app.post("/make-server-05aa3c8a/admin/reserve-ids", async (c) => {
+// Reserve IDs (OLD - legacy endpoint)
+app.post("/make-server-05aa3c8a/admin/reserve-ids-old", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
@@ -2892,8 +2934,8 @@ app.post("/make-server-05aa3c8a/admin/reserve-ids", async (c) => {
   }
 });
 
-// Unreserve IDs
-app.post("/make-server-05aa3c8a/admin/unreserve-ids", async (c) => {
+// Unreserve IDs (OLD - legacy endpoint)
+app.post("/make-server-05aa3c8a/admin/unreserve-ids-old", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
@@ -3568,6 +3610,127 @@ app.delete("/make-server-05aa3c8a/admin/courses/:courseId", async (c) => {
     return c.json({ success: true, message: 'Курс удалён' });
   } catch (error) {
     console.log(`Admin delete course error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// ======================
+// TRAINING MATERIALS
+// ======================
+
+// Get all training materials (public endpoint)
+app.get("/make-server-05aa3c8a/training-materials", async (c) => {
+  try {
+    const materials = await kv.getByPrefix('training:');
+    const materialsArray = Array.isArray(materials) ? materials : [];
+    
+    // Сортируем по дате создания
+    materialsArray.sort((a: any, b: any) => {
+      const dateA = new Date(a.создан || 0).getTime();
+      const dateB = new Date(b.создан || 0).getTime();
+      return dateB - dateA; // Новые первыми
+    });
+    
+    return c.json({ success: true, materials: materialsArray });
+  } catch (error) {
+    console.log(`Get training materials error: ${error}`);
+    return c.json({ 
+      success: false,
+      error: `${error}`,
+      materials: []
+    }, 500);
+  }
+});
+
+// Create training material
+app.post("/make-server-05aa3c8a/admin/training-materials", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const { название, описание, тип, url, категория } = await c.req.json();
+    
+    if (!название) {
+      return c.json({ error: 'Название обязательно' }, 400);
+    }
+    
+    const materialId = `training_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    const material = {
+      id: materialId,
+      название: название || '',
+      описание: описание || '',
+      тип: тип || 'document', // document, video, link
+      url: url || '',
+      категория: категория || 'общее',
+      создан: new Date().toISOString(),
+      обновлён: new Date().toISOString()
+    };
+    
+    await kv.set(`training:${materialId}`, material);
+    
+    console.log(`Training material created: ${materialId}`);
+    
+    return c.json({ success: true, material });
+  } catch (error) {
+    console.log(`Admin create training material error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Update training material
+app.put("/make-server-05aa3c8a/admin/training-materials/:materialId", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const materialId = c.req.param('materialId');
+    const updates = await c.req.json();
+    
+    const material = await kv.get(`training:${materialId}`);
+    if (!material) {
+      return c.json({ error: 'Материал не найден' }, 404);
+    }
+    
+    // Update material fields
+    material.название = updates.название || material.название;
+    material.описание = updates.описание || material.описание;
+    material.тип = updates.тип || material.тип;
+    material.url = updates.url || material.url;
+    material.категория = updates.категория || material.категория;
+    material.обновлён = new Date().toISOString();
+    
+    await kv.set(`training:${materialId}`, material);
+    
+    console.log(`Training material updated: ${materialId}`);
+    
+    return c.json({ success: true, material });
+  } catch (error) {
+    console.log(`Admin update training material error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Delete training material
+app.delete("/make-server-05aa3c8a/admin/training-materials/:materialId", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const materialId = c.req.param('materialId');
+    
+    const material = await kv.get(`training:${materialId}`);
+    if (!material) {
+      return c.json({ error: 'Материал не найден' }, 404);
+    }
+    
+    await kv.del(`training:${materialId}`);
+    
+    console.log(`Training material deleted: ${materialId}`);
+    
+    return c.json({ success: true, message: 'Материал удалён' });
+  } catch (error) {
+    console.log(`Admin delete training material error: ${error}`);
     return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
   }
 });
@@ -4659,59 +4822,98 @@ app.delete("/make-server-05aa3c8a/admin/delete-user/:userId", async (c) => {
   }
 });
 
+// OPTIONS handler for /admin/counter (CORS preflight)
+app.options("/make-server-05aa3c8a/admin/counter", (c) => {
+  console.log('📊 OPTIONS /admin/counter - CORS preflight');
+  return c.text('', 204, {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id',
+    'Access-Control-Max-Age': '86400',
+  });
+});
+
 // Get current counter value (admin only)
 app.get("/make-server-05aa3c8a/admin/counter", async (c) => {
+  console.log('📊 GET /admin/counter - Request received');
+  console.log('📊 Headers:', {
+    'X-User-Id': c.req.header('X-User-Id'),
+    'Authorization': c.req.header('Authorization') ? 'Present' : 'Missing',
+  });
+  
   try {
-    const currentUser = c.get('currentUser');
+    const userId = c.req.header('X-User-Id');
+    console.log('📊 Verifying user:', userId);
     
-    if (!currentUser) {
-      return c.json({ error: "Not authenticated" }, 401);
-    }
+    const currentUser = await verifyUser(userId);
+    console.log('📊 User verified:', currentUser?.id, currentUser?.email);
     
     await requireAdmin(c, currentUser);
+    console.log('📊 Admin check passed');
     
-    const counterKey = 'system:partnerCounter';
-    const currentCounter = await kv.get(counterKey);
-    const nextId = ((currentCounter || 0) + 1).toString().padStart(3, '0');
+    const counterKey = 'counter:userId';
+    const partnerCounterKey = 'system:partnerCounter';
     
-    return c.json({ 
+    const userCounter = await kv.get(counterKey) || 0;
+    const partnerCounter = await kv.get(partnerCounterKey) || 0;
+    
+    console.log('📊 Counter values:', { userCounter, partnerCounter });
+    
+    const nextUserId = ((userCounter || 0) + 1).toString();
+    const nextPartnerId = ((partnerCounter || 0) + 1).toString().padStart(3, '0');
+    
+    const response = { 
       success: true,
-      currentValue: currentCounter || 0,
-      nextId: nextId
-    });
+      userCounter: userCounter || 0,
+      partnerCounter: partnerCounter || 0,
+      nextUserId: nextUserId,
+      nextPartnerId: nextPartnerId,
+      nextId: nextUserId // backward compatibility
+    };
+    
+    console.log('📊 Sending response:', response);
+    return c.json(response);
     
   } catch (error) {
-    console.error('Get counter error:', error);
-    return c.json({ error: String(error) }, 500);
+    console.error('❌ Get counter error:', error);
+    const statusCode = (error as any).message?.includes('Admin') ? 403 : 500;
+    return c.json({ 
+      success: false,
+      error: String(error) 
+    }, statusCode);
   }
 });
 
 // Reset user counter (admin only)
 app.post("/make-server-05aa3c8a/admin/reset-counter", async (c) => {
   try {
-    const currentUser = c.get('currentUser');
-    
-    if (!currentUser) {
-      return c.json({ error: "Not authenticated" }, 401);
-    }
-    
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    const counterKey = 'system:partnerCounter';
+    const counterKey = 'counter:userId';
+    const partnerCounterKey = 'system:partnerCounter';
     
-    // Get current counter value
-    const currentCounter = await kv.get(counterKey);
-    console.log(`Current counter value: ${currentCounter}`);
+    // Get current counter values
+    const userCounter = await kv.get(counterKey);
+    const partnerCounter = await kv.get(partnerCounterKey);
+    console.log(`Current user counter: ${userCounter}, partner counter: ${partnerCounter}`);
     
-    // Reset to 0
+    // Reset both to 0
     await kv.set(counterKey, 0);
-    console.log('✅ Counter reset to 0. Next user will be 001');
+    await kv.set(partnerCounterKey, 0);
+    console.log('✅ Counters reset to 0. Next IDs will be 1 (user) and 001 (partner)');
     
     return c.json({ 
       success: true, 
-      message: 'Счётчик пользователей сброшен. Следующий ID будет 001',
-      oldValue: currentCounter,
-      newValue: 0
+      message: 'Счётчики сброшены. Следующие ID: 1 (пользователь) и 001 (партнёр)',
+      oldValues: {
+        user: userCounter,
+        partner: partnerCounter
+      },
+      newValues: {
+        user: 0,
+        partner: 0
+      }
     });
     
   } catch (error) {
@@ -4719,5 +4921,261 @@ app.post("/make-server-05aa3c8a/admin/reset-counter", async (c) => {
     return c.json({ error: String(error) }, 500);
   }
 });
+
+// Global error handler
+app.onError((err, c) => {
+  console.error('🔥 Global error handler:', err);
+  return c.json({
+    success: false,
+    error: err.message || 'Internal server error',
+    stack: err.stack
+  }, 500);
+});
+
+// 404 handler
+app.notFound((c) => {
+  console.warn('⚠️ 404 Not Found:', c.req.url);
+  return c.json({
+    success: false,
+    error: 'Endpoint not found',
+    path: c.req.path
+  }, 404);
+});
+
+// ==============================================
+// ID MANAGEMENT (001-9999)
+// ==============================================
+
+// Get reserved IDs
+app.get('/make-server-05aa3c8a/admin/reserved-ids', async (c) => {
+  try {
+    const userId = c.req.header('X-User-Id');
+    if (!userId) {
+      return c.json({ success: false, error: 'Не авторизован' }, 401);
+    }
+
+    const currentUser = await kv.get(`user:id:${userId}`);
+    if (!currentUser?.isAdmin) {
+      return c.json({ success: false, error: 'Доступ запрещён' }, 403);
+    }
+
+    const reserved = await kv.get('reserved_ids') || [];
+    
+    return c.json({
+      success: true,
+      reserved: Array.isArray(reserved) ? reserved : []
+    });
+  } catch (error) {
+    console.error('Error getting reserved IDs:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Reserve IDs
+app.post('/make-server-05aa3c8a/admin/reserve-ids', async (c) => {
+  try {
+    console.log('📥 Reserve IDs request received');
+    
+    const userId = c.req.header('X-User-Id');
+    console.log('👤 User ID:', userId);
+    
+    if (!userId) {
+      console.log('❌ No user ID');
+      return c.json({ success: false, error: 'Не авторизован' }, 401);
+    }
+
+    const currentUser = await kv.get(`user:id:${userId}`);
+    console.log('👤 Current user:', currentUser?.имя, 'isAdmin:', currentUser?.isAdmin);
+    
+    if (!currentUser?.isAdmin) {
+      console.log('❌ Not admin');
+      return c.json({ success: false, error: 'Доступ запрещён' }, 403);
+    }
+
+    const body = await c.req.json();
+    console.log('📦 Request body:', body);
+    
+    const { ids } = body;
+    console.log('🔢 IDs to reserve:', ids);
+    
+    if (!Array.isArray(ids) || ids.length === 0) {
+      console.log('❌ Invalid IDs format');
+      return c.json({ success: false, error: 'Неверные данные: ids должен быть массивом' }, 400);
+    }
+
+    const reserved = await kv.get('reserved_ids') || [];
+    console.log('📋 Current reserved:', reserved);
+    
+    const newReserved = [...new Set([...reserved, ...ids])].sort((a, b) => a.localeCompare(b));
+    console.log('📋 New reserved:', newReserved);
+    
+    await kv.set('reserved_ids', newReserved);
+    console.log('✅ Reserved IDs saved');
+    
+    return c.json({
+      success: true,
+      message: `Зарезервировано ${ids.length} номеров`,
+      reserved: newReserved
+    });
+  } catch (error) {
+    console.error('❌ Error reserving IDs:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Unreserve ID
+app.post('/make-server-05aa3c8a/admin/unreserve-id', async (c) => {
+  try {
+    const userId = c.req.header('X-User-Id');
+    if (!userId) {
+      return c.json({ success: false, error: 'Не авторизован' }, 401);
+    }
+
+    const currentUser = await kv.get(`user:id:${userId}`);
+    if (!currentUser?.isAdmin) {
+      return c.json({ success: false, error: 'Доступ запрещён' }, 403);
+    }
+
+    const { id } = await c.req.json();
+    
+    if (!id) {
+      return c.json({ success: false, error: 'ID не указан' }, 400);
+    }
+
+    const reserved = await kv.get('reserved_ids') || [];
+    const newReserved = reserved.filter((rid: string) => rid !== id);
+    
+    await kv.set('reserved_ids', newReserved);
+    
+    return c.json({
+      success: true,
+      message: `Номер ${id} возвращён в свободные`,
+      reserved: newReserved
+    });
+  } catch (error) {
+    console.error('Error unreserving ID:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Assign reserved ID to user
+app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
+  try {
+    const userId = c.req.header('X-User-Id');
+    if (!userId) {
+      return c.json({ success: false, error: 'Не авторизован' }, 401);
+    }
+
+    const currentUser = await kv.get(`user:id:${userId}`);
+    if (!currentUser?.isAdmin) {
+      return c.json({ success: false, error: 'Доступ запрещён' }, 403);
+    }
+
+    const { newId, userId: targetUserId } = await c.req.json();
+    
+    if (!newId || !targetUserId) {
+      return c.json({ success: false, error: 'Неверные данные' }, 400);
+    }
+
+    // Get target user
+    const targetUser = await kv.get(`user:id:${targetUserId}`);
+    if (!targetUser) {
+      return c.json({ success: false, error: 'Пользователь не найден' }, 404);
+    }
+
+    // Check if new ID is reserved
+    const reserved = await kv.get('reserved_ids') || [];
+    if (!reserved.includes(newId)) {
+      return c.json({ success: false, error: 'Этот номер не зарезервирован' }, 400);
+    }
+
+    // Check if new ID is already occupied
+    const existingUser = await kv.get(`user:id:${newId}`);
+    if (existingUser) {
+      return c.json({ success: false, error: 'Этот номер уже занят' }, 400);
+    }
+
+    const oldId = targetUser.id;
+
+    // Update user ID
+    targetUser.id = newId;
+    targetUser.рефКод = newId; // refCode = ID
+
+    // Save user with new ID
+    await kv.set(`user:id:${newId}`, targetUser);
+
+    // Delete old ID key
+    await kv.del(`user:id:${oldId}`);
+
+    // Update ref code mapping
+    await kv.set(`user:refcode:${newId}`, { id: newId });
+    await kv.del(`user:refcode:${oldId}`);
+
+    // Update email mapping
+    if (targetUser.email) {
+      await kv.set(`user:email:${targetUser.email.toLowerCase()}`, { id: newId });
+    }
+
+    // Update supabase ID mapping if exists
+    if (targetUser.supabaseId) {
+      await kv.set(`user:supabase:${targetUser.supabaseId}`, { id: newId });
+    }
+
+    // Update in all team references
+    const allUsersKeys = await kv.getByPrefix('user:id:');
+    for (const key of allUsersKeys) {
+      const user = await kv.get(key);
+      if (user && Array.isArray(user.команда)) {
+        const index = user.команда.indexOf(oldId);
+        if (index !== -1) {
+          user.команда[index] = newId;
+          await kv.set(key, user);
+        }
+      }
+      // Update sponsor references
+      if (user && user.спонсорId === oldId) {
+        user.спонсорId = newId;
+        await kv.set(key, user);
+      }
+      // Update upline
+      if (user && user.upline) {
+        if (user.upline.u0 === oldId) user.upline.u0 = newId;
+        if (user.upline.u1 === oldId) user.upline.u1 = newId;
+        if (user.upline.u2 === oldId) user.upline.u2 = newId;
+        if (user.upline.u3 === oldId) user.upline.u3 = newId;
+        await kv.set(key, user);
+      }
+    }
+
+    // Remove from reserved
+    const newReserved = reserved.filter((rid: string) => rid !== newId);
+    await kv.set('reserved_ids', newReserved);
+
+    // Add old ID to freed IDs if it's a valid partner ID format (3 digits)
+    if (oldId.match(/^\d{3}$/)) {
+      const freedIds = await kv.get('freed_partner_ids') || [];
+      if (!freedIds.includes(oldId)) {
+        freedIds.push(oldId);
+        freedIds.sort((a: string, b: string) => a.localeCompare(b));
+        await kv.set('freed_partner_ids', freedIds);
+      }
+    }
+
+    return c.json({
+      success: true,
+      message: `Номер ${newId} присвоен пользователю ${targetUser.имя} ${targetUser.фамилия}`,
+      oldId,
+      newId
+    });
+  } catch (error) {
+    console.error('Error assigning reserved ID:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+console.log('🚀 Server starting...');
+console.log('📍 Base path: /make-server-05aa3c8a');
+console.log('🔧 CORS enabled for all origins');
+console.log('✅ Server ready!');
 
 Deno.serve(app.fetch);

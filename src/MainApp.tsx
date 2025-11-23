@@ -4,6 +4,7 @@ import { RegistrationRu } from './components/RegistrationRu';
 import { SidebarRu } from './components/SidebarRu';
 import { DashboardRu } from './components/DashboardRu';
 import { StructureRu } from './components/StructureRu';
+import { UsersManagementRu } from './components/UsersManagementRu';
 import { OrdersRu } from './components/OrdersRu';
 import { EarningsRu } from './components/EarningsRu';
 import { BalanceRu } from './components/BalanceRu';
@@ -169,6 +170,9 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
       case 'структура':
       case 'structure':
         return <StructureRu currentUser={currentUser} refreshTrigger={refreshTrigger} />;
+      case 'пользователи':
+      case 'users':
+        return <UsersManagementRu currentUser={currentUser} />;
       case 'заказы':
       case 'orders':
         return <OrdersRu currentUser={currentUser} refreshTrigger={refreshTrigger} />;

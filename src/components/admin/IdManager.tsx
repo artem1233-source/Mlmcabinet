@@ -1,237 +1,164 @@
 import { useState, useEffect } from 'react';
-import { Hash, Lock, Unlock, Plus, Trash2 } from 'lucide-react';
+import { Hash, User, ArrowRight, Check, X, Search } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
+import { Badge } from '../ui/badge';
+import { Checkbox } from '../ui/checkbox';
+import { ScrollArea } from '../ui/scroll-area';
 import { Input } from '../ui/input';
-import { Label } from '../ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { 
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from '../ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select';
 import * as api from '../../utils/api';
 import { toast } from 'sonner';
-
-interface IdStatus {
-  userIds: {
-    used: number[];
-    freed: number[];
-    reserved: number[];
-    nextCounter: number;
-  };
-  partnerIds: {
-    used: number[];
-    freed: number[];
-    reserved: number[];
-    nextCounter: number;
-  };
-  reservedMetadata: Array<{
-    type: 'user' | 'partner';
-    id: number;
-    reservedBy: string;
-    reservedAt: string;
-    reason: string;
-  }>;
-}
 
 interface IdManagerProps {
   currentUser: any;
 }
 
+interface UserData {
+  id: string;
+  имя: string;
+  фамилия: string;
+  email: string;
+}
+
 export function IdManager({ currentUser }: IdManagerProps) {
-  const [status, setStatus] = useState<IdStatus | null>(null);
+  const [users, setUsers] = useState<UserData[]>([]);
+  const [reservedIds, setReservedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [idType, setIdType] = useState<'user' | 'partner'>('user');
-  const [reserveReason, setReserveReason] = useState('');
-  const [manualIds, setManualIds] = useState('');
+  const [selectedFreeIds, setSelectedFreeIds] = useState<string[]>([]);
+  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+  const [selectedReservedId, setSelectedReservedId] = useState<string>('');
+  const [selectedUserId, setSelectedUserId] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   useEffect(() => {
-    loadStatus();
+    loadData();
   }, []);
 
-  const loadStatus = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
-      const response = await api.getIdsStatus();
-      if (response.success) {
-        setStatus(response);
+      
+      // Load users
+      const usersResponse = await api.getAllUsers();
+      if (usersResponse.success) {
+        setUsers(usersResponse.users || []);
+      }
+
+      // Load reserved IDs
+      const reservedResponse = await api.getReservedIds();
+      if (reservedResponse.success) {
+        setReservedIds(reservedResponse.reserved || []);
       }
     } catch (error) {
-      console.error('Error loading ID status:', error);
-      toast.error('Ошибка загрузки статуса ID');
+      console.error('Failed to load data:', error);
+      toast.error('Ошибка загрузки данных');
     } finally {
       setLoading(false);
     }
   };
 
-  const toggleIdSelection = (id: number) => {
-    setSelectedIds(prev => {
-      if (prev.includes(id)) {
-        return prev.filter(i => i !== id);
-      } else {
-        return [...prev, id];
-      }
-    });
-  };
+  // Generate all IDs from 001 to 9999
+  const allIds = Array.from({ length: 9999 }, (_, i) => String(i + 1).padStart(3, '0'));
+  
+  // Occupied IDs (users have them)
+  const occupiedIds = users.map(u => u.id).sort((a, b) => a.localeCompare(b));
+  
+  // Free IDs (not occupied and not reserved)
+  const freeIds = allIds.filter(id => !occupiedIds.includes(id) && !reservedIds.includes(id));
+  
+  // Next ID to assign (first free)
+  const nextId = freeIds[0] || 'N/A';
 
-  const reserveSelected = async () => {
-    if (selectedIds.length === 0) {
-      toast.error('Выберите ID для резервирования');
-      return;
-    }
-
-    if (!reserveReason.trim()) {
-      toast.error('Укажите причину резервирования');
-      return;
-    }
-
-    try {
-      const response = await api.reserveIds(idType, selectedIds, reserveReason);
-      if (response.success) {
-        toast.success(response.message);
-        setSelectedIds([]);
-        setReserveReason('');
-        loadStatus();
-      }
-    } catch (error) {
-      console.error('Error reserving IDs:', error);
-      toast.error('Ошибка резервирования ID');
-    }
-  };
-
-  const unreserveIds = async (ids: number[]) => {
-    if (!confirm(`Снять резервирование с ${ids.length} ID?`)) {
-      return;
-    }
-
-    try {
-      const response = await api.unreserveIds(idType, ids);
-      if (response.success) {
-        toast.success(response.message);
-        loadStatus();
-      }
-    } catch (error) {
-      console.error('Error unreserving IDs:', error);
-      toast.error('Ошибка снятия резервирования');
-    }
-  };
-
-  const reserveManualIds = async () => {
-    const ids = manualIds
-      .split(',')
-      .map(id => parseInt(id.trim(), 10))
-      .filter(id => !isNaN(id));
-
-    if (ids.length === 0) {
-      toast.error('Введите корректные номера ID через запятую');
-      return;
-    }
-
-    if (!reserveReason.trim()) {
-      toast.error('Укажите причину резервирования');
-      return;
-    }
-
-    try {
-      const response = await api.reserveIds(idType, ids, reserveReason);
-      if (response.success) {
-        toast.success(response.message);
-        setManualIds('');
-        setReserveReason('');
-        loadStatus();
-      }
-    } catch (error) {
-      console.error('Error reserving IDs:', error);
-      toast.error('Ошибка резервирования ID');
-    }
-  };
-
-  const renderIdBadges = (ids: number[], type: 'used' | 'freed' | 'reserved', currentType: 'user' | 'partner') => {
-    const maxDisplay = 50;
-    const displayIds = ids.slice(0, maxDisplay);
-    const remaining = ids.length - maxDisplay;
-
-    const colors = {
-      used: 'bg-gray-200 text-gray-700',
-      freed: 'bg-green-100 text-green-700',
-      reserved: 'bg-purple-200 text-purple-700',
-    };
-
-    const isInteractive = type !== 'used';
-
-    return (
-      <div className="flex flex-wrap gap-2">
-        {displayIds.map(id => (
-          <button
-            key={id}
-            onClick={() => isInteractive && toggleIdSelection(id)}
-            disabled={!isInteractive}
-            className={`px-2 py-1 rounded text-sm font-mono transition-all ${colors[type]} ${
-              isInteractive
-                ? selectedIds.includes(id)
-                  ? 'ring-2 ring-blue-500 scale-110'
-                  : 'hover:scale-105 cursor-pointer'
-                : 'cursor-default'
-            }`}
-          >
-            {currentType === 'partner' ? String(id).padStart(3, '0') : id}
-          </button>
-        ))}
-        {remaining > 0 && (
-          <span className="px-2 py-1 text-sm text-gray-500">
-            +{remaining} ещё...
-          </span>
-        )}
-      </div>
+  const toggleFreeId = (id: string) => {
+    setSelectedFreeIds(prev => 
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
     );
   };
 
-  const renderReservedMetadata = () => {
-    const filtered = status?.reservedMetadata.filter(m => m.type === idType) || [];
-
-    if (filtered.length === 0) {
-      return (
-        <div className="text-center py-4 text-gray-500 text-sm">
-          Нет зарезервированных ID
-        </div>
-      );
+  const handleReserveSelected = async () => {
+    if (selectedFreeIds.length === 0) {
+      toast.error('Выберите номера для резервирования');
+      return;
     }
 
-    return (
-      <div className="space-y-2">
-        {filtered.map(meta => (
-          <div
-            key={`${meta.type}-${meta.id}`}
-            className="border rounded-lg p-3 bg-purple-50"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <code className="bg-purple-200 text-purple-800 px-2 py-0.5 rounded font-mono">
-                    {meta.type === 'partner' ? String(meta.id).padStart(3, '0') : meta.id}
-                  </code>
-                  <span className="text-xs text-gray-500">
-                    {new Date(meta.reservedAt).toLocaleString('ru')}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-700">{meta.reason}</p>
-                <p className="text-xs text-gray-500 mt-1">
-                  Зарезервировал: {meta.reservedBy}
-                </p>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => unreserveIds([meta.id])}
-                className="text-red-600 hover:text-red-700"
-              >
-                <Unlock className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-        ))}
-      </div>
-    );
+    console.log('🔵 Reserving IDs:', selectedFreeIds);
+
+    try {
+      const response = await api.reserveIds(selectedFreeIds);
+      console.log('🔵 Reserve response:', response);
+      
+      if (response.success) {
+        toast.success(`Зарезервировано ${selectedFreeIds.length} номеров`);
+        setSelectedFreeIds([]);
+        loadData();
+      }
+    } catch (error) {
+      console.error('Error reserving IDs:', error);
+      toast.error('Ошибка резервирования');
+    }
   };
 
-  if (loading || !status) {
+  const handleUnreserveId = async (id: string) => {
+    try {
+      const response = await api.unreserveId(id);
+      if (response.success) {
+        toast.success(`Номер ${id} возвращён в свободные`);
+        loadData();
+      }
+    } catch (error) {
+      console.error('Error unreserving ID:', error);
+      toast.error('Ошибка отмены резервирования');
+    }
+  };
+
+  const handleAssignReservedId = async () => {
+    if (!selectedReservedId || !selectedUserId) {
+      toast.error('Выберите номер и пользователя');
+      return;
+    }
+
+    const user = users.find(u => u.id === selectedUserId);
+    if (!user) return;
+
+    const confirmMsg = `Присвоить номер ${selectedReservedId} пользователю ${user.имя} ${user.фамилия}?\n\nСтарый номер ${user.id} вернётся в свободные.`;
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      const response = await api.assignReservedId(selectedReservedId, selectedUserId);
+      if (response.success) {
+        toast.success(`Номер ${selectedReservedId} присвоен пользователю`);
+        setAssignDialogOpen(false);
+        setSelectedReservedId('');
+        setSelectedUserId('');
+        loadData();
+      }
+    } catch (error) {
+      console.error('Error assigning ID:', error);
+      toast.error('Ошибка присвоения номера');
+    }
+  };
+
+  const handleUserClick = (userId: string) => {
+    // Scroll to user in the tree (future enhancement)
+    toast.info(`Переход к пользователю ${userId} (в разработке)`);
+  };
+
+  if (loading) {
     return (
       <Card>
         <CardHeader>
@@ -241,195 +168,361 @@ export function IdManager({ currentUser }: IdManagerProps) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-center py-8 text-gray-500">
-            Загрузка...
-          </div>
+          <div className="text-center py-8 text-gray-500">Загрузка...</div>
         </CardContent>
       </Card>
     );
   }
 
-  const currentIds = idType === 'user' ? status.userIds : status.partnerIds;
-
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Hash className="w-5 h-5" />
-            Управление ID номерами
-          </CardTitle>
-          <Button variant="outline" size="sm" onClick={loadStatus}>
-            Обновить
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <Tabs value={idType} onValueChange={(v) => {
-          setIdType(v as 'user' | 'partner');
-          setSelectedIds([]);
-        }}>
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="user">Пользовательские ID</TabsTrigger>
-            <TabsTrigger value="partner">Партнёрские ID</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value={idType} className="space-y-4 mt-4">
-            {/* Statistics */}
-            <div className="grid grid-cols-4 gap-4">
-              <div className="bg-gray-50 p-3 rounded-lg">
-                <div className="text-xs text-gray-600 mb-1">Используется</div>
-                <div className="text-2xl font-bold text-gray-700">
-                  {currentIds.used.length}
-                </div>
+    <>
+      <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-3 text-[#1E1E1E]">
+              <div className="w-10 h-10 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-xl flex items-center justify-center">
+                <Hash className="w-5 h-5 text-white" />
               </div>
-              <div className="bg-green-50 p-3 rounded-lg">
-                <div className="text-xs text-green-600 mb-1">Освобождено</div>
-                <div className="text-2xl font-bold text-green-700">
-                  {currentIds.freed.length}
-                </div>
-              </div>
-              <div className="bg-purple-50 p-3 rounded-lg">
-                <div className="text-xs text-purple-600 mb-1">Зарезервировано</div>
-                <div className="text-2xl font-bold text-purple-700">
-                  {currentIds.reserved.length}
-                </div>
-              </div>
-              <div className="bg-blue-50 p-3 rounded-lg">
-                <div className="text-xs text-blue-600 mb-1">Следующий новый</div>
-                <div className="text-2xl font-bold text-blue-700">
-                  {idType === 'partner' 
-                    ? String(currentIds.nextCounter).padStart(3, '0')
-                    : currentIds.nextCounter
-                  }
-                </div>
-              </div>
+              Управление ID номерами (001-9999)
+            </CardTitle>
+            <Button variant="outline" size="sm" onClick={loadData}>
+              Обновить
+            </Button>
+          </div>
+          <div className="flex items-center gap-4 mt-4 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-gray-300 rounded" />
+              <span className="text-[#666]">Занятые: {occupiedIds.length}</span>
             </div>
-
-            {/* Used IDs */}
-            <div className="border rounded-lg p-4 bg-gray-50">
-              <h3 className="font-semibold mb-3 flex items-center gap-2">
-                <Hash className="w-4 h-4 text-gray-600" />
-                Используемые ID ({currentIds.used.length})
-              </h3>
-              {currentIds.used.length === 0 ? (
-                <p className="text-sm text-gray-500">Нет используемых ID</p>
-              ) : (
-                renderIdBadges(currentIds.used, 'used', idType)
-              )}
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-green-500 rounded" />
+              <span className="text-[#666]">Свободные: {freeIds.length}</span>
             </div>
-
-            {/* Freed IDs */}
-            <div className="border rounded-lg p-4 bg-green-50">
-              <h3 className="font-semibold mb-3 flex items-center gap-2">
-                <Unlock className="w-4 h-4 text-green-600" />
-                Освобождённые ID ({currentIds.freed.length})
-                <span className="text-xs text-gray-500 font-normal">
-                  - Будут переиспользованы автоматически
-                </span>
-              </h3>
-              {currentIds.freed.length === 0 ? (
-                <p className="text-sm text-gray-500">Нет освобождённых ID</p>
-              ) : (
-                <>
-                  {renderIdBadges(currentIds.freed, 'freed', idType)}
-                  <div className="mt-3 flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => reserveSelected()}
-                      disabled={selectedIds.length === 0}
-                    >
-                      <Lock className="w-4 h-4 mr-2" />
-                      Зарезервировать выбранные ({selectedIds.length})
-                    </Button>
-                    {selectedIds.length > 0 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSelectedIds([])}
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-purple-500 rounded" />
+              <span className="text-[#666]">Зарезервированные: {reservedIds.length}</span>
+            </div>
+            <div className="ml-auto">
+              <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white">
+                Следующий: {nextId}
+              </Badge>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 gap-6">
+            {/* Column 1: Occupied IDs */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-[#1E1E1E]">
+                  Занятые номера
+                </h3>
+                <Badge variant="secondary">{occupiedIds.length}</Badge>
+              </div>
+              <ScrollArea className="h-[600px] rounded-xl border border-[#E6E9EE] p-3 bg-gray-50">
+                <div className="space-y-1">
+                  {occupiedIds.map(id => {
+                    const user = users.find(u => u.id === id);
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => handleUserClick(id)}
+                        className="w-full text-left px-3 py-2 rounded-lg bg-white border border-gray-200 hover:border-[#39B7FF] hover:bg-[#F7FAFC] transition-colors group"
                       >
-                        Отменить выбор
+                        <div className="flex items-center justify-between">
+                          <code className="text-sm font-mono text-[#1E1E1E] font-semibold">
+                            {id}
+                          </code>
+                          <User className="w-3 h-3 text-[#666] group-hover:text-[#39B7FF]" />
+                        </div>
+                        {user && (
+                          <p className="text-xs text-[#666] mt-1 truncate">
+                            {user.имя} {user.фамилия}
+                          </p>
+                        )}
+                      </button>
+                    );
+                  })}
+                  {occupiedIds.length === 0 && (
+                    <p className="text-center text-[#999] text-sm py-8">
+                      Нет занятых номеров
+                    </p>
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
+
+            {/* Column 2: Free IDs */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-[#1E1E1E]">
+                  Свободные номера
+                </h3>
+                <Badge variant="secondary">{freeIds.length}</Badge>
+              </div>
+              <div className="space-y-2">
+                {selectedFreeIds.length > 0 && (
+                  <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <span className="text-sm text-[#666]">
+                      Выбрано: {selectedFreeIds.length}
+                    </span>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={handleReserveSelected}
+                        className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white"
+                      >
+                        <ArrowRight className="w-4 h-4 mr-1" />
+                        Зарезервировать
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setSelectedFreeIds([])}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                <ScrollArea className="h-[560px] rounded-xl border border-[#E6E9EE] p-3 bg-green-50">
+                  <div className="space-y-1">
+                    {freeIds.slice(0, 500).map(id => (
+                      <div
+                        key={id}
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-green-200 hover:border-green-400 transition-colors"
+                      >
+                        <Checkbox
+                          checked={selectedFreeIds.includes(id)}
+                          onCheckedChange={() => toggleFreeId(id)}
+                        />
+                        <code className="text-sm font-mono text-[#1E1E1E] flex-1">
+                          {id}
+                        </code>
+                        {id === nextId && (
+                          <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white text-xs">
+                            Следующий
+                          </Badge>
+                        )}
+                      </div>
+                    ))}
+                    {freeIds.length > 500 && (
+                      <p className="text-center text-[#666] text-xs py-2">
+                        ... и ещё {freeIds.length - 500} номеров
+                      </p>
+                    )}
+                    {freeIds.length === 0 && (
+                      <p className="text-center text-[#999] text-sm py-8">
+                        Нет свободных номеров
+                      </p>
                     )}
                   </div>
-                </>
-              )}
-            </div>
-
-            {/* Reserved IDs */}
-            <div className="border rounded-lg p-4 bg-purple-50">
-              <h3 className="font-semibold mb-3 flex items-center gap-2">
-                <Lock className="w-4 h-4 text-purple-600" />
-                Зарезервированные ID ({currentIds.reserved.length})
-                <span className="text-xs text-gray-500 font-normal">
-                  - Не будут выданы автоматически
-                </span>
-              </h3>
-              {renderReservedMetadata()}
-            </div>
-
-            {/* Manual reservation */}
-            <div className="border rounded-lg p-4 bg-blue-50">
-              <h3 className="font-semibold mb-3 flex items-center gap-2">
-                <Plus className="w-4 h-4 text-blue-600" />
-                Зарезервировать определённые номера
-              </h3>
-              <div className="space-y-3">
-                <div>
-                  <Label htmlFor="manual-ids">
-                    Номера ID (через запятую)
-                  </Label>
-                  <Input
-                    id="manual-ids"
-                    placeholder="Например: 5, 10, 15, 100"
-                    value={manualIds}
-                    onChange={(e) => setManualIds(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="reserve-reason">
-                    Причина резервирования
-                  </Label>
-                  <Input
-                    id="reserve-reason"
-                    placeholder="Например: Для VIP клиента"
-                    value={reserveReason}
-                    onChange={(e) => setReserveReason(e.target.value)}
-                  />
-                </div>
-                <Button onClick={reserveManualIds}>
-                  <Lock className="w-4 h-4 mr-2" />
-                  Зарезервировать
-                </Button>
+                </ScrollArea>
               </div>
             </div>
 
-            {/* Help text */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h4 className="font-semibold text-blue-900 mb-2">
-                💡 Как это работает:
-              </h4>
-              <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
-                <li>
-                  <strong>Используемые ID</strong> - присвоены существующим пользователям
-                </li>
-                <li>
-                  <strong>Освобождённые ID</strong> - освобождены после удаления пользователей, 
-                  будут автоматически переиспользованы при регистрации новых
-                </li>
-                <li>
-                  <strong>Зарезервированные ID</strong> - заблокированы вами, не будут выданы 
-                  автоматически. Вы сможете присвоить их конкретному пользователю вручную
-                </li>
-                <li>
-                  Нажмите на освобождённый ID чтобы выбрать его для резервирования
-                </li>
-              </ul>
+            {/* Column 3: Reserved IDs */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-[#1E1E1E]">
+                  Зарезервированные
+                </h3>
+                <Badge variant="secondary">{reservedIds.length}</Badge>
+              </div>
+              <ScrollArea className="h-[600px] rounded-xl border border-[#E6E9EE] p-3 bg-purple-50">
+                <div className="space-y-2">
+                  {reservedIds.map(id => (
+                    <div
+                      key={id}
+                      className="px-3 py-3 rounded-lg bg-white border border-purple-200 hover:border-purple-400 transition-colors"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <code className="text-sm font-mono text-[#1E1E1E] font-semibold">
+                          {id}
+                        </code>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleUnreserveId(id)}
+                          className="h-7 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <X className="w-3 h-3" />
+                        </Button>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full text-xs"
+                        onClick={() => {
+                          setSelectedReservedId(id);
+                          setAssignDialogOpen(true);
+                        }}
+                      >
+                        <User className="w-3 h-3 mr-1" />
+                        Присвоить пользователю
+                      </Button>
+                    </div>
+                  ))}
+                  {reservedIds.length === 0 && (
+                    <p className="text-center text-[#999] text-sm py-8">
+                      Нет зарезервированных номеров
+                    </p>
+                  )}
+                </div>
+              </ScrollArea>
             </div>
-          </TabsContent>
-        </Tabs>
-      </CardContent>
-    </Card>
+          </div>
+
+          {/* Help */}
+          <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+            <h4 className="font-semibold text-[#1E1E1E] mb-2">
+              💡 Как это работает:
+            </h4>
+            <ul className="text-sm text-[#666] space-y-1">
+              <li>• <strong>Занятые</strong> — присвоены пользователям (кликабельны для перехода)</li>
+              <li>• <strong>Свободные</strong> — выдаются по порядку при регистрации</li>
+              <li>• <strong>Зарезервированные</strong> — не выдаются автоматически, можно присвоить вручную</li>
+              <li>• При смене номера старый возвращается в свободные</li>
+            </ul>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Assign Dialog */}
+      <Dialog 
+        open={assignDialogOpen} 
+        onOpenChange={(open) => {
+          setAssignDialogOpen(open);
+          if (!open) {
+            setSearchQuery('');
+            setSelectedUserId('');
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Присвоить номер {selectedReservedId} пользователю</DialogTitle>
+            <DialogDescription>
+              Введите имя или фамилию для поиска пользователя. Старый номер пользователя вернётся в список свободных.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {/* Search Input */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[#999]" />
+              <Input
+                placeholder="Введите имя или фамилию..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+
+            {/* Filtered Users List */}
+            <div className="border rounded-lg">
+              <ScrollArea className="h-[300px]">
+                <div className="p-2 space-y-1">
+                  {users
+                    .filter(user => {
+                      const query = searchQuery.toLowerCase().trim();
+                      if (!query) return true;
+                      return (
+                        user.имя.toLowerCase().includes(query) ||
+                        user.фамилия.toLowerCase().includes(query) ||
+                        user.id.includes(query) ||
+                        user.email.toLowerCase().includes(query)
+                      );
+                    })
+                    .sort((a, b) => {
+                      // Sort by relevance if there's a search query
+                      if (searchQuery.trim()) {
+                        const query = searchQuery.toLowerCase();
+                        const aNameMatch = a.имя.toLowerCase().startsWith(query) || a.фамилия.toLowerCase().startsWith(query);
+                        const bNameMatch = b.имя.toLowerCase().startsWith(query) || b.фамилия.toLowerCase().startsWith(query);
+                        if (aNameMatch && !bNameMatch) return -1;
+                        if (!aNameMatch && bNameMatch) return 1;
+                      }
+                      return `${a.имя} ${a.фамилия}`.localeCompare(`${b.имя} ${b.фамилия}`);
+                    })
+                    .map(user => (
+                      <button
+                        key={user.id}
+                        onClick={() => setSelectedUserId(user.id)}
+                        className={`w-full text-left px-4 py-3 rounded-lg transition-all hover:bg-[#F7FAFC] ${
+                          selectedUserId === user.id
+                            ? 'bg-gradient-to-r from-[#39B7FF]/10 to-[#12C9B6]/10 border-2 border-[#39B7FF]'
+                            : 'border-2 border-transparent hover:border-[#E6E9EE]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-[#1E1E1E]">
+                                {user.имя} {user.фамилия}
+                              </span>
+                              {selectedUserId === user.id && (
+                                <Check className="w-4 h-4 text-[#39B7FF]" />
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-1 text-xs text-[#666]">
+                              <code className="bg-gray-100 px-2 py-0.5 rounded">
+                                ID: {user.id}
+                              </code>
+                              <span>{user.email}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  {users.filter(user => {
+                    const query = searchQuery.toLowerCase().trim();
+                    if (!query) return true;
+                    return (
+                      user.имя.toLowerCase().includes(query) ||
+                      user.фамилия.toLowerCase().includes(query) ||
+                      user.id.includes(query) ||
+                      user.email.toLowerCase().includes(query)
+                    );
+                  }).length === 0 && (
+                    <div className="text-center py-8 text-[#999]">
+                      Пользователи не найдены
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
+
+            {/* Selected User Warning */}
+            {selectedUserId && (
+              <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-sm text-yellow-800">
+                  ⚠️ Старый номер <code className="bg-yellow-100 px-1.5 py-0.5 rounded">{users.find(u => u.id === selectedUserId)?.id}</code> вернётся в свободные
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setAssignDialogOpen(false);
+                setSearchQuery('');
+                setSelectedUserId('');
+              }}
+            >
+              Отмена
+            </Button>
+            <Button 
+              onClick={handleAssignReservedId}
+              disabled={!selectedUserId}
+              className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white disabled:opacity-50"
+            >
+              <Check className="w-4 h-4 mr-2" />
+              Присвоить номер
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

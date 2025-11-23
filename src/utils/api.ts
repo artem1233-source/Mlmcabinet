@@ -1,8 +1,20 @@
 // API client for backend communication
 import { projectId, publicAnonKey } from './supabase/info';
 
+// Validate Supabase configuration
+if (!projectId) {
+  console.error('❌ CRITICAL: projectId is not set in supabase/info.tsx');
+}
+if (!publicAnonKey) {
+  console.error('❌ CRITICAL: publicAnonKey is not set in supabase/info.tsx');
+}
+
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a`;
 const ANON_KEY = publicAnonKey;
+
+console.log('🔧 API Configuration:');
+console.log('  API_BASE:', API_BASE);
+console.log('  ANON_KEY:', ANON_KEY ? 'Set ✓' : 'MISSING ✗');
 
 // Store auth token
 let authToken: string | null = null;
@@ -39,26 +51,41 @@ async function apiCall(endpoint: string, options: RequestInit = {}) {
     headers['X-User-Id'] = userId;
   }
   
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  const url = `${API_BASE}${endpoint}`;
+  console.log(`🌐 API Call: ${options.method || 'GET'} ${url}`);
+  console.log(`🔑 User ID: ${userId || 'NOT SET'}`);
+  console.log(`🔑 Anon Key: ${ANON_KEY ? 'Present' : 'MISSING'}`);
   
-  if (!response.ok) {
-    const errorText = await response.text();
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    });
     
-    let error;
-    try {
-      error = JSON.parse(errorText);
-    } catch (e) {
-      error = { error: errorText || 'Network error' };
+    console.log(`📡 Response status: ${response.status} ${response.statusText}`);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      
+      let error;
+      try {
+        error = JSON.parse(errorText);
+      } catch (e) {
+        error = { error: errorText || 'Network error' };
+      }
+      
+      console.error(`❌ API error ${response.status} for ${endpoint}:`, error);
+      throw new Error(error.error || `API error: ${response.status}`);
     }
     
-    console.error(`API error ${response.status} for ${endpoint}:`, error);
-    throw new Error(error.error || `API error: ${response.status}`);
+    const data = await response.json();
+    console.log(`✅ API success:`, data);
+    return data;
+    
+  } catch (error) {
+    console.error(`💥 Fetch failed for ${endpoint}:`, error);
+    throw error;
   }
-  
-  return response.json();
 }
 
 // ======================
@@ -260,21 +287,54 @@ export async function getIdsStatus() {
   return apiCall('/admin/ids-status');
 }
 
-export async function reserveIds(type: 'user' | 'partner', ids: number[], reason?: string) {
-  return apiCall('/admin/reserve-ids', {
+export async function reserveIdsOld(type: 'user' | 'partner', ids: number[], reason?: string) {
+  return apiCall('/admin/reserve-ids-old', {
     method: 'POST',
     body: JSON.stringify({ type, ids, reason }),
   });
 }
 
-export async function unreserveIds(type: 'user' | 'partner', ids: number[]) {
-  return apiCall('/admin/unreserve-ids', {
+export async function unreserveIdsOld(type: 'user' | 'partner', ids: number[]) {
+  return apiCall('/admin/unreserve-ids-old', {
     method: 'POST',
     body: JSON.stringify({ type, ids }),
   });
 }
 
+// New ID management functions (001-9999)
+export async function getReservedIds() {
+  return apiCall('/admin/reserved-ids');
+}
+
+export async function reserveIds(ids: string[]) {
+  console.log('🟢 API: reserveIds called with:', ids);
+  const result = await apiCall('/admin/reserve-ids', {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
+  });
+  console.log('🟢 API: reserveIds result:', result);
+  return result;
+}
+
+export async function unreserveId(id: string) {
+  return apiCall('/admin/unreserve-id', {
+    method: 'POST',
+    body: JSON.stringify({ id }),
+  });
+}
+
+export async function assignReservedId(newId: string, userId: string) {
+  return apiCall('/admin/assign-reserved-id', {
+    method: 'POST',
+    body: JSON.stringify({ newId, userId }),
+  });
+}
+
 export async function getAllOrdersAdmin() {
+  return apiCall('/admin/orders');
+}
+
+export async function getAllOrders() {
   return apiCall('/admin/orders');
 }
 
@@ -318,6 +378,30 @@ export async function clearAllTransactions() {
   return apiCall('/admin/clear-transactions', {
     method: 'POST',
   });
+}
+
+export async function testServerConnection() {
+  console.log('🔌 Testing server connection...');
+  try {
+    const response = await apiCall('/health');
+    console.log('✅ Server connection test passed:', response);
+    return response;
+  } catch (error) {
+    console.error('❌ Server connection test failed:', error);
+    throw error;
+  }
+}
+
+export async function testAdminConnection() {
+  console.log('🔌 Testing admin endpoints connection...');
+  try {
+    const response = await apiCall('/admin/health');
+    console.log('✅ Admin connection test passed:', response);
+    return response;
+  } catch (error) {
+    console.error('❌ Admin connection test failed:', error);
+    throw error;
+  }
 }
 
 export async function getCounterInfo() {
@@ -632,4 +716,43 @@ export async function uploadCourseMaterial(file: File) {
   }
   
   return response.json();
+}
+
+// ======================
+// TRAINING MATERIALS
+// ======================
+
+export async function getTrainingMaterials() {
+  return apiCall('/training-materials');
+}
+
+export async function createTrainingMaterial(materialData: any) {
+  return apiCall('/admin/training-materials', {
+    method: 'POST',
+    body: JSON.stringify(materialData),
+  });
+}
+
+export async function updateTrainingMaterial(materialId: string, materialData: any) {
+  return apiCall(`/admin/training-materials/${materialId}`, {
+    method: 'PUT',
+    body: JSON.stringify(materialData),
+  });
+}
+
+export async function deleteTrainingMaterial(materialId: string) {
+  return apiCall(`/admin/training-materials/${materialId}`, {
+    method: 'DELETE',
+  });
+}
+
+// ======================
+// ADMIN - ORDERS
+// ======================
+
+export async function updateOrderStatus(orderId: string, status: string) {
+  return apiCall(`/admin/orders/${orderId}/status`, {
+    method: 'POST',
+    body: JSON.stringify({ status }),
+  });
 }

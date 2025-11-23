@@ -10,25 +10,30 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { DollarSign, TrendingUp, Users, UserCheck, AlertCircle } from 'lucide-react';
 import type { ProductCommission } from '../utils/types/commission';
-import { validateCommission } from '../utils/types/commission';
+import { validateCommission, DEFAULT_COMMISSIONS } from '../utils/types/commission';
+
+// Дефолтная комиссия если не передана
+const EMPTY_COMMISSION: ProductCommission = {
+  guest: { L0: 0, L1: 0, L2: 0, L3: 0 },
+  partner: { L1: 0, L2: 0, L3: 0, L4: 0, L5: 0 }
+};
 
 interface CommissionEditorProps {
-  commission: ProductCommission;
-  onChange: (commission: ProductCommission) => void;
+  commission?: ProductCommission; // ✅ Сделано необязательным
+  onChange?: (commission: ProductCommission) => void;
   disabled?: boolean;
-  // 🆕 Цены товара для расчёта формул
-  retailPrice?: number;  // цена_розница
+  retailPrice?: number; // цена_розница
   partnerPrice?: number; // цена1
 }
 
 export function CommissionEditor({ commission, onChange, disabled = false, retailPrice, partnerPrice }: CommissionEditorProps) {
-  const [localCommission, setLocalCommission] = useState<ProductCommission>(commission);
+  const [localCommission, setLocalCommission] = useState<ProductCommission>(commission || EMPTY_COMMISSION);
   const [validationError, setValidationError] = useState<string>('');
 
   // 🆕 Синхронизация localCommission с пропом commission
   useEffect(() => {
     console.log('🔄 CommissionEditor: updating localCommission from prop', commission);
-    setLocalCommission(commission);
+    setLocalCommission(commission || EMPTY_COMMISSION);
   }, [commission]);
 
   const handleChange = (type: 'guest' | 'partner', level: string, value: string) => {
@@ -51,7 +56,7 @@ export function CommissionEditor({ commission, onChange, disabled = false, retai
     }
 
     setLocalCommission(updated);
-    onChange(updated);
+    onChange && onChange(updated);
   };
 
   const totalGuestCommission = Object.values(localCommission.guest || {}).reduce((sum, v) => sum + (v || 0), 0);

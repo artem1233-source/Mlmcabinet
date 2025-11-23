@@ -23,6 +23,8 @@ import { DEFAULT_COMMISSIONS } from '../utils/types/commission';
 import { AchievementsAdminRu } from './AchievementsAdminRu';
 import { UsersTreeView } from './admin/UsersTreeView';
 import { IdManager } from './admin/IdManager';
+import { ServerTest } from './ServerTest';
+import * as localCounter from '../utils/localCounter';
 
 interface AdminRuProps {
   currentUser: any;
@@ -90,22 +92,53 @@ export function AdminRu({ currentUser }: AdminRuProps) {
         setTrainingMaterials(trainingResponse.materials || []);
       }
 
-      // Load counter info
-      try {
-        const counterUrl = `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/counter`;
-        const counterResponse = await fetch(counterUrl, {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-          },
-        });
-        const counterData = await counterResponse.json();
-        if (counterData.success) {
-          setNextUserId(counterData.nextId);
+      // ✅ Load counter from local storage ONLY (skip server sync to avoid errors)
+      console.log('📊 Loading counter from local storage...');
+      
+      const localNextUserId = localCounter.getNextLocalUserId();
+      const localNextPartnerId = localCounter.getNextLocalPartnerId();
+      console.log('📍 Local counters:', { localNextUserId, localNextPartnerId });
+      
+      // Set local counter
+      setNextUserId(localNextUserId);
+      console.log('✅ Counter loaded from local storage:', localNextUserId);
+      
+      // 💡 Server sync disabled to prevent "Failed to fetch" errors
+      // To enable server sync, deploy Supabase Functions and uncomment the sync code below
+      
+      /*
+      // Optional: Try to sync with server (only when server is deployed)
+      if (projectId && publicAnonKey) {
+        try {
+          const counterUrl = `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/counter`;
+          const userId = api.getAuthToken();
+          
+          const response = await fetch(counterUrl, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${publicAnonKey}`,
+              'X-User-Id': userId || '',
+            },
+          });
+          
+          if (response.ok) {
+            const counterData = await response.json();
+            if (counterData.success) {
+              localCounter.syncCountersWithServer(
+                counterData.userCounter || 0,
+                counterData.partnerCounter || 0
+              );
+              setNextUserId(counterData.nextUserId || counterData.nextId);
+              console.log('✅ Counter synced with server');
+            }
+          }
+        } catch (error) {
+          console.log('⚠️ Server sync skipped (server not deployed)');
         }
-      } catch (error) {
-        console.error('Failed to load counter:', error);
       }
-
+      */
+      
       // Calculate stats
       const totalRevenue = (ordersResponse.orders || []).reduce((sum: number, order: any) => 
         sum + (order.итого || 0), 0
@@ -328,7 +361,9 @@ export function AdminRu({ currentUser }: AdminRuProps) {
             </div>
             <div>
               <h1 className="text-[#1E1E1E]">Панель администратора</h1>
-              <p className="text-[#666]">Управление системой и пользователями</p>
+              <p className="text-[#666]">
+                Системные настройки • Управление пользователями доступно в главном меню
+              </p>
             </div>
           </div>
         </div>
@@ -398,8 +433,8 @@ export function AdminRu({ currentUser }: AdminRuProps) {
             <TabsTrigger value="overview" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white">
               Обзор
             </TabsTrigger>
-            <TabsTrigger value="users" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white">
-              Пользователи
+            <TabsTrigger value="diagnostics" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white">
+              🔍 Диагностика
             </TabsTrigger>
             <TabsTrigger value="orders" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white">
               Заказы
@@ -463,130 +498,92 @@ export function AdminRu({ currentUser }: AdminRuProps) {
             </Card>
           </TabsContent>
 
-          {/* Users Tab */}
-          <TabsContent value="users">
-            {/* Users Tree and ID Manager */}
-            <div className="space-y-6 mb-6">
-              <UsersTreeView currentUser={currentUser} />
-              <IdManager currentUser={currentUser} />
-            </div>
+          {/* Diagnostics Tab */}
+          <TabsContent value="diagnostics">
+            <div className="space-y-6">
+              {/* Server Connectivity Test */}
+              <ServerTest />
 
-            {/* User List Card */}
-            <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-[#1E1E1E]">Все пользователи ({users.length})</CardTitle>
-                    <p className="text-sm text-[#666] mt-1">
-                      Следующий ID: <span className="font-mono font-bold text-[#39B7FF]">{nextUserId}</span>
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-xs">
-                      Project: {projectId ? '✓' : '✗'}
-                    </Badge>
-                    <Badge variant="outline" className="text-xs">
-                      Auth: {publicAnonKey ? '✓' : '✗'}
-                    </Badge>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="border-orange-500 text-orange-600 hover:bg-orange-50"
-                      onClick={handleResetCounter}
-                    >
-                      🔄 Сбросить счётчик
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        console.log('=== DIAGNOSTIC INFO ===');
-                        console.log('projectId:', projectId);
-                        console.log('publicAnonKey:', publicAnonKey ? 'EXISTS' : 'MISSING');
-                        console.log('currentUser:', currentUser);
-                        console.log('users count:', users.length);
-                        console.log('nextUserId:', nextUserId);
-                        toast.success('Проверьте консоль браузера!');
-                      }}
-                    >
-                      🔍 Диагностика
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {users.map((user) => (
-                    <div
-                      key={user.id}
-                      className="flex items-center justify-between p-4 bg-[#F7FAFC] rounded-xl"
-                    >
-                      <div className="flex items-center gap-4 flex-1">
-                        <div className="w-12 h-12 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-xl flex items-center justify-center text-white">
-                          <span style={{ fontWeight: '700' }}>
-                            {user.имя.charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <p className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>
-                              {user.имя}
-                            </p>
-                            <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white">
-                              ID: {user.id}
-                            </Badge>
-                            <Badge className="bg-gray-100 text-gray-700">
-                              Уровень {user.уровень}
-                            </Badge>
-                            {user.isAdmin && (
-                              <Badge className="bg-red-100 text-red-700">
-                                Админ
-                              </Badge>
-                            )}
-                            {user.id === currentUser?.id && (
-                              <Badge className="bg-blue-100 text-blue-700">
-                                Вы
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-[#666]" style={{ fontSize: '13px' }}>
-                            {user.email} • Реф.код: {user.рефКод}
-                          </p>
+              {/* System Status */}
+              <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
+                <CardHeader>
+                  <CardTitle className="text-[#1E1E1E]">Статус системы</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between p-4 bg-[#F7FAFC] rounded-xl">
+                      <div className="flex items-center gap-3">
+                        <Shield className="w-5 h-5 text-[#39B7FF]" />
+                        <div>
+                          <p style={{ fontWeight: '600' }} className="text-[#1E1E1E]">Проект ID</p>
+                          <p className="text-[#666]" style={{ fontSize: '13px' }}>Проверка проекта</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <p className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>
-                            ₽{user.баланс?.toLocaleString() || 0}
-                          </p>
-                          <p className="text-[#666]" style={{ fontSize: '12px' }}>Баланс</p>
-                        </div>
-                        {user.id !== currentUser?.id ? (
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => handleDeleteUser(user.id, user.имя, user.email)}
-                          >
-                            <Trash2 className="w-4 h-4 mr-1" />
-                            Удалить
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled
-                            className="border-gray-300 text-gray-400 cursor-not-allowed"
-                          >
-                            <Shield className="w-4 h-4 mr-1" />
-                            Это вы
-                          </Button>
-                        )}
-                      </div>
+                      <Badge className={projectId ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
+                        {projectId ? '✓' : '✗'}
+                      </Badge>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+
+                    <div className="flex items-center justify-between p-4 bg-[#F7FAFC] rounded-xl">
+                      <div className="flex items-center gap-3">
+                        <Shield className="w-5 h-5 text-[#39B7FF]" />
+                        <div>
+                          <p style={{ fontWeight: '600' }} className="text-[#1E1E1E]">Ключ анонимного доступа</p>
+                          <p className="text-[#666]" style={{ fontSize: '13px' }}>Проверка ключа</p>
+                        </div>
+                      </div>
+                      <Badge className={publicAnonKey ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
+                        {publicAnonKey ? '✓' : '✗'}
+                      </Badge>
+                    </div>
+
+                    <div className="flex items-center justify-between p-4 bg-[#F7FAFC] rounded-xl">
+                      <div className="flex items-center gap-3">
+                        <Shield className="w-5 h-5 text-[#39B7FF]" />
+                        <div>
+                          <p style={{ fontWeight: '600' }} className="text-[#1E1E1E]">Текущий пользователь</p>
+                          <p className="text-[#666]" style={{ fontSize: '13px' }}>Проверка пользователя</p>
+                        </div>
+                      </div>
+                      <Badge className={currentUser ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
+                        {currentUser ? '✓' : '✗'}
+                      </Badge>
+                    </div>
+
+                    <div className="flex items-center justify-between p-4 bg-[#F7FAFC] rounded-xl">
+                      <div className="flex items-center gap-3">
+                        <Shield className="w-5 h-5 text-[#39B7FF]" />
+                        <div>
+                          <p style={{ fontWeight: '600' }} className="text-[#1E1E1E]">Счётчик пользователей</p>
+                          <p className="text-[#666]" style={{ fontSize: '13px' }}>
+                            Локальный: {localCounter.getNextLocalUserId()} | 
+                            Партнёр: {localCounter.getNextLocalPartnerId()}
+                          </p>
+                        </div>
+                      </div>
+                      <Badge className={nextUserId ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
+                        {nextUserId ? '✓' : '✗'}
+                      </Badge>
+                    </div>
+
+                    <div className="flex items-center justify-between p-4 bg-blue-50 border-2 border-blue-200 rounded-xl">
+                      <div className="flex items-center gap-3">
+                        <Shield className="w-5 h-5 text-blue-600" />
+                        <div>
+                          <p style={{ fontWeight: '600' }} className="text-blue-900">💾 Локальный режим активен</p>
+                          <p className="text-blue-700" style={{ fontSize: '13px' }}>
+                            Приложение работает автономно с локальными счётчиками
+                          </p>
+                        </div>
+                      </div>
+                      <Badge className="bg-blue-600 text-white">
+                        Активно
+                      </Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
 
           {/* Orders Tab */}
@@ -597,9 +594,9 @@ export function AdminRu({ currentUser }: AdminRuProps) {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {orders.map((order) => (
+                  {orders.map((order, index) => (
                     <div
-                      key={order.id}
+                      key={`${order.id}-${index}`}
                       className="flex items-center justify-between p-4 bg-[#F7FAFC] rounded-xl"
                     >
                       <div className="flex-1">
