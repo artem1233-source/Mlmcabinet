@@ -18,6 +18,7 @@ import { ResetPasswordRu } from './components/ResetPasswordRu';
 import { RegistrationRu } from './components/RegistrationRu';
 import { LoginRu } from './components/LoginRu';
 import { PartnerIdDemo } from './components/PartnerIdDemo';
+import { RefCodeDemo } from './components/RefCodeDemo';
 import { ServerHealthCheck } from './components/ServerHealthCheck';
 import TelegramWidgetTest from './components/TelegramWidgetTest';
 import TelegramDiagnostic from './components/TelegramDiagnostic';
@@ -34,6 +35,11 @@ export default function AppRu() {
   // Если URL содержит /partner-id-demo, показываем демо страницу
   if (window.location.pathname === '/partner-id-demo') {
     return <PartnerIdDemo />;
+  }
+  
+  // Если URL содержит /refcode-demo, показываем демо реф-кодов
+  if (window.location.pathname === '/refcode-demo') {
+    return <RefCodeDemo />;
   }
   
   // Если URL содержит /register, показываем страницу регистрации
@@ -150,7 +156,7 @@ export default function AppRu() {
       if (session?.access_token && session?.user) {
         console.log('OAuth successful, creating user in database...');
         
-        // Вызываем API для создания/получения оль��ователя в базе данных
+        // Вызываем API для создания/получения ольователя в базе данных
         const apiUrl = `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/auth/oauth`;
         
         const response = await fetch(apiUrl, {
@@ -271,7 +277,7 @@ export default function AppRu() {
       
       setCurrentUser(userData);
       setIsAuthenticated(true);
-      toast.success(`Добро пожало��ать, ${userData.имя || 'пользователь'}!`);
+      toast.success(`Добро пожалоать, ${userData.имя || 'пользователь'}!`);
     } catch (error) {
       console.error('Error handling auth:', error);
       toast.error('Ошибка при обработке авторизации');

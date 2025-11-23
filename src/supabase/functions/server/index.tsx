@@ -21,6 +21,42 @@ async function createHmacSha256(key: string | Uint8Array, data: string): Promise
     .join('');
 }
 
+// Генерация читаемого реф-кода из имени
+function generateReadableRefCode(firstName: string, lastName: string = ''): string {
+  // Транслитерация кириллицы в латиницу
+  const translitMap: Record<string, string> = {
+    'а': 'A', 'б': 'B', 'в': 'V', 'г': 'G', 'д': 'D', 'е': 'E', 'ё': 'E', 'ж': 'ZH',
+    'з': 'Z', 'и': 'I', 'й': 'Y', 'к': 'K', 'л': 'L', 'м': 'M', 'н': 'N', 'о': 'O',
+    'п': 'P', 'р': 'R', 'с': 'S', 'т': 'T', 'у': 'U', 'ф': 'F', 'х': 'H', 'ц': 'TS',
+    'ч': 'CH', 'ш': 'SH', 'щ': 'SCH', 'ъ': '', 'ы': 'Y', 'ь': '', 'э': 'E', 'ю': 'YU', 'я': 'YA'
+  };
+  
+  const translit = (text: string): string => {
+    return text.toLowerCase().split('').map(char => {
+      return translitMap[char] || char.toUpperCase();
+    }).join('');
+  };
+  
+  // Берем первые 3-4 буквы имени
+  const firstNamePart = translit(firstName).substring(0, 4).toUpperCase();
+  
+  // Если есть фамилия, добавляем первую букву
+  let namePart = firstNamePart;
+  if (lastName && lastName.trim()) {
+    const lastNameInitial = translit(lastName).substring(0, 1).toUpperCase();
+    namePart = `${firstNamePart}${lastNameInitial}`;
+  }
+  
+  // Добавляем уникальный числовой суффикс (последние 4 цифры timestamp)
+  const timestamp = Date.now().toString();
+  const suffix = timestamp.substring(timestamp.length - 4);
+  
+  // Убираем нелатинские символы и ограничиваем длину
+  const cleanName = namePart.replace(/[^A-Z]/g, '').substring(0, 5);
+  
+  return `${cleanName}-${suffix}`;
+}
+
 const app = new Hono();
 
 // Initialize Supabase client
@@ -364,8 +400,16 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
     // 🆕 Получаем спонсора если указан реферальный код
     let sponsor = null;
     if (referralCode && referralCode.trim()) {
-      const sponsorKey = `user:id:${referralCode.trim()}`;
-      sponsor = await kv.get(sponsorKey);
+      // Try to find by ID first (backward compatibility)
+      sponsor = await kv.get(`user:id:${referralCode.trim()}`);
+      
+      // If not found, try by refCode
+      if (!sponsor) {
+        const refData = await kv.get(`user:refcode:${referralCode.trim()}`);
+        if (refData && refData.id) {
+          sponsor = await kv.get(`user:id:${refData.id}`);
+        }
+      }
       
       if (!sponsor) {
         console.log(`Signup failed: Invalid referral code: ${referralCode}`);
@@ -414,6 +458,10 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
     
     console.log(`Generated user ID: ${newUserId}`);
     
+    // 🆕 Генерация читаемого реф-кода
+    const refCode = generateReadableRefCode(firstName.trim(), lastName.trim());
+    console.log(`Generated readable ref code: ${refCode}`);
+    
     // 🆕 Построение upline структуры
     const upline: any = {
       u0: null,
@@ -451,7 +499,7 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
       фамилия: lastName.trim(),
       username: email.split('@')[0],
       уровень: 1, // Новые партнёры начинают с уровня 1
-      рефКод: newUserId, // ID = реф-код
+      рефКод: refCode, // Читаемый реф-код
       спонсорId: sponsor ? sponsor.id : null,
       upline: upline,
       баланс: 0,
@@ -471,6 +519,8 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
     console.log('Saving user to KV store...');
     await kv.set(userKey, newUser);
     await kv.set(emailKey, { id: newUserId }); // Храним только ID для быстрого поиска
+    // Create refCode index for fast lookup
+    await kv.set(`user:refcode:${refCode}`, { id: newUserId });
     
     // 🆕 Обновляем команду спонсора
     if (sponsor) {
@@ -486,11 +536,12 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
       console.log(`Updated sponsor ${sponsor.id} team: added ${newUserId}`);
     }
     
-    console.log(`✅ New user registered: ${newUser.имя} ${newUser.фамилия} (ID: ${newUserId})${(isFirstUser || isAdminEmail) ? ' [ADMIN]' : ''}${sponsor ? ` sponsored by ${sponsor.id}` : ''}`);
+    console.log(`✅ New user registered: ${newUser.имя} ${newUser.фамилия} (ID: ${newUserId}, RefCode: ${refCode})${(isFirstUser || isAdminEmail) ? ' [ADMIN]' : ''}${sponsor ? ` sponsored by ${sponsor.id}` : ''}`);
     
     return c.json({ 
       success: true, 
       user: newUser,
+      refCode: refCode,
       message: 'Registration successful'
     });
     
@@ -661,18 +712,18 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
   try {
     console.log('Partner registration request');
     
-    const { name, email, password, phone, sponsorRefCode } = await c.req.json();
+    const { firstName, lastName, email, password, phone, sponsorRefCode } = await c.req.json();
     
     // Validation
-    if (!name || !email || !password) {
-      return c.json({ error: "Имя, email и пароль обязательны" }, 400);
+    if (!firstName || !lastName || !email || !password) {
+      return c.json({ error: "Имя, фамилия, email и пароль обязательны" }, 400);
     }
     
     if (password.length < 6) {
       return c.json({ error: "Пароль должен быть минимум 6 символов" }, 400);
     }
     
-    console.log(`Registering partner: ${name}, email: ${email}, sponsor: ${sponsorRefCode || 'none'}`);
+    console.log(`Registering partner: ${firstName} ${lastName}, email: ${email}, sponsor: ${sponsorRefCode || 'none'}`);
     
     // Check if email already exists
     const emailKey = `user:email:${email.trim().toLowerCase()}`;
@@ -685,9 +736,16 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
     // Find sponsor if referral code provided
     let sponsor = null;
     if (sponsorRefCode && sponsorRefCode.trim()) {
-      // Try to find sponsor by ID (ref code = ID)
-      const sponsorKey = `user:id:${sponsorRefCode.trim()}`;
-      sponsor = await kv.get(sponsorKey);
+      // Try to find by ID first (backward compatibility)
+      sponsor = await kv.get(`user:id:${sponsorRefCode.trim()}`);
+      
+      // If not found, try by refCode
+      if (!sponsor) {
+        const refData = await kv.get(`user:refcode:${sponsorRefCode.trim()}`);
+        if (refData && refData.id) {
+          sponsor = await kv.get(`user:id:${refData.id}`);
+        }
+      }
       
       if (!sponsor) {
         console.log(`Registration failed: Invalid referral code: ${sponsorRefCode}`);
@@ -703,7 +761,8 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
       email: email.trim(),
       password: password,
       user_metadata: { 
-        name: name.trim()
+        firstName: firstName.trim(),
+        lastName: lastName.trim()
       },
       email_confirm: true // Auto-confirm since no email server configured
     });
@@ -734,8 +793,9 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
     
     console.log(`Generated partner ID: ${partnerId}`);
     
-    // Generate referral code (same as partner ID)
-    const refCode = partnerId;
+    // Generate readable referral code
+    const refCode = generateReadableRefCode(firstName.trim(), lastName.trim());
+    console.log(`Generated readable ref code: ${refCode}`);
     
     // Build upline structure
     const upline: any = {
@@ -765,8 +825,8 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
       id: partnerId,
       supabaseId: authData.user.id,
       email: email.trim().toLowerCase(),
-      имя: name.trim(),
-      фамилия: '',
+      имя: firstName.trim(),
+      фамилия: lastName.trim(),
       username: email.split('@')[0],
       уровень: 1, // New partners start at level 1
       рефКод: refCode,
@@ -789,6 +849,8 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
     console.log('Saving partner to KV store...');
     await kv.set(userKey, newUser);
     await kv.set(emailKey, { id: partnerId });
+    // Create refCode index for fast lookup
+    await kv.set(`user:refcode:${refCode}`, { id: partnerId });
     
     // Update sponsor's team
     if (sponsor) {
@@ -804,11 +866,12 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
       console.log(`Updated sponsor ${sponsor.id} team: added ${partnerId}`);
     }
     
-    console.log(`✅ New partner registered: ${newUser.имя} (ID: ${partnerId})${sponsor ? ` sponsored by ${sponsor.id}` : ''}`);
+    console.log(`✅ New partner registered: ${newUser.имя} ${newUser.фамилия} (ID: ${partnerId}, RefCode: ${refCode})${sponsor ? ` sponsored by ${sponsor.id}` : ''}`);
     
     return c.json({ 
       success: true, 
       partnerId: partnerId,
+      refCode: refCode,
       user: newUser,
       message: 'Регистрация успешна!'
     });

@@ -9,7 +9,8 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 export function RegistrationRu() {
   const [formData, setFormData] = useState({
-    name: '',
+    firstName: '',
+    lastName: '',
     email: '',
     password: '',
     confirmPassword: '',
@@ -20,6 +21,7 @@ export function RegistrationRu() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [partnerId, setPartnerId] = useState('');
+  const [refCode, setRefCode] = useState('');
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -35,7 +37,7 @@ export function RegistrationRu() {
     setLoading(true);
 
     // Валидация
-    if (!formData.name || !formData.email || !formData.password) {
+    if (!formData.firstName || !formData.lastName || !formData.email || !formData.password) {
       setError('Пожалуйста, заполните все обязательные поля');
       setLoading(false);
       return;
@@ -69,7 +71,8 @@ export function RegistrationRu() {
             'Authorization': `Bearer ${publicAnonKey}`
           },
           body: JSON.stringify({
-            name: formData.name,
+            firstName: formData.firstName,
+            lastName: formData.lastName,
             email: formData.email,
             password: formData.password,
             phone: formData.phone,
@@ -85,6 +88,7 @@ export function RegistrationRu() {
       }
 
       setPartnerId(data.partnerId);
+      setRefCode(data.refCode || data.partnerId);
       setSuccess(true);
     } catch (err) {
       console.error('Registration error:', err);
@@ -111,6 +115,13 @@ export function RegistrationRu() {
             <div className="bg-[#39B7FF]/10 border border-[#39B7FF]/20 rounded-lg p-4">
               <p className="text-sm text-gray-600 mb-2">Ваш ID партнера:</p>
               <p className="text-2xl font-bold text-[#39B7FF]">{partnerId}</p>
+            </div>
+            <div className="bg-[#12C9B6]/10 border border-[#12C9B6]/20 rounded-lg p-4">
+              <p className="text-sm text-gray-600 mb-2">Ваш реферальный код:</p>
+              <p className="text-xl font-bold text-[#12C9B6]">{refCode}</p>
+              <p className="text-xs text-gray-500 mt-2">
+                Используйте этот код для приглашения партнеров
+              </p>
             </div>
             <p className="text-sm text-gray-600 text-center">
               На ваш email отправлено письмо с данными для входа
@@ -148,15 +159,31 @@ export function RegistrationRu() {
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="name">
-                ФИО <span className="text-red-500">*</span>
+              <Label htmlFor="firstName">
+                Имя <span className="text-red-500">*</span>
               </Label>
               <Input
-                id="name"
-                name="name"
+                id="firstName"
+                name="firstName"
                 type="text"
-                placeholder="Иванов Иван Иванович"
-                value={formData.name}
+                placeholder="Иван"
+                value={formData.firstName}
+                onChange={handleChange}
+                disabled={loading}
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="lastName">
+                Фамилия <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="lastName"
+                name="lastName"
+                type="text"
+                placeholder="Иванов"
+                value={formData.lastName}
                 onChange={handleChange}
                 disabled={loading}
                 required
@@ -232,7 +259,7 @@ export function RegistrationRu() {
                 id="sponsorRefCode"
                 name="sponsorRefCode"
                 type="text"
-                placeholder="000001"
+                placeholder="IVAN-1234 или 000001"
                 value={formData.sponsorRefCode}
                 onChange={handleChange}
                 disabled={loading}
