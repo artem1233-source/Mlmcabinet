@@ -288,6 +288,16 @@ export async function clearAllTransactions() {
   });
 }
 
+export async function getCounterInfo() {
+  return apiCall('/admin/counter');
+}
+
+export async function resetCounter() {
+  return apiCall('/admin/reset-counter', {
+    method: 'POST',
+  });
+}
+
 export async function createUser(userData: {
   имя: string;
   фамилия: string;

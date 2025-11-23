@@ -121,15 +121,20 @@ export function RegistrationRu({ onSwitchToLogin }: RegistrationRuProps = {}) {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="bg-[#39B7FF]/10 border border-[#39B7FF]/20 rounded-lg p-4">
-              <p className="text-sm text-gray-600 mb-2">Ваш ID партнера:</p>
-              <p className="text-2xl font-bold text-[#39B7FF]">{partnerId}</p>
-            </div>
-            <div className="bg-[#12C9B6]/10 border border-[#12C9B6]/20 rounded-lg p-4">
-              <p className="text-sm text-gray-600 mb-2">Ваш реферальный код:</p>
-              <p className="text-xl font-bold text-[#12C9B6]">{refCode}</p>
-              <p className="text-xs text-gray-500 mt-2">
+            <div className="bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-xl p-6 text-white text-center">
+              <p className="text-sm opacity-90 mb-2">Ваш ID партнера:</p>
+              <p className="text-5xl font-bold mb-3" style={{ letterSpacing: '0.2em' }}>{partnerId}</p>
+              <p className="text-sm opacity-90">
                 Используйте этот код для приглашения партнеров
+              </p>
+            </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm text-blue-800 text-center">
+                💡 <strong>Ваш ID и реферальный код теперь одинаковые!</strong>
+                <br/>
+                <span className="text-xs text-blue-600">
+                  Партнёры смогут использовать код <strong>{partnerId}</strong> для регистрации под вами
+                </span>
               </p>
             </div>
             <p className="text-sm text-gray-600 text-center">

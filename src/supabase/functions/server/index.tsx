@@ -779,8 +779,8 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
     
     console.log(`Supabase user created: ${authData.user.id}`);
     
-    // Generate partner ID (000001, 000002, etc.)
-    const counterKey = 'counter:partnerId';
+    // Generate partner ID (001, 002, etc.)
+    const counterKey = 'system:partnerCounter';
     let currentCounter = await kv.get(counterKey);
     
     if (!currentCounter) {
@@ -788,14 +788,14 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
     }
     
     const newPartnerNumber = currentCounter + 1;
-    const partnerId = newPartnerNumber.toString().padStart(6, '0');
+    const partnerId = newPartnerNumber.toString().padStart(3, '0'); // Changed to 3 digits
     await kv.set(counterKey, newPartnerNumber);
     
     console.log(`Generated partner ID: ${partnerId}`);
     
-    // Generate readable referral code
-    const refCode = generateReadableRefCode(firstName.trim(), lastName.trim());
-    console.log(`Generated readable ref code: ${refCode}`);
+    // Referral code is now equal to partner ID
+    const refCode = partnerId;
+    console.log(`Generated ref code (same as ID): ${refCode}`);
     
     // Build upline structure
     const upline: any = {
@@ -4011,6 +4011,67 @@ app.delete("/make-server-05aa3c8a/admin/delete-user/:userId", async (c) => {
     
   } catch (error) {
     console.error('Delete user error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// Get current counter value (admin only)
+app.get("/make-server-05aa3c8a/admin/counter", async (c) => {
+  try {
+    const currentUser = c.get('currentUser');
+    
+    if (!currentUser) {
+      return c.json({ error: "Not authenticated" }, 401);
+    }
+    
+    await requireAdmin(c, currentUser);
+    
+    const counterKey = 'system:partnerCounter';
+    const currentCounter = await kv.get(counterKey);
+    const nextId = ((currentCounter || 0) + 1).toString().padStart(3, '0');
+    
+    return c.json({ 
+      success: true,
+      currentValue: currentCounter || 0,
+      nextId: nextId
+    });
+    
+  } catch (error) {
+    console.error('Get counter error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// Reset user counter (admin only)
+app.post("/make-server-05aa3c8a/admin/reset-counter", async (c) => {
+  try {
+    const currentUser = c.get('currentUser');
+    
+    if (!currentUser) {
+      return c.json({ error: "Not authenticated" }, 401);
+    }
+    
+    await requireAdmin(c, currentUser);
+    
+    const counterKey = 'system:partnerCounter';
+    
+    // Get current counter value
+    const currentCounter = await kv.get(counterKey);
+    console.log(`Current counter value: ${currentCounter}`);
+    
+    // Reset to 0
+    await kv.set(counterKey, 0);
+    console.log('✅ Counter reset to 0. Next user will be 001');
+    
+    return c.json({ 
+      success: true, 
+      message: 'Счётчик пользователей сброшен. Следующий ID будет 001',
+      oldValue: currentCounter,
+      newValue: 0
+    });
+    
+  } catch (error) {
+    console.error('Reset counter error:', error);
     return c.json({ error: String(error) }, 500);
   }
 });

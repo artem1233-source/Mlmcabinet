@@ -38,6 +38,7 @@ export function AdminRu({ currentUser }: AdminRuProps) {
   const [orders, setOrders] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [trainingMaterials, setTrainingMaterials] = useState<any[]>([]);
+  const [nextUserId, setNextUserId] = useState<string>('001');
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [newProduct, setNewProduct] = useState({
     название: '',
@@ -85,6 +86,22 @@ export function AdminRu({ currentUser }: AdminRuProps) {
       const trainingResponse = await api.getTrainingMaterials();
       if (trainingResponse.success) {
         setTrainingMaterials(trainingResponse.materials || []);
+      }
+
+      // Load counter info
+      try {
+        const counterUrl = `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/counter`;
+        const counterResponse = await fetch(counterUrl, {
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+          },
+        });
+        const counterData = await counterResponse.json();
+        if (counterData.success) {
+          setNextUserId(counterData.nextId);
+        }
+      } catch (error) {
+        console.error('Failed to load counter:', error);
       }
 
       // Calculate stats
@@ -149,6 +166,41 @@ export function AdminRu({ currentUser }: AdminRuProps) {
     } catch (error) {
       console.error('❌ Delete user error:', error);
       toast.error('Ошибка удаления пользователя', {
+        description: String(error)
+      });
+    }
+  };
+
+  const handleResetCounter = async () => {
+    if (!confirm('⚠️ СБРОС СЧЁТЧИКА ПОЛЬЗОВАТЕЛЕЙ\n\nВы действительно хотите сбросить счётчик?\n\nСледующий зарегистрированный пользователь получит ID: 001\n\nПродолжить?')) {
+      return;
+    }
+
+    try {
+      const url = `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/reset-counter`;
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${publicAnonKey}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+      console.log('Reset counter response:', data);
+
+      if (data.success) {
+        setNextUserId('001');
+        toast.success('Счётчик сброшен!', {
+          description: 'Следующий ID будет 001'
+        });
+      } else {
+        throw new Error(data.error || 'Failed to reset counter');
+      }
+    } catch (error) {
+      console.error('Reset counter error:', error);
+      toast.error('Ошибка сброса счётчика', {
         description: String(error)
       });
     }
@@ -414,7 +466,12 @@ export function AdminRu({ currentUser }: AdminRuProps) {
             <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-[#1E1E1E]">Все пользователи ({users.length})</CardTitle>
+                  <div>
+                    <CardTitle className="text-[#1E1E1E]">Все пользователи ({users.length})</CardTitle>
+                    <p className="text-sm text-[#666] mt-1">
+                      Следующий ID: <span className="font-mono font-bold text-[#39B7FF]">{nextUserId}</span>
+                    </p>
+                  </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="text-xs">
                       Project: {projectId ? '✓' : '✗'}
@@ -425,12 +482,21 @@ export function AdminRu({ currentUser }: AdminRuProps) {
                     <Button
                       size="sm"
                       variant="outline"
+                      className="border-orange-500 text-orange-600 hover:bg-orange-50"
+                      onClick={handleResetCounter}
+                    >
+                      🔄 Сбросить счётчик
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
                       onClick={() => {
                         console.log('=== DIAGNOSTIC INFO ===');
                         console.log('projectId:', projectId);
                         console.log('publicAnonKey:', publicAnonKey ? 'EXISTS' : 'MISSING');
                         console.log('currentUser:', currentUser);
                         console.log('users count:', users.length);
+                        console.log('nextUserId:', nextUserId);
                         toast.success('Проверьте консоль браузера!');
                       }}
                     >
@@ -457,6 +523,9 @@ export function AdminRu({ currentUser }: AdminRuProps) {
                             <p className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>
                               {user.имя}
                             </p>
+                            <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white">
+                              ID: {user.id}
+                            </Badge>
                             <Badge className="bg-gray-100 text-gray-700">
                               Уровень {user.уровень}
                             </Badge>
@@ -472,7 +541,7 @@ export function AdminRu({ currentUser }: AdminRuProps) {
                             )}
                           </div>
                           <p className="text-[#666]" style={{ fontSize: '13px' }}>
-                            {user.email} • ID: {user.id} • Реф: {user.рефКод}
+                            {user.email} • Реф.код: {user.рефКод}
                           </p>
                         </div>
                       </div>
