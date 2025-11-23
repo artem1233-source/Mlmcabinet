@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Mail, Lock, User, AlertCircle, CheckCircle } from 'lucide-react';
+import * as api from '../utils/api';
 
 interface EmailAuthProps {
   onAuth: (userData: any) => void;
@@ -162,8 +163,12 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
       }
 
       if (data.user && data.access_token) {
-        // Сохраняем токен
-        localStorage.setItem('access_token', data.access_token);
+        console.log('✅ Login successful, saving auth token for user:', data.user.id);
+        
+        // Используем api.setAuthToken для сохранения userId
+        // (система использует userId как токен)
+        api.setAuthToken(data.user.id);
+        
         onAuth(data.user);
       } else {
         throw new Error('Неверный ответ сервера');
@@ -391,7 +396,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
             onClick={() => setMode('login')}
             className="mb-6 text-[#39B7FF] hover:underline text-sm"
           >
-            ← Вернуться к входу
+            ← ��ернуться к входу
           </button>
         )}
 
@@ -673,13 +678,23 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
 
             {/* Admin Registration Link */}
             {mode === 'login' && (
-              <div className="mt-4 text-center">
-                <button
-                  onClick={() => setMode('admin-register')}
-                  className="text-purple-600 hover:underline text-sm font-semibold"
-                >
-                  👑 Создать учётную запись CEO (код CEO-2024)
-                </button>
+              <div className="mt-4 text-center space-y-2">
+                <div>
+                  <a
+                    href="/register"
+                    className="text-[#39B7FF] hover:underline text-sm font-semibold"
+                  >
+                    📝 Регистрация партнера (получить ID)
+                  </a>
+                </div>
+                <div>
+                  <button
+                    onClick={() => setMode('admin-register')}
+                    className="text-purple-600 hover:underline text-sm font-semibold"
+                  >
+                    👑 Создать учётную запись CEO (код CEO-2024)
+                  </button>
+                </div>
               </div>
             )}
           </>
@@ -739,7 +754,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
             </div>
             <div>
               <p className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '14px' }}>Прозрачные выплаты</p>
-              <p className="text-[#666]" style={{ fontSize: '13px' }}>Комиссии по 3 уровням ��низ</p>
+              <p className="text-[#666]" style={{ fontSize: '13px' }}>Комиссии по 3 уровням низ</p>
             </div>
           </div>
           

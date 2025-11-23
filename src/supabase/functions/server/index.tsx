@@ -451,7 +451,7 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
       фамилия: lastName.trim(),
       username: email.split('@')[0],
       уровень: 1, // Новые партнёры начинают с уровня 1
-      реф_код: newUserId, // ID = реф-код
+      рефКод: newUserId, // ID = реф-код
       спонсорId: sponsor ? sponsor.id : null,
       upline: upline,
       баланс: 0,
@@ -649,6 +649,174 @@ app.post("/make-server-05aa3c8a/auth/login", async (c) => {
   } catch (error) {
     console.log(`Email login error: ${error}`);
     return c.json({ error: `Login failed: ${error}` }, 500);
+  }
+});
+
+// ======================
+// PARTNER REGISTRATION
+// ======================
+
+// Register new partner with auto-generated ID
+app.post("/make-server-05aa3c8a/register", async (c) => {
+  try {
+    console.log('Partner registration request');
+    
+    const { name, email, password, phone, sponsorRefCode } = await c.req.json();
+    
+    // Validation
+    if (!name || !email || !password) {
+      return c.json({ error: "Имя, email и пароль обязательны" }, 400);
+    }
+    
+    if (password.length < 6) {
+      return c.json({ error: "Пароль должен быть минимум 6 символов" }, 400);
+    }
+    
+    console.log(`Registering partner: ${name}, email: ${email}, sponsor: ${sponsorRefCode || 'none'}`);
+    
+    // Check if email already exists
+    const emailKey = `user:email:${email.trim().toLowerCase()}`;
+    const existingUser = await kv.get(emailKey);
+    if (existingUser) {
+      console.log(`Registration failed: Email already exists: ${email}`);
+      return c.json({ error: "Email уже зарегистрирован" }, 400);
+    }
+    
+    // Find sponsor if referral code provided
+    let sponsor = null;
+    if (sponsorRefCode && sponsorRefCode.trim()) {
+      // Try to find sponsor by ID (ref code = ID)
+      const sponsorKey = `user:id:${sponsorRefCode.trim()}`;
+      sponsor = await kv.get(sponsorKey);
+      
+      if (!sponsor) {
+        console.log(`Registration failed: Invalid referral code: ${sponsorRefCode}`);
+        return c.json({ error: `Реферальный код ${sponsorRefCode} не найден` }, 400);
+      }
+      
+      console.log(`Found sponsor: ${sponsor.имя} ${sponsor.фамилия || ''} (ID: ${sponsor.id})`);
+    }
+    
+    // Create user in Supabase Auth
+    console.log('Creating user in Supabase Auth...');
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      email: email.trim(),
+      password: password,
+      user_metadata: { 
+        name: name.trim()
+      },
+      email_confirm: true // Auto-confirm since no email server configured
+    });
+    
+    if (authError) {
+      console.log(`Supabase Auth error: ${authError.message}`, authError);
+      return c.json({ error: `Ошибка создания аккаунта: ${authError.message}` }, 400);
+    }
+    
+    if (!authData.user) {
+      console.log('Supabase Auth returned no user data');
+      return c.json({ error: "Ошибка создания пользователя" }, 500);
+    }
+    
+    console.log(`Supabase user created: ${authData.user.id}`);
+    
+    // Generate partner ID (000001, 000002, etc.)
+    const counterKey = 'counter:partnerId';
+    let currentCounter = await kv.get(counterKey);
+    
+    if (!currentCounter) {
+      currentCounter = 0;
+    }
+    
+    const newPartnerNumber = currentCounter + 1;
+    const partnerId = newPartnerNumber.toString().padStart(6, '0');
+    await kv.set(counterKey, newPartnerNumber);
+    
+    console.log(`Generated partner ID: ${partnerId}`);
+    
+    // Generate referral code (same as partner ID)
+    const refCode = partnerId;
+    
+    // Build upline structure
+    const upline: any = {
+      u0: null,
+      u1: null,
+      u2: null,
+      u3: null
+    };
+    
+    if (sponsor) {
+      // u0 = direct sponsor
+      upline.u0 = sponsor.id;
+      
+      // u1, u2, u3 = from sponsor's upline
+      if (sponsor.upline) {
+        upline.u1 = sponsor.upline.u0 || null;
+        upline.u2 = sponsor.upline.u1 || null;
+        upline.u3 = sponsor.upline.u2 || null;
+      }
+      
+      console.log(`Built upline chain: u0=${upline.u0}, u1=${upline.u1}, u2=${upline.u2}, u3=${upline.u3}`);
+    }
+    
+    // Create partner in KV store
+    const userKey = `user:id:${partnerId}`;
+    const newUser = {
+      id: partnerId,
+      supabaseId: authData.user.id,
+      email: email.trim().toLowerCase(),
+      имя: name.trim(),
+      фамилия: '',
+      username: email.split('@')[0],
+      уровень: 1, // New partners start at level 1
+      рефКод: refCode,
+      спонсорId: sponsor ? sponsor.id : null,
+      upline: upline,
+      баланс: 0,
+      зарегистрирован: new Date().toISOString(),
+      lastLogin: new Date().toISOString(),
+      isAdmin: false,
+      // Profile fields
+      телефон: phone || '',
+      telegram: '',
+      instagram: '',
+      vk: '',
+      facebook: '',
+      аватарка: '',
+      команда: [] // List of partner IDs in structure
+    };
+    
+    console.log('Saving partner to KV store...');
+    await kv.set(userKey, newUser);
+    await kv.set(emailKey, { id: partnerId });
+    
+    // Update sponsor's team
+    if (sponsor) {
+      const команда = sponsor.команда || [];
+      команда.push(partnerId);
+      
+      const updatedSponsor = {
+        ...sponsor,
+        команда
+      };
+      
+      await kv.set(`user:id:${sponsor.id}`, updatedSponsor);
+      console.log(`Updated sponsor ${sponsor.id} team: added ${partnerId}`);
+    }
+    
+    console.log(`✅ New partner registered: ${newUser.имя} (ID: ${partnerId})${sponsor ? ` sponsored by ${sponsor.id}` : ''}`);
+    
+    return c.json({ 
+      success: true, 
+      partnerId: partnerId,
+      user: newUser,
+      message: 'Регистрация успешна!'
+    });
+    
+  } catch (error) {
+    console.error(`❌ Partner registration error:`, error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return c.json({ error: `Ошибка регистрации: ${errorMessage}` }, 500);
   }
 });
 

@@ -1,0 +1,160 @@
+import { useState } from 'react';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { Alert, AlertDescription } from './ui/alert';
+import { Loader2, LogIn } from 'lucide-react';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+import * as api from '../utils/api';
+
+export function LoginRu() {
+  const [formData, setFormData] = useState({
+    login: '',
+    password: ''
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value
+    });
+    setError('');
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    if (!formData.login || !formData.password) {
+      setError('Пожалуйста, заполните все поля');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      console.log('🔐 Logging in with:', formData.login);
+      
+      // Используем наш серверный роут /auth/login
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/auth/login`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${publicAnonKey}`
+          },
+          body: JSON.stringify({
+            login: formData.login,
+            password: formData.password
+          })
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Ошибка при входе');
+      }
+
+      if (data.access_token && data.user) {
+        console.log('✅ Login successful, user:', data.user);
+        
+        // Используем api.setAuthToken для сохранения userId
+        // (система использует userId как токен)
+        api.setAuthToken(data.user.id);
+        
+        console.log('🚀 Redirecting to home page...');
+        
+        // Перенаправляем в личный кабинет
+        window.location.href = '/';
+      }
+    } catch (err) {
+      console.error('Login error:', err);
+      setError(err instanceof Error ? err.message : 'Ошибка при входе');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#F7FAFC] flex items-center justify-center p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="text-center">
+          <div className="mx-auto w-12 h-12 bg-[#39B7FF]/10 rounded-full flex items-center justify-center mb-4">
+            <LogIn className="w-6 h-6 text-[#39B7FF]" />
+          </div>
+          <CardTitle className="text-2xl">Вход в личный кабинет</CardTitle>
+          <CardDescription>
+            Введите свои данные для входа
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="login">ID партнера или Email</Label>
+              <Input
+                id="login"
+                name="login"
+                type="text"
+                placeholder="000001 или partner@example.com"
+                value={formData.login}
+                onChange={handleChange}
+                disabled={loading}
+                required
+              />
+              <p className="text-xs text-gray-500">
+                Вы можете войти используя ваш ID партнера или Email
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="password">Пароль</Label>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                placeholder="Введите пароль"
+                value={formData.password}
+                onChange={handleChange}
+                disabled={loading}
+                required
+              />
+            </div>
+
+            <Button
+              type="submit"
+              className="w-full bg-[#39B7FF] hover:bg-[#39B7FF]/90"
+              disabled={loading}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Вход...
+                </>
+              ) : (
+                'Войти'
+              )}
+            </Button>
+
+            <p className="text-sm text-center text-gray-600">
+              Нет аккаунта?{' '}
+              <a href="/register" className="text-[#39B7FF] hover:underline">
+                Зарегистрироваться
+              </a>
+            </p>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

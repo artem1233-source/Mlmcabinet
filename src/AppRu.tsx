@@ -15,6 +15,9 @@ import { ProfileRu } from './components/ProfileRu';
 import { SettingsRu } from './components/SettingsRu';
 import { EmailAuthRu } from './components/EmailAuthRu';
 import { ResetPasswordRu } from './components/ResetPasswordRu';
+import { RegistrationRu } from './components/RegistrationRu';
+import { LoginRu } from './components/LoginRu';
+import { PartnerIdDemo } from './components/PartnerIdDemo';
 import { ServerHealthCheck } from './components/ServerHealthCheck';
 import TelegramWidgetTest from './components/TelegramWidgetTest';
 import TelegramDiagnostic from './components/TelegramDiagnostic';
@@ -28,6 +31,21 @@ import { MarketingToolsRu } from './components/MarketingToolsRu';
 import { AuthDiagnostic } from './components/AuthDiagnostic';
 
 export default function AppRu() {
+  // Если URL содержит /partner-id-demo, показываем демо страницу
+  if (window.location.pathname === '/partner-id-demo') {
+    return <PartnerIdDemo />;
+  }
+  
+  // Если URL содержит /register, показываем страницу регистрации
+  if (window.location.pathname === '/register') {
+    return <RegistrationRu />;
+  }
+  
+  // Если URL содержит /login, показываем страницу входа
+  if (window.location.pathname === '/login') {
+    return <LoginRu />;
+  }
+  
   // Если URL содержит /test-widget, показываем тестовую страницу
   if (window.location.pathname === '/test-widget') {
     return <TelegramWidgetTest />;

@@ -304,6 +304,25 @@ export function ProfileRu({ currentUser, onUpdate }: ProfileProps) {
                     </div>
                     
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-[#39B7FF]/10 to-[#12C9B6]/10 rounded-xl min-w-0 border border-[#39B7FF]/20">
+                        <User size={20} className="text-[#39B7FF] flex-shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[#666]" style={{ fontSize: '12px' }}>ID Партнера</div>
+                          <div className="text-[#39B7FF] truncate" style={{ fontWeight: '700', fontSize: '16px', letterSpacing: '1px' }}>{currentUser.id}</div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            navigator.clipboard.writeText(currentUser.id);
+                            toast.success('ID скопирован!');
+                          }}
+                          className="h-8 w-8 p-0 hover:bg-[#39B7FF]/10"
+                        >
+                          <Copy size={14} className="text-[#39B7FF]" />
+                        </Button>
+                      </div>
+                      
                       <div className="flex items-center gap-3 p-3 bg-[#F7FAFC] rounded-xl min-w-0">
                         <Mail size={20} className="text-[#666] flex-shrink-0" />
                         <div className="min-w-0 flex-1">
