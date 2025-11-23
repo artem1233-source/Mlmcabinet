@@ -175,7 +175,7 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
         return <StructureRu currentUser={currentUser} refreshTrigger={refreshTrigger} />;
       case 'пользователи':
       case 'users':
-        return <UsersManagementRu currentUser={currentUser} />;
+        return <UsersManagementRu currentUser={currentUser} onRefresh={handleRefresh} />;
       case 'заказы':
       case 'orders':
         return <OrdersRu currentUser={currentUser} refreshTrigger={refreshTrigger} />;

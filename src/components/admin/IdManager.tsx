@@ -26,6 +26,7 @@ import { toast } from 'sonner';
 
 interface IdManagerProps {
   currentUser: any;
+  onDataChange?: () => void;
 }
 
 interface UserData {
@@ -35,7 +36,7 @@ interface UserData {
   email: string;
 }
 
-export function IdManager({ currentUser }: IdManagerProps) {
+export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
   const [users, setUsers] = useState<UserData[]>([]);
   const [reservedIds, setReservedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -147,6 +148,10 @@ export function IdManager({ currentUser }: IdManagerProps) {
         setSelectedReservedId('');
         setSelectedUserId('');
         loadData();
+        // Trigger parent component refresh if callback provided
+        if (onDataChange) {
+          onDataChange();
+        }
       }
     } catch (error) {
       console.error('Error assigning ID:', error);
@@ -381,7 +386,7 @@ export function IdManager({ currentUser }: IdManagerProps) {
             </h4>
             <ul className="text-sm text-[#666] space-y-1">
               <li>• <strong>Занятые</strong> — присвоены пользователям (кликабельны для перехода)</li>
-              <li>• <strong>Свободные</strong> — выдаются по порядку при регистрации</li>
+              <li>• <strong>Свободные</strong> — выдаются по порядку при егистрации</li>
               <li>• <strong>Зарезервированные</strong> — не выдаются автоматически, можно присвоить вручную</li>
               <li>• При смене номера старый возвращается в свободные</li>
             </ul>

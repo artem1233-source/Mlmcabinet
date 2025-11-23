@@ -1737,12 +1737,14 @@ app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
         u.спонсорId === sponsorId && u.id !== sponsorId
       );
       
+      console.log(`📊   Level ${depth}: Found ${directPartners.length} direct partners for sponsor ${sponsorId} (refCode: ${sponsorRefCode})`);
+      
       // Для каждого партнёра добавляем глубину и пригласительный код
       const partnersWithDepth = directPartners.map((partner: any) => {
         return {
           ...partner,
           глубина: depth,
-          пригласительКод: sponsorRefCode
+          пригласительКод: sponsorRefCode  // Dynamically set based on current sponsor's refCode
         };
       });
       
@@ -5132,29 +5134,60 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
 
     // Update in all team references
     const allUsersKeys = await kv.getByPrefix('user:id:');
+    console.log(`🔄 Updating references in ${allUsersKeys.length} users...`);
+    
+    let updatedCount = 0;
     for (const key of allUsersKeys) {
       const user = await kv.get(key);
+      let needsUpdate = false;
+      
       if (user && Array.isArray(user.команда)) {
         const index = user.команда.indexOf(oldId);
         if (index !== -1) {
           user.команда[index] = newId;
-          await kv.set(key, user);
+          needsUpdate = true;
+          console.log(`   ✓ Updated team array for user ${user.id}: ${oldId} → ${newId}`);
         }
       }
       // Update sponsor references
       if (user && user.спонсорId === oldId) {
         user.спонсорId = newId;
-        await kv.set(key, user);
+        // Update рефКодСпонсора because refCode changed too
+        user.рефКодСпонсора = newId;
+        needsUpdate = true;
+        console.log(`   ✓ Updated sponsorId for user ${user.id}: ${oldId} → ${newId}`);
       }
       // Update upline
       if (user && user.upline) {
-        if (user.upline.u0 === oldId) user.upline.u0 = newId;
-        if (user.upline.u1 === oldId) user.upline.u1 = newId;
-        if (user.upline.u2 === oldId) user.upline.u2 = newId;
-        if (user.upline.u3 === oldId) user.upline.u3 = newId;
+        if (user.upline.u0 === oldId) {
+          user.upline.u0 = newId;
+          needsUpdate = true;
+          console.log(`   ✓ Updated upline.u0 for user ${user.id}: ${oldId} → ${newId}`);
+        }
+        if (user.upline.u1 === oldId) {
+          user.upline.u1 = newId;
+          needsUpdate = true;
+          console.log(`   ✓ Updated upline.u1 for user ${user.id}: ${oldId} → ${newId}`);
+        }
+        if (user.upline.u2 === oldId) {
+          user.upline.u2 = newId;
+          needsUpdate = true;
+          console.log(`   ✓ Updated upline.u2 for user ${user.id}: ${oldId} → ${newId}`);
+        }
+        if (user.upline.u3 === oldId) {
+          user.upline.u3 = newId;
+          needsUpdate = true;
+          console.log(`   ✓ Updated upline.u3 for user ${user.id}: ${oldId} → ${newId}`);
+        }
+      }
+      
+      if (needsUpdate) {
         await kv.set(key, user);
+        updatedCount++;
       }
     }
+    
+    console.log(`✅ Updated ${updatedCount} users with new ID references`);
 
     // Remove from reserved
     const newReserved = reserved.filter((rid: number) => rid !== numericNewId);

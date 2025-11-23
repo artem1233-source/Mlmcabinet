@@ -32,9 +32,10 @@ import { IdManager } from './admin/IdManager';
 
 interface UsersManagementRuProps {
   currentUser: any;
+  onRefresh?: () => void;
 }
 
-export function UsersManagementRu({ currentUser }: UsersManagementRuProps) {
+export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuProps) {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -93,6 +94,9 @@ export function UsersManagementRu({ currentUser }: UsersManagementRuProps) {
           description: `${userName} (${userEmail})`
         });
         loadData();
+        if (onRefresh) {
+          onRefresh();
+        }
       } else {
         throw new Error(data.error || 'Failed to delete user');
       }
@@ -533,7 +537,15 @@ export function UsersManagementRu({ currentUser }: UsersManagementRuProps) {
 
           {/* ID Management Tab */}
           <TabsContent value="ids">
-            <IdManager currentUser={currentUser} />
+            <IdManager 
+              currentUser={currentUser} 
+              onDataChange={() => {
+                loadData();
+                if (onRefresh) {
+                  onRefresh();
+                }
+              }} 
+            />
           </TabsContent>
         </Tabs>
       </div>
