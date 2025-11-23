@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import * as api from '../utils/api';
 
 interface DeleteAccountButtonProps {
   currentUser: any;
@@ -22,29 +22,18 @@ export function DeleteAccountButton({ currentUser, onDeleted }: DeleteAccountBut
       return;
     }
 
-    if (!confirm('⚠️ ВНИМАНИЕ!\n\nВы уверены, что хотите НАВСЕГДА удалить свою учетную запись?\n\nЭто удалит:\n• Ваш профиль\n• Весь баланс\n• Историю заказов\n• Связь с командой\n\nЭто действие НЕОБРАТИМО!\n\nПродолжить?')) {
+    if (!confirm('⚠️ ВНИМАНИЕ!\n\nВы уверены, что хотите НАВСЕГДА удалить свою учетную запись?\n\nЭто удалит:\n• Ваш профиль\n• Весь баланс\n• Историю заказов\n• Связь с командой\n\nВаш ID будет освобождён и доступен для новых пользователей.\n\nЭто действие НЕОБРАТИМО!\n\nПродолжить?')) {
       return;
     }
 
     setIsDeleting(true);
 
     try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/delete-user/${currentUser.id}`,
-        {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      const response = await api.deleteAccount();
 
-      const data = await response.json();
-
-      if (data.success) {
+      if (response.success) {
         toast.success('Учетная запись удалена', {
-          description: 'Перенаправление на страницу входа...'
+          description: 'Ваш ID освобождён. Перенаправление на страницу входа...'
         });
         
         // Очищаем локальное хранилище
@@ -59,7 +48,7 @@ export function DeleteAccountButton({ currentUser, onDeleted }: DeleteAccountBut
           }
         }, 2000);
       } else {
-        throw new Error(data.error || 'Failed to delete account');
+        throw new Error(response.error || 'Failed to delete account');
       }
     } catch (error) {
       console.error('Delete account error:', error);
@@ -117,6 +106,7 @@ export function DeleteAccountButton({ currentUser, onDeleted }: DeleteAccountBut
             <li>Весь накопленный баланс</li>
             <li>Историю заказов и транзакций</li>
             <li>Связь с вашей командой</li>
+            <li>Ваш партнёрский ID будет освобождён для новых пользователей</li>
           </ul>
           <p className="text-sm text-red-900 mt-3">
             <strong>Это действие НЕОБРАТИМО!</strong>

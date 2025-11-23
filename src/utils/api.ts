@@ -129,6 +129,12 @@ export async function updateUserProfile(profileData: any) {
   });
 }
 
+export async function deleteAccount() {
+  return apiCall('/user/account', {
+    method: 'DELETE',
+  });
+}
+
 // ======================
 // PRODUCTS
 // ======================
@@ -240,6 +246,10 @@ export async function debugGetAllUsers() {
 
 export async function getAllUsersAdmin() {
   return apiCall('/admin/users');
+}
+
+export async function getFreedIds() {
+  return apiCall('/admin/freed-ids');
 }
 
 export async function getAllOrdersAdmin() {

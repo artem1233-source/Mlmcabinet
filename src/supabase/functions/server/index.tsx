@@ -130,6 +130,85 @@ function isUserAdmin(user: any): boolean {
          user?.id === '1';
 }
 
+// 🔄 ID Reuse Management
+// Get next available user ID (reuses freed IDs first)
+async function getNextUserId(): Promise<string> {
+  const freedIdsKey = 'freed:user:ids';
+  let freedIds = await kv.get(freedIdsKey) || [];
+  
+  // If there are freed IDs, use the smallest one
+  if (freedIds.length > 0) {
+    freedIds.sort((a: number, b: number) => a - b);
+    const reuseId = freedIds.shift();
+    await kv.set(freedIdsKey, freedIds);
+    console.log(`♻️ Reusing freed user ID: ${reuseId}`);
+    return reuseId.toString();
+  }
+  
+  // Otherwise, increment counter
+  const counterKey = 'counter:userId';
+  let currentCounter = await kv.get(counterKey) || 0;
+  const newUserId = (currentCounter + 1).toString();
+  await kv.set(counterKey, currentCounter + 1);
+  console.log(`🆕 Generated new user ID: ${newUserId}`);
+  return newUserId;
+}
+
+// Get next available partner ID (reuses freed IDs first, 3-digit format)
+async function getNextPartnerId(): Promise<string> {
+  const freedIdsKey = 'freed:partner:ids';
+  let freedIds = await kv.get(freedIdsKey) || [];
+  
+  // If there are freed IDs, use the smallest one
+  if (freedIds.length > 0) {
+    freedIds.sort((a: number, b: number) => a - b);
+    const reuseId = freedIds.shift();
+    await kv.set(freedIdsKey, freedIds);
+    const partnerId = reuseId.toString().padStart(3, '0');
+    console.log(`♻️ Reusing freed partner ID: ${partnerId}`);
+    return partnerId;
+  }
+  
+  // Otherwise, increment counter
+  const counterKey = 'system:partnerCounter';
+  let currentCounter = await kv.get(counterKey) || 0;
+  const newPartnerNumber = currentCounter + 1;
+  const partnerId = newPartnerNumber.toString().padStart(3, '0');
+  await kv.set(counterKey, newPartnerNumber);
+  console.log(`🆕 Generated new partner ID: ${partnerId}`);
+  return partnerId;
+}
+
+// Free user ID for reuse
+async function freeUserId(userId: string) {
+  const numericId = parseInt(userId, 10);
+  if (isNaN(numericId)) return; // Don't free non-numeric IDs like 'ceo'
+  
+  const freedIdsKey = 'freed:user:ids';
+  let freedIds = await kv.get(freedIdsKey) || [];
+  
+  if (!freedIds.includes(numericId)) {
+    freedIds.push(numericId);
+    await kv.set(freedIdsKey, freedIds);
+    console.log(`♻️ Freed user ID for reuse: ${userId}`);
+  }
+}
+
+// Free partner ID for reuse
+async function freePartnerId(partnerId: string) {
+  const numericId = parseInt(partnerId, 10);
+  if (isNaN(numericId)) return; // Don't free non-numeric IDs
+  
+  const freedIdsKey = 'freed:partner:ids';
+  let freedIds = await kv.get(freedIdsKey) || [];
+  
+  if (!freedIds.includes(numericId)) {
+    freedIds.push(numericId);
+    await kv.set(freedIdsKey, freedIds);
+    console.log(`♻️ Freed partner ID for reuse: ${partnerId}`);
+  }
+}
+
 // Calculate MLM payouts
 async function calculatePayouts(price: number, isPartner: boolean, sku: string, upline: any) {
   const payouts: any[] = [];
@@ -444,17 +523,8 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
     
     console.log(`Supabase user created: ${authData.user.id}`);
     
-    // 🆕 Генерируем числовой ID (автоинкремент)
-    const counterKey = 'counter:userId';
-    let currentCounter = await kv.get(counterKey);
-    
-    if (!currentCounter) {
-      // Инициализируем счетчик (1 = админ)
-      currentCounter = 0;
-    }
-    
-    const newUserId = (currentCounter + 1).toString();
-    await kv.set(counterKey, currentCounter + 1);
+    // 🆕 Генерируем числовой ID (используем освобождённые ID если есть)
+    const newUserId = await getNextUserId();
     
     console.log(`Generated user ID: ${newUserId}`);
     
@@ -800,17 +870,8 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
     
     console.log(`Supabase user created: ${authData.user.id}`);
     
-    // Generate partner ID (001, 002, etc.)
-    const counterKey = 'system:partnerCounter';
-    let currentCounter = await kv.get(counterKey);
-    
-    if (!currentCounter) {
-      currentCounter = 0;
-    }
-    
-    const newPartnerNumber = currentCounter + 1;
-    const partnerId = newPartnerNumber.toString().padStart(3, '0'); // Changed to 3 digits
-    await kv.set(counterKey, newPartnerNumber);
+    // Generate partner ID (001, 002, etc.) - reuses freed IDs first
+    const partnerId = await getNextPartnerId();
     
     console.log(`Generated partner ID: ${partnerId}`);
     
@@ -1402,6 +1463,95 @@ app.put("/make-server-05aa3c8a/user/profile", async (c) => {
   } catch (error) {
     console.error(`❌ Profile update error:`, error);
     return c.json({ error: `Failed to update profile: ${error}` }, 500);
+  }
+});
+
+// Delete own account
+app.delete("/make-server-05aa3c8a/user/account", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    const userId = currentUser.id;
+    
+    // Don't allow deleting admin account
+    if (userId === '1' || currentUser.email?.toLowerCase() === 'admin@admin.com' || currentUser.isAdmin) {
+      return c.json({ error: 'Админ аккаунт не может быть удалён' }, 403);
+    }
+    
+    console.log(`🗑️ User self-delete: ${userId} (${currentUser.имя} ${currentUser.фамилия || ''})`);
+    
+    // Remove from sponsor's team
+    if (currentUser.спонсорId) {
+      const sponsor = await kv.get(`user:id:${currentUser.спонсорId}`);
+      if (sponsor && sponsor.команда) {
+        sponsor.команда = sponsor.команда.filter((id: string) => id !== userId);
+        await kv.set(`user:id:${currentUser.спонсорId}`, sponsor);
+        console.log(`Removed ${userId} from sponsor ${currentUser.спонсорId}'s team`);
+      }
+    }
+    
+    // Delete user data
+    await kv.del(`user:id:${userId}`);
+    
+    if (currentUser.email) {
+      await kv.del(`user:email:${currentUser.email.toLowerCase()}`);
+    }
+    
+    if (currentUser.telegramId) {
+      await kv.del(`user:tg:${currentUser.telegramId}`);
+    }
+    
+    if (currentUser.рефКод) {
+      await kv.del(`user:refcode:${currentUser.рефКод}`);
+    }
+    
+    // Delete user's notifications
+    const notifications = await kv.getByPrefix(`notification:user:${userId}:`);
+    for (const notif of notifications) {
+      await kv.del(`notification:user:${userId}:${notif.id}`);
+    }
+    
+    // Delete user's earnings
+    const earnings = await kv.getByPrefix(`earning:user:${userId}:`);
+    for (const earning of earnings) {
+      await kv.del(`earning:user:${userId}:${earning.id}`);
+    }
+    
+    // Delete user's orders
+    const orders = await kv.getByPrefix(`order:user:${userId}:`);
+    for (const order of orders) {
+      await kv.del(`order:user:${userId}:${order.id}`);
+    }
+    
+    // Delete from Supabase Auth
+    if (currentUser.supabaseId) {
+      try {
+        const { error } = await supabase.auth.admin.deleteUser(currentUser.supabaseId);
+        if (error) {
+          console.log(`Failed to delete Supabase auth user: ${error.message}`);
+        } else {
+          console.log(`Deleted Supabase auth user: ${currentUser.supabaseId}`);
+        }
+      } catch (authError) {
+        console.log(`Error deleting Supabase auth user: ${authError}`);
+      }
+    }
+    
+    // Free the ID for reuse
+    if (userId.length === 3 && /^\d+$/.test(userId)) {
+      await freePartnerId(userId);
+    } else {
+      await freeUserId(userId);
+    }
+    
+    console.log(`✅ User ${userId} self-deleted and ID freed for reuse`);
+    
+    return c.json({ 
+      success: true, 
+      message: 'Ваш аккаунт удалён. Ваш ID будет доступен для новых пользователей.' 
+    });
+  } catch (error) {
+    console.error(`❌ Self-delete error:`, error);
+    return c.json({ error: `Failed to delete account: ${error}` }, 500);
   }
 });
 
@@ -2424,15 +2574,81 @@ app.delete("/make-server-05aa3c8a/admin/users/:userId", async (c) => {
       return c.json({ error: 'User not found' }, 404);
     }
     
+    // Don't allow deleting first user/admin
+    if (userId === '1' || user.email?.toLowerCase() === 'admin@admin.com') {
+      return c.json({ error: 'Cannot delete admin user' }, 403);
+    }
+    
+    console.log(`🗑️ Deleting user ${userId} (${user.имя} ${user.фамилия || ''})`);
+    
+    // Remove from sponsor's team
+    if (user.спонсорId) {
+      const sponsor = await kv.get(`user:id:${user.спонсорId}`);
+      if (sponsor && sponsor.команда) {
+        sponsor.команда = sponsor.команда.filter((id: string) => id !== userId);
+        await kv.set(`user:id:${user.спонсорId}`, sponsor);
+        console.log(`Removed ${userId} from sponsor ${user.спонсорId}'s team`);
+      }
+    }
+    
     // Delete user data
     await kv.del(`user:id:${userId}`);
+    
+    if (user.email) {
+      await kv.del(`user:email:${user.email.toLowerCase()}`);
+    }
+    
     if (user.telegramId) {
       await kv.del(`user:tg:${user.telegramId}`);
     }
     
-    console.log(`Admin deleted user ${userId}`);
+    if (user.рефКод) {
+      await kv.del(`user:refcode:${user.рефКод}`);
+    }
     
-    return c.json({ success: true, message: 'User deleted' });
+    // Delete user's notifications
+    const notifications = await kv.getByPrefix(`notification:user:${userId}:`);
+    for (const notif of notifications) {
+      await kv.del(`notification:user:${userId}:${notif.id}`);
+    }
+    
+    // Delete user's earnings
+    const earnings = await kv.getByPrefix(`earning:user:${userId}:`);
+    for (const earning of earnings) {
+      await kv.del(`earning:user:${userId}:${earning.id}`);
+    }
+    
+    // Delete user's orders
+    const orders = await kv.getByPrefix(`order:user:${userId}:`);
+    for (const order of orders) {
+      await kv.del(`order:user:${userId}:${order.id}`);
+    }
+    
+    // Delete from Supabase Auth if possible
+    if (user.supabaseId) {
+      try {
+        const { error } = await supabase.auth.admin.deleteUser(user.supabaseId);
+        if (error) {
+          console.log(`Failed to delete Supabase auth user: ${error.message}`);
+        } else {
+          console.log(`Deleted Supabase auth user: ${user.supabaseId}`);
+        }
+      } catch (authError) {
+        console.log(`Error deleting Supabase auth user: ${authError}`);
+      }
+    }
+    
+    // Free the ID for reuse
+    // Determine if it's a 3-digit partner ID or regular ID
+    if (userId.length === 3 && /^\d+$/.test(userId)) {
+      await freePartnerId(userId);
+    } else {
+      await freeUserId(userId);
+    }
+    
+    console.log(`✅ User ${userId} deleted and ID freed for reuse`);
+    
+    return c.json({ success: true, message: 'Пользователь удалён, ID освобождён для повторного использования' });
   } catch (error) {
     console.log(`Admin delete user error: ${error}`);
     return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
@@ -2464,6 +2680,36 @@ app.post("/make-server-05aa3c8a/admin/users/:userId/set-admin", async (c) => {
     return c.json({ success: true, user });
   } catch (error) {
     console.log(`Set admin error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Get freed IDs (for admin debugging)
+app.get("/make-server-05aa3c8a/admin/freed-ids", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const freedUserIds = await kv.get('freed:user:ids') || [];
+    const freedPartnerIds = await kv.get('freed:partner:ids') || [];
+    
+    // Get current counters
+    const userCounter = await kv.get('counter:userId') || 0;
+    const partnerCounter = await kv.get('system:partnerCounter') || 0;
+    
+    console.log(`Admin requested freed IDs stats`);
+    
+    return c.json({ 
+      success: true, 
+      freedUserIds: freedUserIds.sort((a: number, b: number) => a - b),
+      freedPartnerIds: freedPartnerIds.sort((a: number, b: number) => a - b),
+      counters: {
+        userCounter,
+        partnerCounter
+      }
+    });
+  } catch (error) {
+    console.log(`Get freed IDs error: ${error}`);
     return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
   }
 });

@@ -13,9 +13,11 @@ interface AdminDebugProps {
 export function AdminDebug({ currentUser }: AdminDebugProps) {
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [freedIds, setFreedIds] = useState<any>(null);
 
   useEffect(() => {
     loadAllUsers();
+    loadFreedIds();
   }, []);
 
   const loadAllUsers = async () => {
@@ -36,6 +38,17 @@ export function AdminDebug({ currentUser }: AdminDebugProps) {
       console.error('Error loading users:', error);
       setAllUsers([]);
       setLoading(false);
+    }
+  };
+
+  const loadFreedIds = async () => {
+    try {
+      const response = await api.getFreedIds();
+      console.log('Debug: Loaded freed IDs:', response);
+      setFreedIds(response);
+    } catch (error) {
+      console.error('Error loading freed IDs:', error);
+      setFreedIds(null);
     }
   };
 
@@ -88,12 +101,13 @@ export function AdminDebug({ currentUser }: AdminDebugProps) {
 
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/delete-user/${userId}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/users/${userId}`,
         {
           method: 'DELETE',
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
             'Content-Type': 'application/json',
+            'X-User-Id': currentUser.id,
           },
         }
       );
@@ -101,11 +115,12 @@ export function AdminDebug({ currentUser }: AdminDebugProps) {
       const data = await response.json();
 
       if (data.success) {
-        toast.success('Пользователь удалён!', {
-          description: `${data.deletedUser.name} (${data.deletedUser.email})`
+        toast.success('Пользователь удалён, ID освобождён!', {
+          description: `ID ${userId} будет переиспользован`
         });
         // Перезагружаем список
         loadAllUsers();
+        loadFreedIds();
       } else {
         throw new Error(data.error || 'Failed to delete user');
       }
@@ -251,6 +266,62 @@ export function AdminDebug({ currentUser }: AdminDebugProps) {
             )}
           </div>
 
+          {/* Freed IDs Section */}
+          {freedIds && (
+            <div className="border rounded-lg p-4 bg-purple-50 border-purple-300">
+              <h3 className="font-bold mb-3 flex items-center gap-2">
+                ♻️ Освобождённые ID для повторного использования
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white p-3 rounded-lg">
+                  <h4 className="font-semibold text-sm mb-2 text-purple-700">
+                    Пользовательские ID ({freedIds.freedUserIds?.length || 0})
+                  </h4>
+                  {freedIds.freedUserIds && freedIds.freedUserIds.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {freedIds.freedUserIds.map((id: number) => (
+                        <code key={id} className="bg-purple-100 px-2 py-1 rounded text-sm">
+                          {id}
+                        </code>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">Нет освобожденных ID</p>
+                  )}
+                  <p className="text-xs text-gray-500 mt-2">
+                    Следующий новый ID: <strong>{(freedIds.counters?.userCounter || 0) + 1}</strong>
+                  </p>
+                </div>
+                
+                <div className="bg-white p-3 rounded-lg">
+                  <h4 className="font-semibold text-sm mb-2 text-purple-700">
+                    Партнёрские ID ({freedIds.freedPartnerIds?.length || 0})
+                  </h4>
+                  {freedIds.freedPartnerIds && freedIds.freedPartnerIds.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {freedIds.freedPartnerIds.map((id: number) => (
+                        <code key={id} className="bg-purple-100 px-2 py-1 rounded text-sm">
+                          {String(id).padStart(3, '0')}
+                        </code>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">Нет освобожденных ID</p>
+                  )}
+                  <p className="text-xs text-gray-500 mt-2">
+                    Следующий новый ID: <strong>{String((freedIds.counters?.partnerCounter || 0) + 1).padStart(3, '0')}</strong>
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 p-2 bg-purple-100 rounded text-sm">
+                <p className="text-purple-800">
+                  💡 <strong>Как это работает:</strong> При удалении пользователя его ID добавляется в список освобожденных.
+                  Следующий зарегистрированный пользователь получит наименьший освобожденный ID вместо нового.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Status & Actions */}
           <div className="border rounded-lg p-4 bg-yellow-50 border-yellow-300">
             <h3 className="font-bold mb-3 flex items-center gap-2">
@@ -324,7 +395,7 @@ export function AdminDebug({ currentUser }: AdminDebugProps) {
               🔧 Сырые данные (для отладки)
             </summary>
             <pre className="mt-3 text-xs bg-white p-3 rounded overflow-auto">
-              {JSON.stringify({ currentUser, allUsers }, null, 2)}
+              {JSON.stringify({ currentUser, allUsers, freedIds }, null, 2)}
             </pre>
           </details>
         </CardContent>
