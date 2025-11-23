@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Label } from './ui/label';
 import { Button } from './ui/button';
 import { toast } from 'sonner';
+import { DeleteAccountButton } from './DeleteAccountButton';
 
 interface SettingsProps {
   currentUser: any;
@@ -13,6 +14,8 @@ interface SettingsProps {
 }
 
 export function SettingsRu({ currentUser, onLogout, onUpdate }: SettingsProps) {
+  console.log('🔵 SettingsRu: Rendering with currentUser:', currentUser);
+  
   // Guard clause
   if (!currentUser) {
     return (
@@ -165,7 +168,7 @@ export function SettingsRu({ currentUser, onLogout, onUpdate }: SettingsProps) {
           <CardHeader>
             <CardTitle className="text-[#1E1E1E] flex items-center gap-2">
               <Shield size={20} className="text-[#39B7FF]" />
-              Безопасность и конфиденциальность
+              Безопасность и конфиденциал��ность
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -221,6 +224,9 @@ export function SettingsRu({ currentUser, onLogout, onUpdate }: SettingsProps) {
             </Button>
           </CardContent>
         </Card>
+        
+        {/* 🔧 DEV ONLY: Admin Delete User */}
+        <DeleteAccountButton currentUser={currentUser} onDeleted={onLogout} />
         
         {onLogout && (
           <Card className="border-red-200 rounded-2xl shadow-sm bg-white">

@@ -7,7 +7,13 @@ import { Alert, AlertDescription } from './ui/alert';
 import { Loader2, UserPlus, CheckCircle } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
-export function RegistrationRu() {
+interface RegistrationRuProps {
+  onSwitchToLogin?: () => void;
+}
+
+export function RegistrationRu({ onSwitchToLogin }: RegistrationRuProps = {}) {
+  console.log('🟢 RegistrationRu component rendering');
+  
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -22,6 +28,8 @@ export function RegistrationRu() {
   const [success, setSuccess] = useState(false);
   const [partnerId, setPartnerId] = useState('');
   const [refCode, setRefCode] = useState('');
+
+  console.log('🟢 RegistrationRu state:', { loading, error, success, partnerId, refCode });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -99,6 +107,7 @@ export function RegistrationRu() {
   };
 
   if (success) {
+    console.log('🟢 RegistrationRu: Rendering SUCCESS view');
     return (
       <div className="min-h-screen bg-[#F7FAFC] flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
@@ -128,7 +137,14 @@ export function RegistrationRu() {
             </p>
             <Button 
               className="w-full bg-[#39B7FF] hover:bg-[#39B7FF]/90"
-              onClick={() => window.location.href = '/login'}
+              onClick={() => {
+                console.log('🟢 RegistrationRu: Success - switching to login');
+                if (onSwitchToLogin) {
+                  onSwitchToLogin();
+                } else {
+                  window.location.href = '/login';
+                }
+              }}
             >
               Войти в личный кабинет
             </Button>
@@ -138,6 +154,7 @@ export function RegistrationRu() {
     );
   }
 
+  console.log('🟢 RegistrationRu: Rendering FORM view');
   return (
     <div className="min-h-screen bg-[#F7FAFC] flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
@@ -277,7 +294,7 @@ export function RegistrationRu() {
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Регистрация...
+                  Ре��истрация...
                 </>
               ) : (
                 'Зарегистрироваться'
@@ -286,9 +303,18 @@ export function RegistrationRu() {
 
             <p className="text-sm text-center text-gray-600">
               Уже есть аккаунт?{' '}
-              <a href="/login" className="text-[#39B7FF] hover:underline">
+              <button 
+                type="button"
+                onClick={() => {
+                  console.log('🟢 RegistrationRu: Switching to login screen');
+                  if (onSwitchToLogin) {
+                    onSwitchToLogin();
+                  }
+                }}
+                className="text-[#39B7FF] hover:underline bg-transparent border-none cursor-pointer p-0 inline"
+              >
                 Войти
-              </a>
+              </button>
             </p>
           </form>
         </CardContent>

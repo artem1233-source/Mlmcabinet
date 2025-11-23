@@ -19,6 +19,8 @@ interface MarketingToolsRuProps {
 }
 
 export function MarketingToolsRu({ currentUser }: MarketingToolsRuProps) {
+  console.log('🔵 MarketingToolsRu: Rendering with currentUser:', currentUser);
+  
   const [activeTab, setActiveTab] = useState('posts');
   const [selectedPost, setSelectedPost] = useState<any>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);

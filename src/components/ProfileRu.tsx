@@ -16,6 +16,8 @@ interface ProfileProps {
 }
 
 export function ProfileRu({ currentUser, onUpdate }: ProfileProps) {
+  console.log('🔵 ProfileRu: Rendering with currentUser:', currentUser);
+  
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);

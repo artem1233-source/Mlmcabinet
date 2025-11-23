@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Shield, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import { Shield, AlertCircle, CheckCircle, XCircle, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
+import { toast } from 'sonner';
 import * as api from '../utils/api';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
@@ -70,6 +71,47 @@ export function AdminDebug({ currentUser }: AdminDebugProps) {
         console.error('Error making admin:', error);
         alert(`Ошибка: ${error}`);
       }
+    }
+  };
+
+  const deleteUser = async (userId: string, userName: string, userEmail: string) => {
+    if (userId === currentUser?.id) {
+      toast.error('Нельзя удалить себя!', {
+        description: 'Используйте функцию удаления аккаунта в Настройках'
+      });
+      return;
+    }
+
+    if (!confirm(`⚠️ УДАЛЕНИЕ ПОЛЬЗОВАТЕЛЯ\n\n${userName}\n${userEmail}\nID: ${userId}\n\nЭто действие необратимо!\n\nПродолжить?`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/delete-user/${userId}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast.success('Пользователь удалён!', {
+          description: `${data.deletedUser.name} (${data.deletedUser.email})`
+        });
+        // Перезагружаем список
+        loadAllUsers();
+      } else {
+        throw new Error(data.error || 'Failed to delete user');
+      }
+    } catch (error) {
+      console.error('Delete user error:', error);
+      toast.error('Ошибка удаления пользователя');
     }
   };
 
@@ -193,6 +235,17 @@ export function AdminDebug({ currentUser }: AdminDebugProps) {
                         </div>
                       </div>
                     </div>
+                    {isAdmin && (
+                      <div className="mt-2">
+                        <Button
+                          onClick={() => deleteUser(user.id, user.имя, user.email)}
+                          className="bg-red-500 hover:bg-red-600 text-white"
+                        >
+                          <Trash2 size={16} className="mr-2" />
+                          Удалить пользователя
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

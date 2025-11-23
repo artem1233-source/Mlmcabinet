@@ -3949,4 +3949,70 @@ app.post("/make-server-05aa3c8a/debug/check-auth", async (c) => {
   }
 });
 
+// Admin endpoint: Delete user (only for testing/cleanup)
+app.delete("/make-server-05aa3c8a/admin/delete-user/:userId", async (c) => {
+  try {
+    const userId = c.req.param('userId');
+    console.log(`Admin delete user request: ${userId}`);
+    
+    // Get user data first
+    const userKey = `user:id:${userId}`;
+    const user = await kv.get(userKey);
+    
+    if (!user) {
+      return c.json({ error: "User not found" }, 404);
+    }
+    
+    console.log(`Deleting user: ${user.email} (${userId})`);
+    
+    // Delete from KV store
+    await kv.del(userKey);
+    await kv.del(`user:email:${user.email}`);
+    if (user.рефКод) {
+      await kv.del(`user:refcode:${user.рефКод}`);
+    }
+    
+    // Delete from Supabase Auth if supabaseId exists
+    if (user.supabaseId) {
+      try {
+        const { error: deleteError } = await supabase.auth.admin.deleteUser(user.supabaseId);
+        if (deleteError) {
+          console.log(`Warning: Could not delete from Supabase Auth: ${deleteError.message}`);
+        } else {
+          console.log(`Deleted from Supabase Auth: ${user.supabaseId}`);
+        }
+      } catch (authError) {
+        console.log(`Warning: Auth deletion failed:`, authError);
+      }
+    }
+    
+    // Remove from sponsor's team if applicable
+    if (user.спонсорId) {
+      const sponsorKey = `user:id:${user.спонсорId}`;
+      const sponsor = await kv.get(sponsorKey);
+      if (sponsor && sponsor.команда) {
+        sponsor.команда = sponsor.команда.filter((id: string) => id !== userId);
+        await kv.set(sponsorKey, sponsor);
+        console.log(`Removed ${userId} from sponsor ${user.спонсорId} team`);
+      }
+    }
+    
+    console.log(`✅ User deleted: ${userId}`);
+    
+    return c.json({ 
+      success: true, 
+      message: `User ${userId} deleted successfully`,
+      deletedUser: {
+        id: userId,
+        email: user.email,
+        name: `${user.имя} ${user.фамилия || ''}`
+      }
+    });
+    
+  } catch (error) {
+    console.error('Delete user error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
 Deno.serve(app.fetch);

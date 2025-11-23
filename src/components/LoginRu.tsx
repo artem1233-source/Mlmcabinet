@@ -8,7 +8,14 @@ import { Loader2, LogIn } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import * as api from '../utils/api';
 
-export function LoginRu() {
+interface LoginRuProps {
+  onSwitchToRegister?: () => void;
+  onLogin?: (userId: string) => void;
+}
+
+export function LoginRu({ onSwitchToRegister, onLogin }: LoginRuProps) {
+  console.log('🔵 LoginRu rendering, onSwitchToRegister:', typeof onSwitchToRegister, 'onLogin:', typeof onLogin);
+  
   const [formData, setFormData] = useState({
     login: '',
     password: ''
@@ -67,10 +74,15 @@ export function LoginRu() {
         // (система использует userId как токен)
         api.setAuthToken(data.user.id);
         
-        console.log('🚀 Redirecting to home page...');
+        console.log('🚀 Calling onLogin callback with userId:', data.user.id);
         
-        // Перенаправляем в личный кабинет
-        window.location.href = '/';
+        // Вызываем колбэк onLogin, если он передан
+        if (onLogin) {
+          onLogin(data.user.id);
+        } else {
+          // Fallback: если колбэк не передан, используем редирект
+          window.location.href = '/';
+        }
       }
     } catch (err) {
       console.error('Login error:', err);
@@ -148,9 +160,18 @@ export function LoginRu() {
 
             <p className="text-sm text-center text-gray-600">
               Нет аккаунта?{' '}
-              <a href="/register" className="text-[#39B7FF] hover:underline">
+              <button 
+                type="button"
+                onClick={() => {
+                  console.log('🔵 LoginRu: Switching to register screen');
+                  if (onSwitchToRegister) {
+                    onSwitchToRegister();
+                  }
+                }}
+                className="text-[#39B7FF] hover:underline bg-transparent border-none cursor-pointer p-0 inline"
+              >
                 Зарегистрироваться
-              </a>
+              </button>
             </p>
           </form>
         </CardContent>

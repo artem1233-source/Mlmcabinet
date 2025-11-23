@@ -7,6 +7,8 @@ interface EmailAuthProps {
 }
 
 export function EmailAuthRu({ onAuth }: EmailAuthProps) {
+  console.log('📧 EmailAuthRu component rendering...');
+  
   const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'admin-register'>('login');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -20,32 +22,40 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
   const [success, setSuccess] = useState<string | null>(null);
   const [debugInfo, setDebugInfo] = useState<any>(null);
 
+  console.log('📧 EmailAuthRu state initialized, current mode:', mode);
+
   const handleSubmit = async () => {
+    console.log('🔵 handleSubmit called, mode:', mode);
     setError(null);
     setSuccess(null);
 
     // Валидация
     if (!email.trim() || !password.trim()) {
+      console.log('❌ Validation failed: missing email or password');
       setError('Пожалуйста, заполните все поля');
       return;
     }
 
     if (mode === 'register' && (!firstName.trim() || !lastName.trim())) {
+      console.log('❌ Validation failed: missing name');
       setError('Пожалуйста, введите ваше имя и фамилию');
       return;
     }
 
     if (password.length < 6) {
+      console.log('❌ Validation failed: password too short');
       setError('Пароль должен быть минимум 6 символов');
       return;
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
+      console.log('❌ Validation failed: invalid email format');
       setError('Пожалуйста, введите корректный email');
       return;
     }
 
+    console.log('✅ Validation passed, proceeding with auth...');
     setLoading(true);
 
     try {
@@ -351,14 +361,12 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-[#F7FAFC] to-[#E6E9EE] p-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8">
+    <div className="min-h-screen bg-gradient-to-br from-[#F7FAFC] to-[#E6E9EE] flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
         {/* Logo */}
-        <div className="flex justify-center mb-6">
-          <div className="w-20 h-20 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-2xl flex items-center justify-center shadow-lg">
-            <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
-            </svg>
+        <div className="text-center mb-8">
+          <div className="w-20 h-20 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-2xl mx-auto mb-4 flex items-center justify-center text-white text-3xl shadow-lg">
+            H₂
           </div>
         </div>
 
@@ -377,7 +385,17 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
         {mode !== 'forgot' && (
           <div className="flex gap-2 mb-6 bg-[#F7FAFC] p-1 rounded-xl">
             <button
-              onClick={() => setMode('login')}
+              type="button"
+              onClick={(e) => {
+                console.log('🔄 Login button clicked, e.target:', e.target, 'e.currentTarget:', e.currentTarget);
+                console.log('🔄 Current mode BEFORE:', mode);
+                try {
+                  setMode('login');
+                  console.log('🔄 setMode("login") called successfully');
+                } catch (err) {
+                  console.error('❌ Error in setMode:', err);
+                }
+              }}
               className={`flex-1 py-2 rounded-lg transition-all ${
                 mode === 'login'
                   ? 'bg-white shadow-md text-[#39B7FF]'
@@ -388,7 +406,17 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
               Вход
             </button>
             <button
-              onClick={() => setMode('register')}
+              type="button"
+              onClick={(e) => {
+                console.log('🔄 Register button clicked, e.target:', e.target, 'e.currentTarget:', e.currentTarget);
+                console.log('🔄 Current mode BEFORE:', mode);
+                try {
+                  setMode('register');
+                  console.log('🔄 setMode("register") called successfully');
+                } catch (err) {
+                  console.error('❌ Error in setMode:', err);
+                }
+              }}
               className={`flex-1 py-2 rounded-lg transition-all ${
                 mode === 'register'
                   ? 'bg-white shadow-md text-[#39B7FF]'
@@ -403,16 +431,24 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
         
         {mode === 'forgot' && (
           <button
-            onClick={() => setMode('login')}
+            type="button"
+            onClick={() => {
+              console.log('🔄 Switching back to login mode from forgot');
+              setMode('login');
+            }}
             className="mb-6 text-[#39B7FF] hover:underline text-sm"
           >
-            ← ернуться к входу
+            ← Вернуться к входу
           </button>
         )}
 
         {mode === 'admin-register' && (
           <button
-            onClick={() => setMode('login')}
+            type="button"
+            onClick={() => {
+              console.log('🔄 Switching back to login mode from admin-register');
+              setMode('login');
+            }}
             className="mb-6 text-[#39B7FF] hover:underline text-sm"
           >
             ← Вернуться к входу
@@ -440,6 +476,18 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
                 <p className="text-red-600 whitespace-pre-line" style={{ fontSize: '13px' }}>{error}</p>
               </div>
             </div>
+            
+            {/* Если email уже зарегистрирован, предлагаем войти */}
+            {mode === 'register' && error.includes('уже зарегистрирован') && (
+              <div className="mt-3 pt-3 border-t border-red-200">
+                <button
+                  onClick={() => setMode('login')}
+                  className="w-full py-2 px-4 bg-[#39B7FF] hover:bg-[#2A9FE8] text-white rounded-lg transition-all text-sm font-semibold"
+                >
+                  ✅ Войти с этим email
+                </button>
+              </div>
+            )}
             
             {/* Auth Diagnostic Link */}
             {mode === 'login' && error.includes('пароль') && (
@@ -585,6 +633,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
 
           {mode === 'forgot' ? (
             <button
+              type="button"
               onClick={handleForgotPassword}
               disabled={loading}
               className="flex items-center justify-center gap-3 w-full py-3 px-6 bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] hover:opacity-90 text-white rounded-xl transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
@@ -600,6 +649,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
             </button>
           ) : (
             <button
+              type="button"
               onClick={mode === 'admin-register' ? handleAdminRegister : handleSubmit}
               disabled={loading}
               className="flex items-center justify-center gap-3 w-full py-3 px-6 bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] hover:opacity-90 text-white rounded-xl transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
@@ -624,7 +674,11 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
         {mode === 'login' && (
           <div className="text-center mb-6">
             <button
-              onClick={() => setMode('forgot')}
+              type="button"
+              onClick={() => {
+                console.log('🔄 Switching to forgot password mode');
+                setMode('forgot');
+              }}
               className="text-[#39B7FF] hover:underline text-sm"
             >
               Забыли пароль?
@@ -699,7 +753,11 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
                 </div>
                 <div>
                   <button
-                    onClick={() => setMode('admin-register')}
+                    type="button"
+                    onClick={() => {
+                      console.log('🔄 Switching to admin-register mode');
+                      setMode('admin-register');
+                    }}
                     className="text-purple-600 hover:underline text-sm font-semibold"
                   >
                     👑 Создать учётную запись CEO (код CEO-2024)
@@ -757,7 +815,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
               </svg>
             </div>
             <div>
-              <p className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '14px' }}>4 ровня партнёрства</p>
+              <p className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '14px' }}>4 ровня пар��нёрства</p>
               <p className="text-[#666]" style={{ fontSize: '13px' }}>От Уровня 0 до Уровня 3</p>
             </div>
           </div>
