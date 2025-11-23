@@ -131,52 +131,86 @@ function isUserAdmin(user: any): boolean {
 }
 
 // 🔄 ID Reuse Management
-// Get next available user ID (reuses freed IDs first)
+// Get next available user ID (checks freed IDs first, then uses counter)
 async function getNextUserId(): Promise<string> {
+  // First check for freed IDs
   const freedIdsKey = 'freed:user:ids';
   let freedIds = await kv.get(freedIdsKey) || [];
   
-  // If there are freed IDs, use the smallest one
+  // Get reserved IDs to exclude them
+  const reservedIds = await kv.get('reserved:user:ids') || [];
+  
   if (freedIds.length > 0) {
-    freedIds.sort((a: number, b: number) => a - b);
-    const reuseId = freedIds.shift();
-    await kv.set(freedIdsKey, freedIds);
-    console.log(`♻️ Reusing freed user ID: ${reuseId}`);
-    return reuseId.toString();
+    // Filter out reserved IDs
+    const availableFreedIds = freedIds.filter((id: number) => !reservedIds.includes(id));
+    
+    if (availableFreedIds.length > 0) {
+      // Sort and get the smallest ID
+      availableFreedIds.sort((a: number, b: number) => a - b);
+      const nextId = availableFreedIds[0];
+      
+      // Remove from freed list
+      freedIds = freedIds.filter((id: number) => id !== nextId);
+      await kv.set(freedIdsKey, freedIds);
+      
+      console.log(`♻️ Reusing freed user ID: ${nextId}`);
+      return String(nextId);
+    }
   }
   
-  // Otherwise, increment counter
+  // No freed IDs available, increment counter
   const counterKey = 'counter:userId';
-  let currentCounter = await kv.get(counterKey) || 0;
-  const newUserId = (currentCounter + 1).toString();
-  await kv.set(counterKey, currentCounter + 1);
-  console.log(`🆕 Generated new user ID: ${newUserId}`);
-  return newUserId;
+  let counter = await kv.get(counterKey) || 0;
+  
+  // Skip reserved IDs
+  do {
+    counter++;
+  } while (reservedIds.includes(counter));
+  
+  await kv.set(counterKey, counter);
+  console.log(`🆕 Generated new user ID: ${counter}`);
+  return String(counter);
 }
 
-// Get next available partner ID (reuses freed IDs first, 3-digit format)
+// Get next available partner ID (checks freed IDs first, then uses counter)
 async function getNextPartnerId(): Promise<string> {
+  // First check for freed IDs
   const freedIdsKey = 'freed:partner:ids';
   let freedIds = await kv.get(freedIdsKey) || [];
   
-  // If there are freed IDs, use the smallest one
+  // Get reserved IDs to exclude them
+  const reservedIds = await kv.get('reserved:partner:ids') || [];
+  
   if (freedIds.length > 0) {
-    freedIds.sort((a: number, b: number) => a - b);
-    const reuseId = freedIds.shift();
-    await kv.set(freedIdsKey, freedIds);
-    const partnerId = reuseId.toString().padStart(3, '0');
-    console.log(`♻️ Reusing freed partner ID: ${partnerId}`);
-    return partnerId;
+    // Filter out reserved IDs
+    const availableFreedIds = freedIds.filter((id: number) => !reservedIds.includes(id));
+    
+    if (availableFreedIds.length > 0) {
+      // Sort and get the smallest ID
+      availableFreedIds.sort((a: number, b: number) => a - b);
+      const nextId = availableFreedIds[0];
+      
+      // Remove from freed list
+      freedIds = freedIds.filter((id: number) => id !== nextId);
+      await kv.set(freedIdsKey, freedIds);
+      
+      console.log(`♻️ Reusing freed partner ID: ${nextId}`);
+      return String(nextId).padStart(3, '0');
+    }
   }
   
-  // Otherwise, increment counter
+  // No freed IDs available, increment counter
   const counterKey = 'system:partnerCounter';
-  let currentCounter = await kv.get(counterKey) || 0;
-  const newPartnerNumber = currentCounter + 1;
-  const partnerId = newPartnerNumber.toString().padStart(3, '0');
-  await kv.set(counterKey, newPartnerNumber);
-  console.log(`🆕 Generated new partner ID: ${partnerId}`);
-  return partnerId;
+  let counter = await kv.get(counterKey) || 0;
+  
+  // Skip reserved IDs
+  do {
+    counter++;
+  } while (reservedIds.includes(counter));
+  
+  await kv.set(counterKey, counter);
+  console.log(`🆕 Generated new partner ID: ${counter}`);
+  return String(counter).padStart(3, '0');
 }
 
 // Free user ID for reuse
@@ -2710,6 +2744,193 @@ app.get("/make-server-05aa3c8a/admin/freed-ids", async (c) => {
     });
   } catch (error) {
     console.log(`Get freed IDs error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Get user tree structure
+app.get("/make-server-05aa3c8a/admin/users-tree", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    // Get all users
+    const users = await kv.getByPrefix('user:id:');
+    
+    // Build tree structure
+    const buildTree = (sponsorId: string | null = null): any[] => {
+      return users
+        .filter((u: any) => u.спонсор === sponsorId)
+        .map((user: any) => ({
+          ...user,
+          children: buildTree(user.id)
+        }))
+        .sort((a: any, b: any) => {
+          // Sort by registration date
+          return new Date(a.зарегистрирован).getTime() - new Date(b.зарегистрирован).getTime();
+        });
+    };
+    
+    // Start with root users (no sponsor or sponsor is 'ceo')
+    const tree = buildTree(null).concat(buildTree('ceo'));
+    
+    console.log(`Admin requested users tree`);
+    
+    return c.json({ 
+      success: true, 
+      tree,
+      totalUsers: users.length
+    });
+  } catch (error) {
+    console.log(`Get users tree error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Get all IDs status (used, freed, reserved)
+app.get("/make-server-05aa3c8a/admin/ids-status", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    // Get all users
+    const users = await kv.getByPrefix('user:id:');
+    const usedUserIds = users.map((u: any) => parseInt(u.id)).filter((id: number) => !isNaN(id));
+    const usedPartnerIds = users.map((u: any) => parseInt(u.партнёрскийID)).filter((id: number) => !isNaN(id));
+    
+    // Get freed IDs
+    const freedUserIds = await kv.get('freed:user:ids') || [];
+    const freedPartnerIds = await kv.get('freed:partner:ids') || [];
+    
+    // Get reserved IDs
+    const reservedUserIds = await kv.get('reserved:user:ids') || [];
+    const reservedPartnerIds = await kv.get('reserved:partner:ids') || [];
+    
+    // Get reserved metadata
+    const reservedMetadata: any[] = [];
+    for (const id of reservedUserIds) {
+      const meta = await kv.get(`reserved:user:meta:${id}`);
+      if (meta) reservedMetadata.push({ type: 'user', id, ...meta });
+    }
+    for (const id of reservedPartnerIds) {
+      const meta = await kv.get(`reserved:partner:meta:${id}`);
+      if (meta) reservedMetadata.push({ type: 'partner', id, ...meta });
+    }
+    
+    // Get counters
+    const userCounter = await kv.get('counter:userId') || 0;
+    const partnerCounter = await kv.get('system:partnerCounter') || 0;
+    
+    console.log(`Admin requested IDs status`);
+    
+    return c.json({ 
+      success: true,
+      userIds: {
+        used: usedUserIds.sort((a: number, b: number) => a - b),
+        freed: freedUserIds.sort((a: number, b: number) => a - b),
+        reserved: reservedUserIds.sort((a: number, b: number) => a - b),
+        nextCounter: userCounter + 1
+      },
+      partnerIds: {
+        used: usedPartnerIds.sort((a: number, b: number) => a - b),
+        freed: freedPartnerIds.sort((a: number, b: number) => a - b),
+        reserved: reservedPartnerIds.sort((a: number, b: number) => a - b),
+        nextCounter: partnerCounter + 1
+      },
+      reservedMetadata
+    });
+  } catch (error) {
+    console.log(`Get IDs status error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Reserve IDs
+app.post("/make-server-05aa3c8a/admin/reserve-ids", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const { type, ids, reason } = await c.req.json();
+    
+    if (!type || !ids || !Array.isArray(ids)) {
+      return c.json({ error: 'Invalid request' }, 400);
+    }
+    
+    const reservedKey = type === 'user' ? 'reserved:user:ids' : 'reserved:partner:ids';
+    let reservedIds = await kv.get(reservedKey) || [];
+    
+    // Add new IDs to reserved list
+    const newReservedIds = [];
+    for (const id of ids) {
+      const numericId = parseInt(id, 10);
+      if (!isNaN(numericId) && !reservedIds.includes(numericId)) {
+        reservedIds.push(numericId);
+        newReservedIds.push(numericId);
+        
+        // Store metadata
+        await kv.set(`reserved:${type}:meta:${numericId}`, {
+          reservedBy: currentUser.id,
+          reservedAt: new Date().toISOString(),
+          reason: reason || 'Зарезервировано администратором'
+        });
+      }
+    }
+    
+    await kv.set(reservedKey, reservedIds);
+    
+    console.log(`Admin reserved ${type} IDs: ${newReservedIds.join(', ')}`);
+    
+    return c.json({ 
+      success: true, 
+      reserved: newReservedIds,
+      message: `Зарезервировано ${newReservedIds.length} ID`
+    });
+  } catch (error) {
+    console.log(`Reserve IDs error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// Unreserve IDs
+app.post("/make-server-05aa3c8a/admin/unreserve-ids", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const { type, ids } = await c.req.json();
+    
+    if (!type || !ids || !Array.isArray(ids)) {
+      return c.json({ error: 'Invalid request' }, 400);
+    }
+    
+    const reservedKey = type === 'user' ? 'reserved:user:ids' : 'reserved:partner:ids';
+    let reservedIds = await kv.get(reservedKey) || [];
+    
+    // Remove IDs from reserved list
+    const unreservedIds = [];
+    for (const id of ids) {
+      const numericId = parseInt(id, 10);
+      if (!isNaN(numericId) && reservedIds.includes(numericId)) {
+        reservedIds = reservedIds.filter((rid: number) => rid !== numericId);
+        unreservedIds.push(numericId);
+        
+        // Delete metadata
+        await kv.del(`reserved:${type}:meta:${numericId}`);
+      }
+    }
+    
+    await kv.set(reservedKey, reservedIds);
+    
+    console.log(`Admin unreserved ${type} IDs: ${unreservedIds.join(', ')}`);
+    
+    return c.json({ 
+      success: true, 
+      unreserved: unreservedIds,
+      message: `Снято резервирование с ${unreservedIds.length} ID`
+    });
+  } catch (error) {
+    console.log(`Unreserve IDs error: ${error}`);
     return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
   }
 });

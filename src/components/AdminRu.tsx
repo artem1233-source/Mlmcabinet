@@ -21,6 +21,8 @@ import { CommissionEditor } from './CommissionEditor';
 import type { ProductCommission } from '../utils/types/commission';
 import { DEFAULT_COMMISSIONS } from '../utils/types/commission';
 import { AchievementsAdminRu } from './AchievementsAdminRu';
+import { UsersTreeView } from './admin/UsersTreeView';
+import { IdManager } from './admin/IdManager';
 
 interface AdminRuProps {
   currentUser: any;
@@ -463,6 +465,13 @@ export function AdminRu({ currentUser }: AdminRuProps) {
 
           {/* Users Tab */}
           <TabsContent value="users">
+            {/* Users Tree and ID Manager */}
+            <div className="space-y-6 mb-6">
+              <UsersTreeView currentUser={currentUser} />
+              <IdManager currentUser={currentUser} />
+            </div>
+
+            {/* User List Card */}
             <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
               <CardHeader>
                 <div className="flex items-center justify-between">

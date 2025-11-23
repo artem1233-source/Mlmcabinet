@@ -252,6 +252,28 @@ export async function getFreedIds() {
   return apiCall('/admin/freed-ids');
 }
 
+export async function getUsersTree() {
+  return apiCall('/admin/users-tree');
+}
+
+export async function getIdsStatus() {
+  return apiCall('/admin/ids-status');
+}
+
+export async function reserveIds(type: 'user' | 'partner', ids: number[], reason?: string) {
+  return apiCall('/admin/reserve-ids', {
+    method: 'POST',
+    body: JSON.stringify({ type, ids, reason }),
+  });
+}
+
+export async function unreserveIds(type: 'user' | 'partner', ids: number[]) {
+  return apiCall('/admin/unreserve-ids', {
+    method: 'POST',
+    body: JSON.stringify({ type, ids }),
+  });
+}
+
 export async function getAllOrdersAdmin() {
   return apiCall('/admin/orders');
 }
