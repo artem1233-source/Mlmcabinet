@@ -3238,7 +3238,17 @@ app.get("/make-server-05aa3c8a/admins", async (c) => {
 // Get user notifications
 app.get("/make-server-05aa3c8a/notifications", async (c) => {
   try {
-    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    // Проверяем наличие X-User-Id
+    const userId = c.req.header('X-User-Id');
+    if (!userId) {
+      // Если пользователь не авторизован, возвращаем пустой массив
+      return c.json({
+        success: true,
+        notifications: []
+      });
+    }
+    
+    const currentUser = await verifyUser(userId);
     
     const notifications = await kv.getByPrefix(`notification:user:${currentUser.id}:`);
     
@@ -3251,6 +3261,14 @@ app.get("/make-server-05aa3c8a/notifications", async (c) => {
     });
   } catch (error) {
     console.error('Get notifications error:', error);
+    // Если ошибка авторизации, возвращаем пустой массив вместо 500
+    const errorStr = String(error);
+    if (errorStr.includes('user ID') || errorStr.includes('not found')) {
+      return c.json({ 
+        success: true,
+        notifications: []
+      });
+    }
     return c.json({ 
       success: false,
       error: `Failed to get notifications: ${error}`,

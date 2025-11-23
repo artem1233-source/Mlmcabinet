@@ -57,9 +57,14 @@ export function NotificationBell({ onViewAll }: NotificationBellProps) {
           )
           .slice(0, 5);
         setNotifications(sorted);
+      } else {
+        // Если ответ не успешный, устанавливаем пустой массив
+        setNotifications([]);
       }
     } catch (error) {
       console.error('Error loading notifications:', error);
+      // При ошибке устанавливаем пустой массив, чтобы UI продолжал работать
+      setNotifications([]);
     } finally {
       setLoading(false);
     }

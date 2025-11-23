@@ -30,9 +30,14 @@ export function NotificationsRu() {
       const response = await api.getNotifications();
       if (response.success) {
         setNotifications(response.notifications || []);
+      } else {
+        // Если ответ не успешный, устанавливаем пустой массив
+        setNotifications([]);
       }
     } catch (error) {
       console.error('Error loading notifications:', error);
+      // При ошибке устанавливаем пустой массив, чтобы UI продолжал работать
+      setNotifications([]);
     } finally {
       setLoading(false);
     }
