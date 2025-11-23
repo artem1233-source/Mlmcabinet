@@ -876,47 +876,68 @@ export function AdminRu({ currentUser }: AdminRuProps) {
                         </p>
                         <p className="text-[#666]" style={{ fontSize: '12px' }}>Баланс</p>
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="border-red-300 text-red-600 hover:bg-red-50"
-                        onClick={async () => {
-                          if (!confirm(`⚠️ УДАЛЕНИЕ ПОЛЬЗОВАТЕЛЯ\n\n${user.имя}\n${user.email}\nID: ${user.id}\n\nЭто действие необратимо!\n\nПродолжить?`)) {
-                            return;
-                          }
+                      {user.id !== currentUser?.id ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-red-500 text-red-600 hover:bg-red-100 hover:border-red-600 transition-all"
+                          onClick={async () => {
+                            console.log('🗑️ Delete user clicked:', user.id, user.имя, user.email);
+                            console.log('🔍 currentUser:', currentUser);
+                            
+                            if (!confirm(`⚠️ УДАЛЕНИЕ ПОЛЬЗОВАТЕЛЯ\n\n${user.имя}\n${user.email}\nID: ${user.id}\n\nЭто действие необратимо!\n\nПродолжить?`)) {
+                              console.log('❌ User cancelled deletion');
+                              return;
+                            }
 
                           try {
-                            const response = await fetch(
-                              `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/delete-user/${user.id}`,
-                              {
-                                method: 'DELETE',
-                                headers: {
-                                  'Authorization': `Bearer ${publicAnonKey}`,
-                                  'Content-Type': 'application/json',
-                                },
-                              }
-                            );
+                            const url = `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/delete-user/${user.id}`;
+                            console.log('🌐 DELETE request URL:', url);
+                            
+                            const response = await fetch(url, {
+                              method: 'DELETE',
+                              headers: {
+                                'Authorization': `Bearer ${publicAnonKey}`,
+                                'Content-Type': 'application/json',
+                              },
+                            });
 
+                            console.log('📥 Response status:', response.status);
                             const data = await response.json();
+                            console.log('📦 Response data:', data);
 
                             if (data.success) {
                               toast.success('Пользователь удалён!', {
                                 description: `${user.имя} (${user.email})`
                               });
                               // Reload users
+                              console.log('🔄 Reloading users list...');
                               loadData();
                             } else {
                               throw new Error(data.error || 'Failed to delete user');
                             }
                           } catch (error) {
-                            console.error('Delete user error:', error);
-                            toast.error('Ошибка удаления пользователя');
+                            console.error('❌ Delete user error:', error);
+                            toast.error('Ошибка удаления пользователя', {
+                              description: String(error)
+                            });
                           }
                         }}
                       >
                         <Trash2 className="w-4 h-4 mr-1" />
                         Удалить
                       </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled
+                          className="border-gray-300 text-gray-400 cursor-not-allowed"
+                        >
+                          <Shield className="w-4 h-4 mr-1" />
+                          Это вы
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ))}

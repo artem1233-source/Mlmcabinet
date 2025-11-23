@@ -3253,6 +3253,12 @@
   }
 
   @media (hover: hover) {
+    .hover\:border-red-600:hover {
+      border-color: var(--color-red-600);
+    }
+  }
+
+  @media (hover: hover) {
     .hover\:bg-\[\#0FB89F\]:hover {
       background-color: #0fb89f;
     }

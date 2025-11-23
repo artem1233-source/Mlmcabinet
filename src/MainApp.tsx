@@ -218,7 +218,7 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
         />; 
       case 'админ':
       case 'admin':
-        return <AdminRu />;
+        return <AdminRu currentUser={currentUser} />;
       case 'управление-админами':
       case 'adminpanel':
         return <AdminPanel currentUser={currentUser} />;
