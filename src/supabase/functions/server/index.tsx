@@ -153,8 +153,8 @@ async function getNextUserId(): Promise<string> {
       freedIds = freedIds.filter((id: number) => id !== nextId);
       await kv.set(freedIdsKey, freedIds);
       
-      console.log(`♻️ Reusing freed user ID: ${nextId}`);
-      return String(nextId);
+      console.log(`♻️ Reusing freed user ID: ${nextId} (formatted as ${String(nextId).padStart(6, '0')})`);
+      return String(nextId).padStart(6, '0'); // Format as 6-digit ID (000001)
     }
   }
   
@@ -168,8 +168,8 @@ async function getNextUserId(): Promise<string> {
   } while (reservedIds.includes(counter));
   
   await kv.set(counterKey, counter);
-  console.log(`🆕 Generated new user ID: ${counter}`);
-  return String(counter);
+  console.log(`🆕 Generated new user ID: ${counter} (formatted as ${String(counter).padStart(6, '0')})`);
+  return String(counter).padStart(6, '0'); // Format as 6-digit ID (000001)
 }
 
 // Get next available partner ID (checks freed IDs first, then uses counter)
@@ -4804,6 +4804,10 @@ app.delete("/make-server-05aa3c8a/admin/delete-user/:userId", async (c) => {
       }
     }
     
+    // Free the user ID for reuse
+    await freeUserId(userId);
+    console.log(`♻️ Freed user ID ${userId} for reuse`);
+    
     console.log(`✅ User deleted: ${userId}`);
     
     return c.json({ 
@@ -4959,7 +4963,7 @@ app.get('/make-server-05aa3c8a/admin/reserved-ids', async (c) => {
       return c.json({ success: false, error: 'Доступ запрещён' }, 403);
     }
 
-    const reserved = await kv.get('reserved_ids') || [];
+    const reserved = await kv.get('reserved:user:ids') || [];
     
     return c.json({
       success: true,
@@ -5003,18 +5007,21 @@ app.post('/make-server-05aa3c8a/admin/reserve-ids', async (c) => {
       return c.json({ success: false, error: 'Неверные данные: ids должен быть массивом' }, 400);
     }
 
-    const reserved = await kv.get('reserved_ids') || [];
+    // Convert string IDs to numeric for proper storage
+    const numericIds = ids.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+    
+    const reserved = await kv.get('reserved:user:ids') || [];
     console.log('📋 Current reserved:', reserved);
     
-    const newReserved = [...new Set([...reserved, ...ids])].sort((a, b) => a.localeCompare(b));
+    const newReserved = [...new Set([...reserved, ...numericIds])].sort((a, b) => a - b);
     console.log('📋 New reserved:', newReserved);
     
-    await kv.set('reserved_ids', newReserved);
+    await kv.set('reserved:user:ids', newReserved);
     console.log('✅ Reserved IDs saved');
     
     return c.json({
       success: true,
-      message: `Зарезервировано ${ids.length} номеров`,
+      message: `Зарезервировано ${numericIds.length} номеров`,
       reserved: newReserved
     });
   } catch (error) {
@@ -5042,10 +5049,11 @@ app.post('/make-server-05aa3c8a/admin/unreserve-id', async (c) => {
       return c.json({ success: false, error: 'ID не указан' }, 400);
     }
 
-    const reserved = await kv.get('reserved_ids') || [];
-    const newReserved = reserved.filter((rid: string) => rid !== id);
+    const numericId = parseInt(id, 10);
+    const reserved = await kv.get('reserved:user:ids') || [];
+    const newReserved = reserved.filter((rid: number) => rid !== numericId);
     
-    await kv.set('reserved_ids', newReserved);
+    await kv.set('reserved:user:ids', newReserved);
     
     return c.json({
       success: true,
@@ -5084,8 +5092,9 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
     }
 
     // Check if new ID is reserved
-    const reserved = await kv.get('reserved_ids') || [];
-    if (!reserved.includes(newId)) {
+    const reserved = await kv.get('reserved:user:ids') || [];
+    const numericNewId = parseInt(newId, 10);
+    if (!reserved.includes(numericNewId)) {
       return c.json({ success: false, error: 'Этот номер не зарезервирован' }, 400);
     }
 
@@ -5148,18 +5157,12 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
     }
 
     // Remove from reserved
-    const newReserved = reserved.filter((rid: string) => rid !== newId);
-    await kv.set('reserved_ids', newReserved);
+    const newReserved = reserved.filter((rid: number) => rid !== numericNewId);
+    await kv.set('reserved:user:ids', newReserved);
 
-    // Add old ID to freed IDs if it's a valid partner ID format (3 digits)
-    if (oldId.match(/^\d{3}$/)) {
-      const freedIds = await kv.get('freed_partner_ids') || [];
-      if (!freedIds.includes(oldId)) {
-        freedIds.push(oldId);
-        freedIds.sort((a: string, b: string) => a.localeCompare(b));
-        await kv.set('freed_partner_ids', freedIds);
-      }
-    }
+    // Add old ID to freed IDs for reuse (using freeUserId helper)
+    await freeUserId(oldId);
+    console.log(`♻️ Old user ID ${oldId} freed for reuse`);
 
     return c.json({
       success: true,

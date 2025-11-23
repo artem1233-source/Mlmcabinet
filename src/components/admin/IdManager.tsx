@@ -72,14 +72,15 @@ export function IdManager({ currentUser }: IdManagerProps) {
     }
   };
 
-  // Generate all IDs from 001 to 9999
-  const allIds = Array.from({ length: 9999 }, (_, i) => String(i + 1).padStart(3, '0'));
+  // Generate all IDs from 000001 to 999999 (6-digit format)
+  const allIds = Array.from({ length: 999999 }, (_, i) => String(i + 1).padStart(6, '0'));
   
   // Occupied IDs (users have them)
   const occupiedIds = users.map(u => u.id).sort((a, b) => a.localeCompare(b));
   
-  // Free IDs (not occupied and not reserved)
-  const freeIds = allIds.filter(id => !occupiedIds.includes(id) && !reservedIds.includes(id));
+  // Free IDs (not occupied and not reserved) - convert reservedIds to strings with padding
+  const reservedIdsFormatted = reservedIds.map(id => String(id).padStart(6, '0'));
+  const freeIds = allIds.filter(id => !occupiedIds.includes(id) && !reservedIdsFormatted.includes(id));
   
   // Next ID to assign (first free)
   const nextId = freeIds[0] || 'N/A';
@@ -183,7 +184,7 @@ export function IdManager({ currentUser }: IdManagerProps) {
               <div className="w-10 h-10 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-xl flex items-center justify-center">
                 <Hash className="w-5 h-5 text-white" />
               </div>
-              <span className="text-base sm:text-lg">Управление ID номерами (001-9999)</span>
+              <span className="text-base sm:text-lg">Управление ID номерами (000001-999999)</span>
             </CardTitle>
             <Button variant="outline" size="sm" onClick={loadData}>
               Обновить
@@ -331,7 +332,7 @@ export function IdManager({ currentUser }: IdManagerProps) {
               </div>
               <ScrollArea className="h-[600px] rounded-xl border border-[#E6E9EE] p-3 bg-purple-50">
                 <div className="space-y-2">
-                  {reservedIds.map(id => (
+                  {reservedIdsFormatted.map(id => (
                     <div
                       key={id}
                       className="px-3 py-3 rounded-lg bg-white border border-purple-200 hover:border-purple-400 transition-colors"
