@@ -152,11 +152,18 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
         console.error('Failed to parse login response:', parseError);
         const text = await response.text();
         console.error('Response text:', text);
+        setDebugInfo({ 
+          status: response.status, 
+          url,
+          parseError: String(parseError),
+          responseText: text 
+        });
         throw new Error(`Сервер вернул невалидный ответ (статус ${response.status}). Возможно Edge Function не задеплоена.`);
       }
 
       if (!response.ok) {
         console.error('Login failed:', data);
+        setDebugInfo({ response: data, status: response.status, url });
         // Show more detailed error message if available
         const errorMsg = data.details ? `${data.error}\n\n${data.details}` : data.error;
         throw new Error(errorMsg || 'Ошибка входа');
@@ -171,10 +178,13 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
         
         onAuth(data.user);
       } else {
+        console.error('❌ Invalid server response:', data);
+        setDebugInfo({ response: data, status: response.status, url });
         throw new Error('Неверный ответ сервера');
       }
     } catch (err) {
       console.error('Login error:', err);
+      setDebugInfo((prev: any) => ({ ...prev, error: err instanceof Error ? err.message : String(err) }));
       throw err;
     }
   };
@@ -396,7 +406,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
             onClick={() => setMode('login')}
             className="mb-6 text-[#39B7FF] hover:underline text-sm"
           >
-            ← ��ернуться к входу
+            ← ернуться к входу
           </button>
         )}
 
@@ -710,12 +720,18 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
           </p>
           {error && (
             <div className="mt-3 space-y-2">
-              <div className="text-center">
+              <div className="text-center space-x-4">
                 <a 
                   href="/health-check" 
                   className="text-[#39B7FF] hover:underline text-xs font-semibold"
                 >
                   🔍 Проверить состояние сервера
+                </a>
+                <a 
+                  href="/login-diagnostic" 
+                  className="text-[#12C9B6] hover:underline text-xs font-semibold"
+                >
+                  🔬 Диагностика входа
                 </a>
               </div>
               {debugInfo?.status === 404 && (
