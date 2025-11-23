@@ -314,14 +314,18 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
     // Log all headers for debugging
     console.log('Signup request headers:', Object.fromEntries(c.req.raw.headers.entries()));
     
-    const { email, password, name } = await c.req.json();
+    const { email, password, firstName, lastName, referralCode } = await c.req.json();
     
-    if (!email || !password || !name) {
+    if (!email || !password || !firstName || !lastName) {
       console.log('Signup validation failed: missing fields');
-      return c.json({ error: "Email, password, and name are required" }, 400);
+      return c.json({ error: "Email, password, имя и фамилия обязательны" }, 400);
     }
     
-    console.log(`Email signup attempt for: ${email}`);
+    if (password.length < 6) {
+      return c.json({ error: "Пароль должен быть минимум 6 символов" }, 400);
+    }
+    
+    console.log(`Email signup attempt for: ${email}, referral: ${referralCode || 'none'}`);
     
     // Check if email already exists in KV store
     const emailKey = `user:email:${email.trim().toLowerCase()}`;
@@ -331,13 +335,30 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
       return c.json({ error: "Email уже зарегистрирован" }, 400);
     }
     
+    // 🆕 Получаем спонсора если указан реферальный код
+    let sponsor = null;
+    if (referralCode && referralCode.trim()) {
+      const sponsorKey = `user:id:${referralCode.trim()}`;
+      sponsor = await kv.get(sponsorKey);
+      
+      if (!sponsor) {
+        console.log(`Signup failed: Invalid referral code: ${referralCode}`);
+        return c.json({ error: `Реферальный код ${referralCode} не найден` }, 400);
+      }
+      
+      console.log(`Found sponsor: ${sponsor.имя} ${sponsor.фамилия} (ID: ${sponsor.id})`);
+    }
+    
     console.log('Creating user in Supabase Auth...');
     
     // Create user in Supabase Auth
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email: email.trim(),
       password: password,
-      user_metadata: { name: name.trim() },
+      user_metadata: { 
+        firstName: firstName.trim(),
+        lastName: lastName.trim()
+      },
       email_confirm: true // Auto-confirm since no email server configured
     });
     
@@ -353,43 +374,93 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
     
     console.log(`Supabase user created: ${authData.user.id}`);
     
+    // 🆕 Генерируем числовой ID (автоинкремент)
+    const counterKey = 'counter:userId';
+    let currentCounter = await kv.get(counterKey);
+    
+    if (!currentCounter) {
+      // Инициализируем счетчик (1 = админ)
+      currentCounter = 0;
+    }
+    
+    const newUserId = (currentCounter + 1).toString();
+    await kv.set(counterKey, currentCounter + 1);
+    
+    console.log(`Generated user ID: ${newUserId}`);
+    
+    // 🆕 Построение upline структуры
+    const upline: any = {
+      u0: null,
+      u1: null,
+      u2: null,
+      u3: null
+    };
+    
+    if (sponsor) {
+      // u0 = прямой спонсор
+      upline.u0 = sponsor.id;
+      
+      // u1, u2, u3 = берем из upline спонсора
+      if (sponsor.upline) {
+        upline.u1 = sponsor.upline.u0 || null;
+        upline.u2 = sponsor.upline.u1 || null;
+        upline.u3 = sponsor.upline.u2 || null;
+      }
+      
+      console.log(`Built upline chain: u0=${upline.u0}, u1=${upline.u1}, u2=${upline.u2}, u3=${upline.u3}`);
+    }
+    
     // Create user in KV store
-    const userId = `u_email_${authData.user.id}`;
-    const userKey = `user:id:${userId}`;
-    // emailKey already declared above for checking existing user
+    const userKey = `user:id:${newUserId}`;
     
     // Check if this is the first user (will be admin) OR admin@admin.com
-    const allUsers = await kv.getByPrefix('user:id:');
-    const isFirstUser = allUsers.length === 0;
     const isAdminEmail = email.trim().toLowerCase() === 'admin@admin.com';
+    const isFirstUser = newUserId === '1';
     
     const newUser = {
-      id: userId,
+      id: newUserId,
       supabaseId: authData.user.id,
-      email: email.trim(),
-      имя: isAdminEmail ? 'Администратор' : name.trim(),
+      email: email.trim().toLowerCase(),
+      имя: firstName.trim(),
+      фамилия: lastName.trim(),
       username: email.split('@')[0],
       уровень: 1, // Новые партнёры начинают с уровня 1
-      рефКод: `REF${Date.now().toString().slice(-6)}`,
-      спонсорId: null,
+      реф_код: newUserId, // ID = реф-код
+      спонсорId: sponsor ? sponsor.id : null,
+      upline: upline,
       баланс: 0,
       зарегистрирован: new Date().toISOString(),
       lastLogin: new Date().toISOString(),
       isAdmin: isFirstUser || isAdminEmail, // First user OR admin@admin.com is admin
-      // Дополнительные поля профиля (дозаполняются пользователем)
+      // Дополнительные поля профиля
       телефон: '',
       telegram: '',
       instagram: '',
       vk: '',
       facebook: '',
-      аватарка: ''
+      аватарка: '',
+      команда: [] // Список ID партнеров в структуре
     };
     
     console.log('Saving user to KV store...');
     await kv.set(userKey, newUser);
-    await kv.set(emailKey, newUser);
+    await kv.set(emailKey, { id: newUserId }); // Храним только ID для быстрого поиска
     
-    console.log(`✅ New user registered via email: ${newUser.имя} (${email})${(isFirstUser || isAdminEmail) ? ' [ADMIN]' : ''}`);
+    // 🆕 Обновляем команду спонсора
+    if (sponsor) {
+      const команда = sponsor.команда || [];
+      команда.push(newUserId);
+      
+      const updatedSponsor = {
+        ...sponsor,
+        команда
+      };
+      
+      await kv.set(`user:id:${sponsor.id}`, updatedSponsor);
+      console.log(`Updated sponsor ${sponsor.id} team: added ${newUserId}`);
+    }
+    
+    console.log(`✅ New user registered: ${newUser.имя} ${newUser.фамилия} (ID: ${newUserId})${(isFirstUser || isAdminEmail) ? ' [ADMIN]' : ''}${sponsor ? ` sponsored by ${sponsor.id}` : ''}`);
     
     return c.json({ 
       success: true, 
@@ -404,93 +475,83 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
   }
 });
 
-// Email login
+// Email/ID login
 app.post("/make-server-05aa3c8a/auth/login", async (c) => {
   try {
     // Log all headers for debugging
     console.log('Login request headers:', Object.fromEntries(c.req.raw.headers.entries()));
     
-    const { email, password } = await c.req.json();
+    const { login, password } = await c.req.json();
     
-    if (!email || !password) {
-      return c.json({ error: "Email and password are required" }, 400);
+    if (!login || !password) {
+      return c.json({ error: "Логин (ID или Email) и пароль обязательны" }, 400);
     }
     
-    console.log(`Email login attempt for: ${email}`);
+    console.log(`Login attempt for: ${login}`);
+    
+    // 🆕 Определяем тип логина: ID (только цифры) или Email
+    const isNumericId = /^\d+$/.test(login.trim());
+    let userData = null;
+    let userEmail = null;
+    
+    if (isNumericId) {
+      // Вход по ID
+      console.log(`Login by ID: ${login}`);
+      const userKey = `user:id:${login.trim()}`;
+      userData = await kv.get(userKey);
+      
+      if (!userData) {
+        console.log(`Login failed: User ID ${login} not found`);
+        return c.json({ error: "Пользователь с таким ID не найден" }, 401);
+      }
+      
+      userEmail = userData.email;
+    } else {
+      // Вход по Email
+      console.log(`Login by Email: ${login}`);
+      const emailKey = `user:email:${login.trim().toLowerCase()}`;
+      const emailData = await kv.get(emailKey);
+      
+      if (!emailData || !emailData.id) {
+        console.log(`Login failed: Email ${login} not found`);
+        return c.json({ error: "Email не найден" }, 401);
+      }
+      
+      // Получаем полные данные пользователя
+      const userKey = `user:id:${emailData.id}`;
+      userData = await kv.get(userKey);
+      userEmail = login.trim();
+    }
+    
+    if (!userData) {
+      return c.json({ error: "Ошибка получения данных пользователя" }, 500);
+    }
     
     // Create a Supabase client with anon key for sign in
     const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
     
-    // Sign in with Supabase Auth
+    // Sign in with Supabase Auth using email
     const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({
-      email: email.trim(),
+      email: userEmail,
       password: password,
     });
     
     if (authError) {
-      console.log(`Email login error: ${authError.message}`);
-      return c.json({ error: authError.message || 'Invalid credentials' }, 401);
+      console.log(`Supabase Auth login error: ${authError.message}`);
+      return c.json({ error: "Неверный пароль" }, 401);
     }
     
     if (!authData.session || !authData.user) {
-      return c.json({ error: "Invalid credentials" }, 401);
+      return c.json({ error: "Неверные учетные данные" }, 401);
     }
     
-    // Get user from KV store
-    const emailKey = `user:email:${email.trim().toLowerCase()}`;
-    let userData = await kv.get(emailKey);
+    // Update last login
+    userData.lastLogin = new Date().toISOString();
     
-    if (!userData) {
-      // User might have been created in Auth but not in KV, create them now
-      const userId = `u_email_${authData.user.id}`;
-      const userKey = `user:id:${userId}`;
-      
-      // Check if this is admin email
-      const isAdminEmail = email.trim().toLowerCase() === 'admin@admin.com';
-      
-      userData = {
-        id: userId,
-        supabaseId: authData.user.id,
-        email: email.trim(),
-        имя: authData.user.user_metadata?.name || (isAdminEmail ? 'Администратор' : email.split('@')[0]),
-        username: email.split('@')[0],
-        уровень: 1,
-        рефКод: `REF${Date.now().toString().slice(-6)}`,
-        спонсорId: null,
-        баланс: 0,
-        зарегистрирован: new Date().toISOString(),
-        lastLogin: new Date().toISOString(),
-        // Дополнительные поля профиля
-        телефон: '',
-        telegram: '',
-        instagram: '',
-        vk: '',
-        facebook: '',
-        аватарка: '',
-        // Admin flag
-        isAdmin: isAdminEmail
-      };
-      
-      await kv.set(userKey, userData);
-      await kv.set(emailKey, userData);
-      
-      console.log(`User data created during login: ${userData.имя}${isAdminEmail ? ' (ADMIN)' : ''}`);
-    } else {
-      // Update last login
-      userData.lastLogin = new Date().toISOString();
-      
-      // Ensure admin flag is set for admin@admin.com
-      const isAdminEmail = email.trim().toLowerCase() === 'admin@admin.com';
-      if (isAdminEmail && !userData.isAdmin) {
-        userData.isAdmin = true;
-        console.log(`✅ Admin flag added to user: ${userData.имя}`);
-      }
-      
-      await kv.set(emailKey, userData);
-      await kv.set(`user:id:${userData.id}`, userData);
-      
-      console.log(`User logged in via email: ${userData.имя} (${email})${isAdminEmail ? ' (ADMIN)' : ''}`);
-    }
+    // Save updated user data
+    await kv.set(`user:id:${userData.id}`, userData);
+    
+    console.log(`✅ User logged in: ${userData.имя} ${userData.фамилия} (ID: ${userData.id})`);
     
     return c.json({ 
       success: true, 

@@ -404,14 +404,23 @@ export async function getAdminProducts() {
 }
 
 export async function createProduct(productData: any) {
+  console.log('📦 API createProduct called');
   console.log('📦 Creating product:', productData);
   console.log('   - commission:', productData.commission);
   console.log('   - retail_price:', productData.retail_price);
   console.log('   - partner_price:', productData.partner_price);
+  console.log('   - isDemoMode:', demoApi.isDemoMode());
   
   if (demoApi.isDemoMode()) {
+    console.log('📦 Calling demoCreateProduct...');
+    if (typeof demoApi.demoCreateProduct !== 'function') {
+      console.error('❌ demoCreateProduct is not a function!', typeof demoApi.demoCreateProduct);
+      throw new Error('demoCreateProduct is not defined');
+    }
     return demoApi.demoCreateProduct(productData);
   }
+  
+  console.log('📦 Calling real API...');
   return apiCall('/admin/products', {
     method: 'POST',
     body: JSON.stringify(productData),
@@ -419,8 +428,10 @@ export async function createProduct(productData: any) {
 }
 
 export async function updateProduct(productId: string, updates: any) {
+  console.log('📦 Updating product:', productId, updates);
+  
   if (demoApi.isDemoMode()) {
-    return demoApi.demoUpdateProduct(Number(productId), updates);
+    return demoApi.demoUpdateProduct(productId, updates);
   }
   return apiCall(`/admin/products/${productId}`, {
     method: 'PUT',
@@ -429,234 +440,50 @@ export async function updateProduct(productId: string, updates: any) {
 }
 
 export async function deleteProduct(productId: string) {
+  console.log('📦 Deleting product:', productId);
+  
   if (demoApi.isDemoMode()) {
-    return demoApi.demoDeleteProduct(Number(productId));
+    return demoApi.demoDeleteProduct(productId);
   }
   return apiCall(`/admin/products/${productId}`, {
     method: 'DELETE',
   });
 }
 
-export async function archiveProduct(productId: string, archive: boolean = true) {
+// ======================
+// NOTIFICATIONS
+// ======================
+
+export async function getNotifications() {
   if (demoApi.isDemoMode()) {
-    return demoApi.demoArchiveProduct(Number(productId), archive);
+    return demoApi.demoGetNotifications();
   }
-  return apiCall(`/admin/products/${productId}/archive`, {
-    method: 'PUT',
-    body: JSON.stringify({ archived: archive }),
-  });
+  return apiCall('/notifications');
 }
 
-export async function cleanDuplicateProducts() {
-  return apiCall('/admin/products/clean-duplicates', {
+export async function markNotificationAsRead(notificationId: string) {
+  if (demoApi.isDemoMode()) {
+    return demoApi.demoMarkNotificationAsRead(notificationId);
+  }
+  return apiCall(`/notifications/${notificationId}/read`, {
     method: 'POST',
   });
 }
 
-export async function uploadProductImage(file: File) {
-  // Always upload images, even in demo mode
-  // Demo mode should not interfere with admin image uploads
-  
-  const formData = new FormData();
-  formData.append('file', file);
-  
-  // Use getAuthToken() to get the current user ID (same as apiCall does)
-  const userId = getAuthToken();
-  
-  console.log('📤 Upload product image:', {
-    fileName: file.name,
-    fileType: file.type,
-    fileSize: file.size,
-    userId: userId
-  });
-  
-  if (!userId) {
-    throw new Error('No user ID found. Please log in again.');
-  }
-  
-  const response = await fetch(
-    `${API_BASE}/upload/product-image`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${ANON_KEY}`,
-        'X-User-Id': userId
-      },
-      body: formData
-    }
-  );
-  
-  console.log('📥 Upload response status:', response.status);
-  
-  if (!response.ok) {
-    const errorText = await response.text();
-    let error;
-    try {
-      error = JSON.parse(errorText);
-    } catch (e) {
-      error = { error: errorText };
-    }
-    console.error('❌ Upload product image error:', error);
-    throw new Error(error.error || `Upload failed with status ${response.status}`);
-  }
-  
-  const result = await response.json();
-  console.log('✅ Upload successful:', result);
-  
-  return result;
-}
-
-// Alias for inline admin usage - returns { success, url } instead of { success, imageUrl }
-export async function uploadImage(file: File) {
-  const result = await uploadProductImage(file);
-  return {
-    success: result.success,
-    url: result.imageUrl || result.url
-  };
-}
-
-// ======================
-// TRAINING / COURSES
-// ======================
-
-export async function getCourses() {
+export async function markAllNotificationsAsRead() {
   if (demoApi.isDemoMode()) {
-    return demoApi.demoGetCourses();
+    return demoApi.demoMarkAllNotificationsAsRead();
   }
-  return apiCall('/courses');
-}
-
-export async function createCourse(courseData: any) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoCreateCourse(courseData);
-  }
-  return apiCall('/admin/courses', {
+  return apiCall('/notifications/mark-all-read', {
     method: 'POST',
-    body: JSON.stringify(courseData),
   });
 }
 
-export async function updateCourse(courseId: string, updates: any) {
+export async function deleteNotification(notificationId: string) {
   if (demoApi.isDemoMode()) {
-    return demoApi.demoUpdateCourse(courseId, updates);
+    return demoApi.demoDeleteNotification(notificationId);
   }
-  return apiCall(`/admin/courses/${courseId}`, {
-    method: 'PUT',
-    body: JSON.stringify(updates),
-  });
-}
-
-export async function deleteCourse(courseId: string) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoDeleteCourse(courseId);
-  }
-  return apiCall(`/admin/courses/${courseId}`, {
-    method: 'DELETE',
-  });
-}
-
-export async function uploadCourseMaterial(file: File) {
-  // Всегда загружаем файлы, даже в демо режиме
-  const formData = new FormData();
-  formData.append('file', file);
-  
-  const userId = getAuthToken();
-  
-  console.log('📤 Upload course material:', {
-    fileName: file.name,
-    fileType: file.type,
-    fileSize: file.size,
-    userId: userId
-  });
-  
-  if (!userId) {
-    throw new Error('No user ID found. Please log in again.');
-  }
-  
-  const response = await fetch(
-    `${API_BASE}/upload/course-material`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${ANON_KEY}`,
-        'X-User-Id': userId
-      },
-      body: formData
-    }
-  );
-  
-  console.log('📥 Upload response status:', response.status);
-  
-  if (!response.ok) {
-    const errorText = await response.text();
-    let error;
-    try {
-      error = JSON.parse(errorText);
-    } catch (e) {
-      error = { error: errorText };
-    }
-    console.error('❌ Upload course material error:', error);
-    throw new Error(error.error || `Upload failed with status ${response.status}`);
-  }
-  
-  const result = await response.json();
-  console.log('✅ Upload successful:', result);
-  
-  return result;
-}
-
-// ======================
-// ADMIN - TRAINING (legacy)
-// ======================
-
-export async function getAdminTraining() {
-  return apiCall('/admin/training');
-}
-
-export async function createLesson(lessonData: any) {
-  return apiCall('/admin/training', {
-    method: 'POST',
-    body: JSON.stringify(lessonData),
-  });
-}
-
-export async function updateLesson(lessonId: string, updates: any) {
-  return apiCall(`/admin/training/${lessonId}`, {
-    method: 'PUT',
-    body: JSON.stringify(updates),
-  });
-}
-
-export async function deleteLesson(lessonId: string) {
-  return apiCall(`/admin/training/${lessonId}`, {
-    method: 'DELETE',
-  });
-}
-
-// ======================
-// ADMIN - PROMO CODES
-// ======================
-
-export async function getAdminPromos() {
-  return apiCall('/admin/promos');
-}
-
-export async function createPromo(promoData: any) {
-  return apiCall('/admin/promos', {
-    method: 'POST',
-    body: JSON.stringify(promoData),
-  });
-}
-
-export async function updatePromo(promoId: string, updates: any) {
-  return apiCall(`/admin/promos/${promoId}`, {
-    method: 'PUT',
-    body: JSON.stringify(updates),
-  });
-}
-
-export async function deletePromo(promoId: string) {
-  return apiCall(`/admin/promos/${promoId}`, {
+  return apiCall(`/notifications/${notificationId}`, {
     method: 'DELETE',
   });
 }
@@ -686,4 +513,174 @@ export async function getAdminLogs() {
 
 export async function getAdminAnalytics() {
   return apiCall('/admin/analytics');
+}
+
+// ======================
+// GAMIFICATION
+// ======================
+
+export async function getAchievements() {
+  const gamification = await import('./gamification');
+  return gamification.demoGetAchievements();
+}
+
+export async function getChallenges() {
+  const gamification = await import('./gamification');
+  return gamification.demoGetChallenges();
+}
+
+export async function getLeaderboard() {
+  const gamification = await import('./gamification');
+  return gamification.demoGetLeaderboard();
+}
+
+// ======================
+// ACHIEVEMENTS ADMIN
+// ======================
+
+export async function getAchievementsAdmin() {
+  if (demoApi.isDemoMode()) {
+    return demoApi.demoGetAchievementsAdmin();
+  }
+  return apiCall('/admin/achievements');
+}
+
+export async function createAchievement(achievementData: any) {
+  if (demoApi.isDemoMode()) {
+    return demoApi.demoCreateAchievement(achievementData);
+  }
+  return apiCall('/admin/achievements', {
+    method: 'POST',
+    body: JSON.stringify(achievementData)
+  });
+}
+
+export async function updateAchievement(id: string, achievementData: any) {
+  if (demoApi.isDemoMode()) {
+    return demoApi.demoUpdateAchievement(id, achievementData);
+  }
+  return apiCall(`/admin/achievements/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(achievementData)
+  });
+}
+
+export async function deleteAchievement(id: string) {
+  if (demoApi.isDemoMode()) {
+    return demoApi.demoDeleteAchievement(id);
+  }
+  return apiCall(`/admin/achievements/${id}`, {
+    method: 'DELETE'
+  });
+}
+
+// ======================
+// CHALLENGES ADMIN
+// ======================
+
+export async function getChallengesAdmin() {
+  if (demoApi.isDemoMode()) {
+    return demoApi.demoGetChallengesAdmin();
+  }
+  return apiCall('/admin/challenges');
+}
+
+export async function createChallenge(challengeData: any) {
+  if (demoApi.isDemoMode()) {
+    return demoApi.demoCreateChallenge(challengeData);
+  }
+  return apiCall('/admin/challenges', {
+    method: 'POST',
+    body: JSON.stringify(challengeData)
+  });
+}
+
+export async function updateChallenge(id: string, challengeData: any) {
+  if (demoApi.isDemoMode()) {
+    return demoApi.demoUpdateChallenge(id, challengeData);
+  }
+  return apiCall(`/admin/challenges/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(challengeData)
+  });
+}
+
+export async function deleteChallenge(id: string) {
+  if (demoApi.isDemoMode()) {
+    return demoApi.demoDeleteChallenge(id);
+  }
+  return apiCall(`/admin/challenges/${id}`, {
+    method: 'DELETE'
+  });
+}
+
+// ======================
+// COURSES / TRAINING
+// ======================
+
+export async function getCourses() {
+  if (demoApi.isDemoMode()) {
+    return demoApi.demoGetCourses();
+  }
+  return apiCall('/courses');
+}
+
+export async function createCourse(courseData: any) {
+  if (demoApi.isDemoMode()) {
+    return demoApi.demoCreateCourse(courseData);
+  }
+  return apiCall('/admin/courses', {
+    method: 'POST',
+    body: JSON.stringify(courseData),
+  });
+}
+
+export async function updateCourse(courseId: string, courseData: any) {
+  if (demoApi.isDemoMode()) {
+    return demoApi.demoUpdateCourse(courseId, courseData);
+  }
+  return apiCall(`/admin/courses/${courseId}`, {
+    method: 'PUT',
+    body: JSON.stringify(courseData),
+  });
+}
+
+export async function deleteCourse(courseId: string) {
+  if (demoApi.isDemoMode()) {
+    return demoApi.demoDeleteCourse(courseId);
+  }
+  return apiCall(`/admin/courses/${courseId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function uploadCourseMaterial(file: File) {
+  if (demoApi.isDemoMode()) {
+    return demoApi.demoUploadCourseMaterial(file);
+  }
+  
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  const userId = getAuthToken();
+  const headers: HeadersInit = {
+    'Authorization': `Bearer ${ANON_KEY}`,
+  };
+  
+  if (userId) {
+    headers['X-User-Id'] = userId;
+  }
+  
+  const response = await fetch(`${API_BASE}/admin/courses/upload`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || 'Upload failed');
+  }
+  
+  return response.json();
 }

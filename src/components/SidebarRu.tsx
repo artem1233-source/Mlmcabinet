@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, ShoppingBag, Wallet, Package, GraduationCap, UserCircle, Settings, Droplet, TrendingUp, Bell, Play, LogOut, Shield } from 'lucide-react';
+import { LayoutDashboard, Users, ShoppingBag, Wallet, Package, GraduationCap, UserCircle, Settings, Droplet, TrendingUp, Bell, Play, LogOut, Shield, Trophy, Sparkles } from 'lucide-react';
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from './ui/sheet';
 import { isDemoMode } from '../utils/demoApi';
 import { clearDemoData } from '../utils/demoData';
@@ -29,7 +29,9 @@ export function SidebarRu({ текущаяВкладка, изменитьВкл
     { id: 'доходы', label: 'Доходы', icon: TrendingUp },
     { id: 'баланс', label: 'Баланс', icon: Wallet },
     { id: 'каталог', label: 'Каталог', icon: Package },
+    { id: 'маркетинг', label: 'Маркетинг', icon: Sparkles },
     { id: 'обучение', label: 'Обучение', icon: GraduationCap },
+    { id: 'достижения', label: 'Достижения', icon: Trophy },
     { id: 'уведомления', label: 'Уведомления', icon: Bell },
     { id: 'профиль', label: 'Профиль', icon: UserCircle },
     { id: 'настройки', label: 'Настройки', icon: Settings },

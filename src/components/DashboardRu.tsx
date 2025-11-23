@@ -3,6 +3,7 @@ import { TrendingUp, ShoppingBag, Users, Wallet, ArrowUpRight, Loader2, RefreshC
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
 import { AdminToolbar } from './AdminToolbar';
+import { AchievementsWidget } from './AchievementsWidget';
 import * as api from '../utils/api';
 import { toast } from 'sonner';
 import { isDemoMode } from '../utils/demoApi';
@@ -206,7 +207,7 @@ export function DashboardRu({ currentUser, onRefresh, refreshTrigger }: Dashboar
       <div className="flex items-center justify-between mb-6 lg:mb-8">
         <div>
           <h1 className="text-[#1E1E1E] mb-1" style={{ fontSize: '24px', fontWeight: '700' }}>
-            {isAdmin ? '📊 Панель администратора' : `Добро пожаловаь, ${currentUser.имя}! 👋`}
+            {isAdmin ? '�� Панель администратора' : `Добро пожаловаь, ${currentUser.имя}! 👋`}
           </h1>
           <p className="text-[#666]">
             {isAdmin 
@@ -405,7 +406,7 @@ export function DashboardRu({ currentUser, onRefresh, refreshTrigger }: Dashboar
       </Card>
 
       {/* Recent Orders */}
-      <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
+      <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white mb-6 lg:mb-8">
         <CardHeader>
           <CardTitle className="text-[#1E1E1E]">Последние заказы</CardTitle>
         </CardHeader>
@@ -458,6 +459,14 @@ export function DashboardRu({ currentUser, onRefresh, refreshTrigger }: Dashboar
           )}
         </CardContent>
       </Card>
+      
+      {/* 🎮 Achievements Widget */}
+      <div className="mb-6 lg:mb-8">
+        <AchievementsWidget onNavigate={() => {
+          // This will be handled by parent component
+          window.dispatchEvent(new CustomEvent('navigate-to-achievements'));
+        }} />
+      </div>
       
       {/* 🆕 Advanced Analytics Section */}
       <div className="mt-6 lg:mt-8">

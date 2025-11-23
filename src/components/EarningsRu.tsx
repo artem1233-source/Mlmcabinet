@@ -133,7 +133,7 @@ export function EarningsRu({ currentUser, refreshTrigger }: EarningsProps) {
         {/* 🆕 Уровень 0 - Розничные продажи */}
         <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
           <CardContent className="pt-6">
-            <div className="text-[#666] text-sm">Уровень 0 (1600₽)</div>
+            <div className="text-[#666] text-sm">Уровень 0</div>
             <div className="text-[#10B981] mt-2" style={{ fontSize: '20px', fontWeight: '700' }}>
               {(byLevel.L0 || 0).toLocaleString('ru-RU')}₽
             </div>
@@ -143,7 +143,7 @@ export function EarningsRu({ currentUser, refreshTrigger }: EarningsProps) {
         
         <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
           <CardContent className="pt-6">
-            <div className="text-[#666] text-sm">Уровень 1 (900₽)</div>
+            <div className="text-[#666] text-sm">Уровень 1</div>
             <div className="text-[#39B7FF] mt-2" style={{ fontSize: '20px', fontWeight: '700' }}>
               {(byLevel.L1 || 0).toLocaleString('ru-RU')}₽
             </div>
@@ -153,7 +153,7 @@ export function EarningsRu({ currentUser, refreshTrigger }: EarningsProps) {
         
         <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
           <CardContent className="pt-6">
-            <div className="text-[#666] text-sm">Уровень 2 (500₽)</div>
+            <div className="text-[#666] text-sm">Уровень 2</div>
             <div className="text-[#F59E0B] mt-2" style={{ fontSize: '20px', fontWeight: '700' }}>
               {(byLevel.L2 || 0).toLocaleString('ru-RU')}₽
             </div>
@@ -163,7 +163,7 @@ export function EarningsRu({ currentUser, refreshTrigger }: EarningsProps) {
         
         <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
           <CardContent className="pt-6">
-            <div className="text-[#666] text-sm">Уровень 3 (200₽)</div>
+            <div className="text-[#666] text-sm">Уровень 3</div>
             <div className="text-[#EF4444] mt-2" style={{ fontSize: '20px', fontWeight: '700' }}>
               {(byLevel.L3 || 0).toLocaleString('ru-RU')}₽
             </div>

@@ -9,6 +9,7 @@ import { BalanceRu } from './components/BalanceRu';
 import { CatalogRu } from './components/CatalogRu';
 import { CartRu } from './components/CartRu';
 import { TrainingRu } from './components/TrainingRu';
+import { AchievementsRu } from './components/AchievementsRu';
 import { NotificationsRu } from './components/NotificationsRu';
 import { ProfileRu } from './components/ProfileRu';
 // import { ProfileDebug } from './components/ProfileDebug'; // Закомментировано для сборки
@@ -26,7 +27,8 @@ import * as api from './utils/api';
 import { isDemoMode, getCurrentDemoUser } from './utils/demoApi';
 import { loadDemoDataFromStorage, generateAllDemoData, saveDemoDataToStorage } from './utils/demoData';
 import { DemoUserSelector } from './components/DemoUserSelector';
-import { AdminPanel } from './components/AdminPanel';
+import { AdminRu } from './components/AdminRu';
+import { MarketingToolsRu } from './components/MarketingToolsRu';
 import { useDemoUser } from './contexts/DemoUserContext'; // 🆕 Импортируем хук
 
 export default function AppRu() {
@@ -260,6 +262,20 @@ export default function AppRu() {
     }
   }, [demoContext?.currentUserId, demoContext?.currentUser, isAuthenticated]);
   
+  // 🎮 Listen for navigate-to-achievements event from widgets
+  useEffect(() => {
+    const handleNavigateToAchievements = () => {
+      setТекущаяВкладка('достижения');
+      setMobileMenuOpen(false);
+    };
+    
+    window.addEventListener('navigate-to-achievements', handleNavigateToAchievements);
+    
+    return () => {
+      window.removeEventListener('navigate-to-achievements', handleNavigateToAchievements);
+    };
+  }, []);
+  
   // Handle auth
   const handleAuth = (userData: any) => {
     try {
@@ -287,7 +303,7 @@ export default function AppRu() {
   const handleLogout = () => {
     api.logout();
     
-    // Если был демо режим - очищаем демо данные
+    // Если был демо режим - очищаем демо данны
     if (isDemoMode()) {
       localStorage.removeItem('demoData');
       console.log('🎭 Demo data cleared');
@@ -472,8 +488,12 @@ export default function AppRu() {
             onAddToCart={handleAddToCart}
           />
         );
+      case 'маркетинг':
+        return <MarketingToolsRu currentUser={currentUser} />;
       case 'обучение':
         return <TrainingRu currentUser={currentUser} />;
+      case 'достижения':
+        return <AchievementsRu />;
       case 'уведомления':
         return <NotificationsRu currentUser={currentUser} />;
       case 'профиль':
@@ -493,12 +513,8 @@ export default function AppRu() {
         );
       case 'админ':
         return (
-          <AdminPanel
+          <AdminRu
             currentUser={currentUser}
-            onRefresh={() => {
-              updateUser();
-              refreshData();
-            }}
           />
         );
       default:

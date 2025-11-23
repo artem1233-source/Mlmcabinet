@@ -7,9 +7,12 @@ interface EmailAuthProps {
 
 export function EmailAuthRu({ onAuth }: EmailAuthProps) {
   const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
-  const [name, setName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [referralCode, setReferralCode] = useState('');
+  const [sponsorInfo, setSponsorInfo] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -25,8 +28,8 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
       return;
     }
 
-    if (mode === 'register' && !name.trim()) {
-      setError('Пожалуйста, введите ваше имя');
+    if (mode === 'register' && (!firstName.trim() || !lastName.trim())) {
+      setError('Пожалуйста, введите ваше имя и фамилию');
       return;
     }
 
@@ -48,7 +51,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
       
       if (mode === 'register') {
         // Регистрация
-        console.log('Attempting signup with:', { email: email.trim(), name: name.trim() });
+        console.log('Attempting signup with:', { email: email.trim(), name: `${firstName.trim()} ${lastName.trim()}` });
         console.log('Project ID:', projectId);
         console.log('Has Anon Key:', !!publicAnonKey);
         
@@ -64,7 +67,9 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
           body: JSON.stringify({
             email: email.trim(),
             password: password,
-            name: name.trim(),
+            firstName: firstName.trim(),
+            lastName: lastName.trim(),
+            referralCode: referralCode.trim() || null,
           }),
         });
 
@@ -129,7 +134,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
           'Authorization': `Bearer ${publicAnonKey}`,
         },
         body: JSON.stringify({
-          email: email.trim(),
+          login: email.trim(),
           password: password,
         }),
       });
@@ -392,9 +397,28 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
                 <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#666] w-5 h-5" />
                 <input
                   type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Например: Иван Петров"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="Например: Иван"
+                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#39B7FF] focus:border-transparent"
+                  disabled={loading}
+                />
+              </div>
+            </div>
+          )}
+
+          {mode === 'register' && (
+            <div>
+              <label className="block text-[#1E1E1E] mb-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                Ваша фамилия
+              </label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#666] w-5 h-5" />
+                <input
+                  type="text"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  placeholder="Например: Петров"
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#39B7FF] focus:border-transparent"
                   disabled={loading}
                 />
@@ -433,6 +457,25 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
                   onChange={(e) => setPassword(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
                   placeholder="Минимум 6 символов"
+                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#39B7FF] focus:border-transparent"
+                  disabled={loading}
+                />
+              </div>
+            </div>
+          )}
+
+          {mode === 'register' && (
+            <div>
+              <label className="block text-[#1E1E1E] mb-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                Реферальный код
+              </label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#666] w-5 h-5" />
+                <input
+                  type="text"
+                  value={referralCode}
+                  onChange={(e) => setReferralCode(e.target.value)}
+                  placeholder="Введите ��еферальный код"
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#39B7FF] focus:border-transparent"
                   disabled={loading}
                 />
@@ -549,7 +592,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
                 <div className="w-full border-t border-amber-200"></div>
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-4 bg-white text-amber-700" style={{ fontWeight: '600' }}>✨ Быстрый тест-драйв</span>
+                <span className="px-4 bg-white text-amber-700" style={{ fontWeight: '600' }}>✨ Быстрый тест-райв</span>
               </div>
             </div>
 
@@ -616,7 +659,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
               </svg>
             </div>
             <div>
-              <p className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '14px' }}>4 уровня партнёрства</p>
+              <p className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '14px' }}>4 ��ровня партнёрства</p>
               <p className="text-[#666]" style={{ fontSize: '13px' }}>От Уровня 0 до Уровня 3</p>
             </div>
           </div>

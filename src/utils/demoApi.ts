@@ -132,7 +132,7 @@ export function getDemoUsersList(): Array<{
 }
 
 // Получение демо данных
-function getDemoData() {
+export function getDemoData() {
   const data = loadDemoDataFromStorage();
   if (!data) {
     throw new Error('Demo data not found. Please enter demo mode first.');
@@ -812,7 +812,7 @@ export async function demoCreateProduct(productData: any) {
   };
 }
 
-export async function demoUpdateProduct(productId: number, productData: any) {
+export async function demoUpdateProduct(productId: number | string, productData: any) {
   await delay(400);
   console.log('🎭 Demo: Updating product...', productId, productData);
   const data = getDemoData();
@@ -832,8 +832,10 @@ export async function demoUpdateProduct(productId: number, productData: any) {
   console.log('💰 Product retail_price:', productData.retail_price);
   console.log('💰 Product partner_price:', productData.partner_price);
   
-  // Находим товар в products (это каталог)
-  const productIndex = data.products.findIndex((p: any) => p.id === productId);
+  // Находим товар в products (это каталог) - поддерживаем и number и string
+  const productIndex = data.products.findIndex((p: any) => 
+    p.id === productId || p.id === Number(productId) || String(p.id) === String(productId)
+  );
   
   if (productIndex !== -1) {
     // Преобразуем строки в числа для цен
@@ -880,7 +882,7 @@ export async function demoUpdateProduct(productId: number, productData: any) {
   };
 }
 
-export async function demoDeleteProduct(productId: number) {
+export async function demoDeleteProduct(productId: number | string) {
   await delay(400);
   console.log('🎭 Demo: Deleting product...', productId);
   const data = getDemoData();
@@ -895,8 +897,10 @@ export async function demoDeleteProduct(productId: number) {
     };
   }
   
-  // Находим индес товара
-  const productIndex = data.products.findIndex((p: any) => p.id === productId);
+  // Находим индес товара - поддерживаем и number и string
+  const productIndex = data.products.findIndex((p: any) => 
+    p.id === productId || p.id === Number(productId) || String(p.id) === String(productId)
+  );
   
   if (productIndex !== -1) {
     const deletedProduct = data.products[productIndex];
@@ -1208,16 +1212,16 @@ export async function demoGetCourses() {
       {
         id: 'course_1',
         название: 'Что такое водород',
-        описание: 'Узнайте о пользе молекулярного водорода и о том, как наши продукты могут улучшить здоровье. Поймите науку о водородной вде и её терапевтических эффектах.',
+        описание: 'Узнайте о пользе молекулярного водорода и о том, как наши продукты могут улучшить здоровье. Поймите науку о водородной воде и её терапевтических эффектах.',
         iconName: 'Droplet',
-        длительност: '45 мин',
-        модулей: 6,
+        длительность: '45 мин',
+        модули: 6,
         цвет: '#39B7FF',
         уроки: [
-          'ведение в молекулярный водород',
+          'Введение в молекулярный водород',
           'Польза водородной воды для здоровья',
-          'Научные сследования',
-          'Обзор технологии подуктов',
+          'Научные исследования',
+          'Обзор технологии продуктов',
           'Рекомендации по применению',
           'Вопросы и ответы'
         ],
@@ -1226,17 +1230,17 @@ export async function demoGetCourses() {
       {
         id: 'course_2',
         название: 'Как строить сеть',
-        описание: 'Овладейте исксством построения сети, стратегиями рекрутинга и управлением командой для устойчивого роста. Изучите эффектвны навыки коммуникации и лидерства.',
+        описание: 'Овладейте искусством построения сети, стратегиями рекрутинга и управлением командой для устойчивого роста. Изучите эффективные навыки коммуникации и лидерства.',
         iconName: 'Users',
         длительность: '60 мин',
-        модулей: 8,
+        модули: 8,
         цвет: '#12C9B6',
         уроки: [
           'Основы сетевого маркетинга',
           'Поиск правильных партнёров',
           'Эффективные техники коммуникации',
           'Стратегии построения команды',
-          'Лиерство и мотивация',
+          'Лидерство и мотивация',
           'Работа с возражениями',
           'Обучение и развитие команды',
           'Масштабирование вашей сети'
@@ -1246,16 +1250,16 @@ export async function demoGetCourses() {
       {
         id: 'course_3',
         название: 'План вознаграждения',
-        описание: 'Глубокое погружение в нашу многоровневую структуру компенсации и изучение того, как максимизировать ваш доход. Понимание расчёта комиссий и бонусных возможносй.',
+        описание: 'Глубокое погружение в нашу многоуровневую структуру компенсации и изучение того, как максимизировать ваш доход. Понимание расчёта комиссий и бонусных возможностей.',
         iconName: 'Award',
         длительность: '30 мин',
-        модулей: 4,
+        модули: 4,
         цвет: '#F59E0B',
         уроки: [
           'Структура комиссионных',
           'Ценообразование и маржа по уровням',
-          'онусные программы и стимулы',
-          'Мксимизация вашего дохода'
+          'Бонусные программы и стимулы',
+          'Максимизация вашего дохода'
         ],
         порядок: 3
       }
@@ -1335,14 +1339,14 @@ export async function demoUpdateCourse(courseId: string, updates: any) {
       уроки: updates.уроки || []
     };
     
-    // Сохраняе обратно
+    // Сохраняем обратно
     saveDemoDataToStorage(data);
     
     console.log('✅ Demo course updated:', data.courses[courseIndex]);
     
     return {
       success: true,
-      message: 'Курс обновлён (део)',
+      message: 'Курс обновлён (демо)',
       course: data.courses[courseIndex]
     };
   }
@@ -1361,7 +1365,7 @@ export async function demoDeleteCourse(courseId: string) {
   if (!data.courses || !Array.isArray(data.courses)) {
     return {
       success: false,
-      message: 'Ошибка: кусы не найдены'
+      message: 'Ошибка: курсы не найдены'
     };
   }
   
@@ -1373,7 +1377,7 @@ export async function demoDeleteCourse(courseId: string) {
     // Удаляем курс
     data.courses.splice(courseIndex, 1);
     
-    // Схраняем обратно
+    // Сохраняем обратно
     saveDemoDataToStorage(data);
     
     console.log('✅ Demo course deleted:', deletedCourse);
@@ -1387,6 +1391,24 @@ export async function demoDeleteCourse(courseId: string) {
   return {
     success: false,
     message: 'Курс не найден'
+  };
+}
+
+export async function demoUploadCourseMaterial(file: File) {
+  await delay(800);
+  console.log('📁 Demo: Uploading course material...', file.name);
+  
+  // В демо-режиме создаём фиктивный URL для файла
+  const mockUrl = `https://demo-storage.example.com/courses/${Date.now()}_${file.name}`;
+  
+  console.log('✅ Demo material uploaded:', mockUrl);
+  
+  return {
+    success: true,
+    message: 'Файл загружен (демо)',
+    url: mockUrl,
+    filename: file.name,
+    size: file.size
   };
 }
 
@@ -1707,6 +1729,134 @@ export async function demoSetUserAdmin(userId: string, isAdmin: boolean) {
   };
 }
 
+// ============= NOTIFICATIONS =============
+
+export async function demoGetNotifications() {
+  await delay(300);
+  const data = getDemoData();
+  
+  // Получаем текущего пользователя
+  const currentUserId = getCurrentDemoUserId();
+  if (!currentUserId) {
+    return {
+      success: true,
+      notifications: []
+    };
+  }
+  
+  // Инициализируем notifications если нет
+  if (!data.notifications) {
+    data.notifications = [];
+  }
+  
+  // Фильтруем по текущему пользователю
+  const userNotifications = data.notifications.filter((n: any) => n.userId === currentUserId);
+  
+  return {
+    success: true,
+    notifications: userNotifications
+  };
+}
+
+export async function demoMarkNotificationAsRead(notificationId: string) {
+  await delay(200);
+  const data = getDemoData();
+  
+  if (!data.notifications) {
+    data.notifications = [];
+  }
+  
+  const notificationIndex = data.notifications.findIndex((n: any) => n.id === notificationId);
+  
+  if (notificationIndex !== -1) {
+    data.notifications[notificationIndex].прочитано = true;
+    saveDemoDataToStorage(data);
+  }
+  
+  return {
+    success: true
+  };
+}
+
+export async function demoMarkAllNotificationsAsRead() {
+  await delay(300);
+  const data = getDemoData();
+  
+  const currentUserId = getCurrentDemoUserId();
+  if (!currentUserId) {
+    return { success: false, error: 'Not authenticated' };
+  }
+  
+  if (!data.notifications) {
+    data.notifications = [];
+  }
+  
+  // Отмечаем все уведомления текущего пользователя как прочитанные
+  data.notifications = data.notifications.map((n: any) => {
+    if (n.userId === currentUserId) {
+      return { ...n, прочитано: true };
+    }
+    return n;
+  });
+  
+  saveDemoDataToStorage(data);
+  
+  return {
+    success: true
+  };
+}
+
+export async function demoDeleteNotification(notificationId: string) {
+  await delay(200);
+  const data = getDemoData();
+  
+  if (!data.notifications) {
+    data.notifications = [];
+  }
+  
+  data.notifications = data.notifications.filter((n: any) => n.id !== notificationId);
+  saveDemoDataToStorage(data);
+  
+  return {
+    success: true
+  };
+}
+
+/**
+ * Создать уведомление (helper функция)
+ */
+export function createNotification(
+  userId: string,
+  type: 'order' | 'commission' | 'new_partner' | 'goal' | 'inactive' | 'withdrawal' | 'course',
+  title: string,
+  message: string,
+  extraData?: any
+) {
+  const data = getDemoData();
+  
+  if (!data.notifications) {
+    data.notifications = [];
+  }
+  
+  const notification = {
+    id: `notif_${Date.now()}_${Math.random()}`,
+    userId,
+    тип: type,
+    заголовок: title,
+    сообщение: message,
+    дата: new Date().toISOString(),
+    прочитано: false,
+    данные: extraData
+  };
+  
+  data.notifications.unshift(notification);
+  saveDemoDataToStorage(data);
+  
+  console.log('🔔 Notification created:', notification);
+  
+  return notification;
+}
+
 // ============= MLM HELPER FUNCTIONS =============
 
 /**
@@ -1803,3 +1953,16 @@ export function getEarningsByLevel(userId: string) {
     L3: earnings.filter((e: any) => e.линия === 3).reduce((sum, e) => sum + (e.сумма || 0), 0)
   };
 }
+
+// ============= ACHIEVEMENTS ADMIN =============
+// Re-export functions from achievementsAdminApi
+export {
+  demoGetAchievementsAdmin,
+  demoCreateAchievement,
+  demoUpdateAchievement,
+  demoDeleteAchievement,
+  demoGetChallengesAdmin,
+  demoCreateChallenge,
+  demoUpdateChallenge,
+  demoDeleteChallenge
+} from './achievementsAdminApi';

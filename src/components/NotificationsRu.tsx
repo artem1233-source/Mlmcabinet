@@ -1,212 +1,323 @@
-import { Bell, Check, X, ShoppingBag, Wallet, Users, TrendingUp } from 'lucide-react';
-import { Card } from './ui/card';
+import React, { useState, useEffect } from 'react';
+import { Bell, Check, CheckCheck, Filter, Trash2, Settings, ShoppingCart, DollarSign, Users, Target, AlertCircle, ArrowDownToLine, BookOpen } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Button } from './ui/button';
+import { Badge } from './ui/badge';
+import * as api from '../utils/api';
 
 interface Notification {
   id: string;
-  тип: 'заказ' | 'выплата' | 'команда' | 'доход';
+  тип: 'order' | 'commission' | 'new_partner' | 'goal' | 'inactive' | 'withdrawal' | 'course';
   заголовок: string;
-  описание: string;
-  дата: Date;
+  сообщение: string;
+  дата: string;
   прочитано: boolean;
+  данные?: any; // Дополнительные данные (ID заказа, сумма и т.д.)
 }
 
-interface NotificationsRuProps {
-  уведомления?: Notification[];
-  отметитьПрочитанным?: (id: string) => void;
-  удалитьУведомление?: (id: string) => void;
-}
+export function NotificationsRu() {
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<'all' | Notification['тип']>('all');
 
-// Начальные уведомления для демонстрации
-const начальныеУведомления: Notification[] = [
-  {
-    id: 'n1',
-    тип: 'доход',
-    заголовок: 'Новый доход получен',
-    описание: 'Вы получили комиссию ₽1,600 от заказа партнёра',
-    дата: new Date(Date.now() - 1000 * 60 * 30), // 30 минут назад
-    прочитано: false
-  },
-  {
-    id: 'n2',
-    тип: 'заказ',
-    заголовок: 'Новый заказ оформлен',
-    описание: 'Заказ #ORD-1001 на сумму ₽5,000 успешно создан',
-    дата: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 часа назад
-    прочитано: false
-  },
-  {
-    id: 'n3',
-    тип: 'команда',
-    заголовок: 'Новый партнёр в команде',
-    описание: 'Дмитрий Петров присоединился к вашей команде',
-    дата: new Date(Date.now() - 1000 * 60 * 60 * 24), // 1 день назад
-    прочитано: true
-  },
-  {
-    id: 'n4',
-    тип: 'выплата',
-    заголовок: 'Выплата обработана',
-    описание: 'Выплата ₽1,000 успешно отправлена на ваш счёт',
-    дата: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2), // 2 дня назад
-    прочитано: true
-  },
-  {
-    id: 'n5',
-    тип: 'доход',
-    заголовок: 'Доход от структуры',
-    описание: 'Получена комиссия ₽3,000 от продаж в вашей команде',
-    дата: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3), // 3 дня назад
-    прочитано: true
+  useEffect(() => {
+    loadNotifications();
+  }, []);
+
+  const loadNotifications = async () => {
+    try {
+      setLoading(true);
+      const response = await api.getNotifications();
+      if (response.success) {
+        setNotifications(response.notifications || []);
+      }
+    } catch (error) {
+      console.error('Error loading notifications:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const markAsRead = async (notificationId: string) => {
+    try {
+      await api.markNotificationAsRead(notificationId);
+      setNotifications(notifications.map(n => 
+        n.id === notificationId ? { ...n, прочитано: true } : n
+      ));
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
+  };
+
+  const markAllAsRead = async () => {
+    try {
+      await api.markAllNotificationsAsRead();
+      setNotifications(notifications.map(n => ({ ...n, прочитано: true })));
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+    }
+  };
+
+  const deleteNotification = async (notificationId: string) => {
+    try {
+      await api.deleteNotification(notificationId);
+      setNotifications(notifications.filter(n => n.id !== notificationId));
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+    }
+  };
+
+  const getNotificationIcon = (type: Notification['тип']) => {
+    switch (type) {
+      case 'order':
+        return <ShoppingCart className="size-5 text-[#39B7FF]" />;
+      case 'commission':
+        return <DollarSign className="size-5 text-[#12C9B6]" />;
+      case 'new_partner':
+        return <Users className="size-5 text-purple-500" />;
+      case 'goal':
+        return <Target className="size-5 text-orange-500" />;
+      case 'inactive':
+        return <AlertCircle className="size-5 text-yellow-500" />;
+      case 'withdrawal':
+        return <ArrowDownToLine className="size-5 text-green-500" />;
+      case 'course':
+        return <BookOpen className="size-5 text-blue-500" />;
+      default:
+        return <Bell className="size-5 text-gray-500" />;
+    }
+  };
+
+  const getTypeLabel = (type: Notification['тип']) => {
+    const labels: Record<Notification['тип'], string> = {
+      order: 'Заказ',
+      commission: 'Комиссия',
+      new_partner: 'Партнёр',
+      goal: 'Цель',
+      inactive: 'Активность',
+      withdrawal: 'Вывод',
+      course: 'Обучение'
+    };
+    return labels[type];
+  };
+
+  const filteredNotifications = filter === 'all' 
+    ? notifications 
+    : notifications.filter(n => n.тип === filter);
+
+  const unreadCount = notifications.filter(n => !n.прочитано).length;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <Bell className="size-12 text-gray-400 mx-auto mb-4 animate-pulse" />
+          <p className="text-gray-500">Загрузка уведомлений...</p>
+        </div>
+      </div>
+    );
   }
-];
-
-export function NotificationsRu({ 
-  уведомления = начальныеУведомления,
-  отметитьПрочитанным,
-  удалитьУведомление 
-}: NotificationsRuProps) {
-  
-  const getIcon = (тип: Notification['тип']) => {
-    switch (тип) {
-      case 'заказ':
-        return <ShoppingBag size={20} className="text-[#39B7FF]" />;
-      case 'выплата':
-        return <Wallet size={20} className="text-[#12C9B6]" />;
-      case 'команда':
-        return <Users size={20} className="text-[#9333EA]" />;
-      case 'доход':
-        return <TrendingUp size={20} className="text-[#10B981]" />;
-    }
-  };
-
-  const formatDate = (дата: Date) => {
-    const now = new Date();
-    const diff = now.getTime() - дата.getTime();
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-
-    if (minutes < 60) {
-      return `${minutes} мин. назад`;
-    } else if (hours < 24) {
-      return `${hours} ч. назад`;
-    } else if (days === 1) {
-      return 'Вчера';
-    } else if (days < 7) {
-      return `${days} дн. назад`;
-    } else {
-      return дата.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
-    }
-  };
-
-  const непрочитанныеКоличество = уведомления.filter(n => !n.прочитано).length;
 
   return (
-    <div className="p-4 lg:p-8">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <h1 className="text-[#1E1E1E]" style={{ fontSize: '28px', fontWeight: '700' }}>
-              Уведомления
-            </h1>
-            {непрочитанныеКоличество > 0 && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-[#39B7FF] rounded-full">
-                <Bell size={16} className="text-white" />
-                <span className="text-white" style={{ fontSize: '13px', fontWeight: '600' }}>
-                  {непрочитанныеКоличество} новых
-                </span>
-              </div>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="flex items-center gap-2">
+            <Bell className="size-8 text-[#39B7FF]" />
+            Уведомления
+            {unreadCount > 0 && (
+              <Badge className="bg-red-500 text-white">
+                {unreadCount}
+              </Badge>
             )}
-          </div>
-          <p className="text-[#666]">
-            Все важные события и обновления вашего аккаунта
+          </h1>
+          <p className="text-gray-600 mt-1">
+            Все события и обновления вашего кабинета
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          {unreadCount > 0 && (
+            <Button
+              onClick={markAllAsRead}
+              variant="outline"
+              className="gap-2"
+            >
+              <CheckCheck className="size-4" />
+              Прочитать всё
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            className="gap-2"
+          >
+            <Settings className="size-4" />
+            Настройки
+          </Button>
+        </div>
+      </div>
 
-        {/* Notifications List */}
-        <div className="space-y-3">
-          {уведомления.length === 0 ? (
-            <Card className="p-12 text-center">
-              <Bell size={48} className="text-[#E6E9EE] mx-auto mb-4" />
-              <h3 className="text-[#1E1E1E] mb-2" style={{ fontWeight: '600' }}>
-                Нет уведомлений
+      {/* Filters */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Filter className="size-4 text-gray-500" />
+            <Button
+              variant={filter === 'all' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setFilter('all')}
+            >
+              Все ({notifications.length})
+            </Button>
+            <Button
+              variant={filter === 'order' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setFilter('order')}
+              className="gap-2"
+            >
+              <ShoppingCart className="size-3" />
+              Заказы
+            </Button>
+            <Button
+              variant={filter === 'commission' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setFilter('commission')}
+              className="gap-2"
+            >
+              <DollarSign className="size-3" />
+              Комиссии
+            </Button>
+            <Button
+              variant={filter === 'new_partner' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setFilter('new_partner')}
+              className="gap-2"
+            >
+              <Users className="size-3" />
+              Партнёры
+            </Button>
+            <Button
+              variant={filter === 'goal' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setFilter('goal')}
+              className="gap-2"
+            >
+              <Target className="size-3" />
+              Цели
+            </Button>
+            <Button
+              variant={filter === 'withdrawal' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setFilter('withdrawal')}
+              className="gap-2"
+            >
+              <ArrowDownToLine className="size-3" />
+              Выводы
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Notifications List */}
+      <div className="space-y-3">
+        {filteredNotifications.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <Bell className="size-16 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-gray-500 mb-2">
+                {filter === 'all' ? 'Нет уведомлений' : `Нет уведомлений типа "${getTypeLabel(filter as Notification['тип'])}"`}
               </h3>
-              <p className="text-[#666]">
-                Здесь будут отображаться все важные обновления
+              <p className="text-sm text-gray-400">
+                Когда появятся новые события, они отобразятся здесь
               </p>
-            </Card>
-          ) : (
-            уведомления.map((уведомление) => (
-              <Card
-                key={уведомление.id}
-                className={`p-4 transition-all hover:shadow-md ${
-                  !уведомление.прочитано ? 'bg-[#F0F9FF] border-[#39B7FF]/20' : ''
-                }`}
-              >
+            </CardContent>
+          </Card>
+        ) : (
+          filteredNotifications.map((notification) => (
+            <Card
+              key={notification.id}
+              className={`
+                transition-all cursor-pointer hover:shadow-md
+                ${!notification.прочитано ? 'bg-blue-50 border-l-4 border-l-[#39B7FF]' : 'hover:bg-gray-50'}
+              `}
+              onClick={() => !notification.прочитано && markAsRead(notification.id)}
+            >
+              <CardContent className="py-4">
                 <div className="flex items-start gap-4">
                   {/* Icon */}
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                    !уведомление.прочитано ? 'bg-white' : 'bg-[#F7FAFC]'
-                  }`}>
-                    {getIcon(уведомление.тип)}
+                  <div className={`
+                    p-3 rounded-full flex-shrink-0
+                    ${!notification.прочитано ? 'bg-white' : 'bg-gray-100'}
+                  `}>
+                    {getNotificationIcon(notification.тип)}
                   </div>
 
                   {/* Content */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <h3 className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>
-                        {уведомление.заголовок}
-                      </h3>
-                      {!уведомление.прочитано && (
-                        <div className="w-2 h-2 bg-[#39B7FF] rounded-full flex-shrink-0 mt-2" />
-                      )}
-                    </div>
-                    <p className="text-[#666] mb-2" style={{ fontSize: '14px' }}>
-                      {уведомление.описание}
-                    </p>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[#999]" style={{ fontSize: '12px' }}>
-                        {formatDate(уведомление.дата)}
-                      </span>
-                      
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className={`
+                            ${!notification.прочитано ? 'font-semibold' : 'font-medium text-gray-700'}
+                          `}>
+                            {notification.заголовок}
+                          </h3>
+                          <Badge variant="outline" className="text-xs">
+                            {getTypeLabel(notification.тип)}
+                          </Badge>
+                        </div>
+                        <p className={`
+                          text-sm mb-2
+                          ${!notification.прочитано ? 'text-gray-700' : 'text-gray-600'}
+                        `}>
+                          {notification.сообщение}
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          {new Date(notification.дата).toLocaleString('ru-RU', {
+                            day: 'numeric',
+                            month: 'long',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </p>
+                      </div>
+
                       {/* Actions */}
-                      <div className="flex items-center gap-2">
-                        {!уведомление.прочитано && отметитьПрочитанным && (
-                          <button
-                            onClick={() => отметитьПрочитанным(уведомление.id)}
-                            className="p-1.5 hover:bg-white rounded-lg transition-all"
-                            title="Отметить прочитанным"
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {!notification.прочитано && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              markAsRead(notification.id);
+                            }}
+                            className="h-8 w-8 p-0"
+                            title="Отметить как прочитанное"
                           >
-                            <Check size={16} className="text-[#39B7FF]" />
-                          </button>
+                            <Check className="size-4" />
+                          </Button>
                         )}
-                        {удалитьУведомление && (
-                          <button
-                            onClick={() => удалитьУведомление(уведомление.id)}
-                            className="p-1.5 hover:bg-white rounded-lg transition-all"
-                            title="Удалить"
-                          >
-                            <X size={16} className="text-[#999]" />
-                          </button>
-                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteNotification(notification.id);
+                          }}
+                          className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                          title="Удалить"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
                       </div>
                     </div>
                   </div>
                 </div>
-              </Card>
-            ))
-          )}
-        </div>
-
-        {/* Empty state alternative */}
-        {уведомления.length > 0 && непрочитанныеКоличество === 0 && (
-          <Card className="p-6 text-center mt-6 bg-[#F7FAFC] border-dashed">
-            <Check size={32} className="text-[#12C9B6] mx-auto mb-2" />
-            <p className="text-[#666]" style={{ fontSize: '14px' }}>
-              Все уведомления прочитаны
-            </p>
-          </Card>
+              </CardContent>
+            </Card>
+          ))
         )}
       </div>
     </div>

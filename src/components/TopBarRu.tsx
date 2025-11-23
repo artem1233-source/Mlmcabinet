@@ -1,6 +1,7 @@
 import { Bell, Wallet, Droplet, Menu, Play, ShoppingCart } from 'lucide-react';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { isDemoMode } from '../utils/demoApi';
+import { NotificationBell } from './NotificationBell';
 
 interface TopBarProps {
   имяПользователя: string;
@@ -77,13 +78,7 @@ export function TopBarRu({ имяПользователя, балансПоль�
           )}
         </button>
         
-        <button 
-          onClick={onNotificationsClick}
-          className="flex relative p-2 hover:bg-gray-50 rounded-xl transition-all cursor-pointer"
-        >
-          <Bell size={18} className="text-[#666] lg:w-5 lg:h-5" />
-          <span className="absolute top-1 right-1 w-2 h-2 bg-[#39B7FF] rounded-full"></span>
-        </button>
+        <NotificationBell onViewAll={onNotificationsClick} />
         
         <button 
           onClick={onProfileClick}

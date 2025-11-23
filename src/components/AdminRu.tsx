@@ -4,7 +4,7 @@ import {
   Loader2, CheckCircle2, XCircle, Clock, Award,
   DollarSign, ArrowUpRight, ArrowDownRight, Edit2, Trash2,
   Plus, X, Save, BookOpen, Tag, Settings, FileText,
-  BarChart3, Package, Video, Gift, ExternalLink
+  BarChart3, Package, Video, Gift, ExternalLink, Trophy
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
@@ -19,6 +19,7 @@ import * as api from '../utils/api';
 import { CommissionEditor } from './CommissionEditor';
 import type { ProductCommission } from '../utils/types/commission';
 import { DEFAULT_COMMISSIONS } from '../utils/types/commission';
+import { AchievementsAdminRu } from './AchievementsAdminRu';
 
 interface AdminRuProps {
   currentUser: any;
@@ -603,44 +604,50 @@ export function AdminRu({ currentUser }: AdminRuProps) {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid grid-cols-4 lg:grid-cols-9 w-full max-w-full overflow-x-auto">
-          <TabsTrigger value="overview">
-            <BarChart3 className="w-4 h-4 mr-2" />
-            Обзор
-          </TabsTrigger>
-          <TabsTrigger value="users">
-            <Users className="w-4 h-4 mr-2" />
-            Пользователи
-          </TabsTrigger>
-          <TabsTrigger value="products">
-            <Package className="w-4 h-4 mr-2" />
-            Товары
-          </TabsTrigger>
-          <TabsTrigger value="orders">
-            <ShoppingBag className="w-4 h-4 mr-2" />
-            Заказы
-          </TabsTrigger>
-          <TabsTrigger value="withdrawals">
-            <Wallet className="w-4 h-4 mr-2" />
-            Выплаты
-          </TabsTrigger>
-          <TabsTrigger value="training">
-            <BookOpen className="w-4 h-4 mr-2" />
-            Обучение
-          </TabsTrigger>
-          <TabsTrigger value="promos">
-            <Gift className="w-4 h-4 mr-2" />
-            Промокоды
-          </TabsTrigger>
-          <TabsTrigger value="settings">
-            <Settings className="w-4 h-4 mr-2" />
-            Настройки
-          </TabsTrigger>
-          <TabsTrigger value="logs">
-            <FileText className="w-4 h-4 mr-2" />
-            Логи
-          </TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto -mx-4 px-4 lg:mx-0 lg:px-0">
+          <TabsList className="inline-flex w-auto min-w-full lg:w-full gap-2 flex-nowrap lg:flex-wrap">
+            <TabsTrigger value="overview" className="whitespace-nowrap">
+              <BarChart3 className="w-4 h-4 mr-2" />
+              Обзор
+            </TabsTrigger>
+            <TabsTrigger value="users" className="whitespace-nowrap">
+              <Users className="w-4 h-4 mr-2" />
+              Пользователи
+            </TabsTrigger>
+            <TabsTrigger value="products" className="whitespace-nowrap">
+              <Package className="w-4 h-4 mr-2" />
+              Товары
+            </TabsTrigger>
+            <TabsTrigger value="orders" className="whitespace-nowrap">
+              <ShoppingBag className="w-4 h-4 mr-2" />
+              Заказы
+            </TabsTrigger>
+            <TabsTrigger value="withdrawals" className="whitespace-nowrap">
+              <Wallet className="w-4 h-4 mr-2" />
+              Выплаты
+            </TabsTrigger>
+            <TabsTrigger value="achievements" className="whitespace-nowrap">
+              <Trophy className="w-4 h-4 mr-2" />
+              Достижения
+            </TabsTrigger>
+            <TabsTrigger value="training" className="whitespace-nowrap">
+              <BookOpen className="w-4 h-4 mr-2" />
+              Обучение
+            </TabsTrigger>
+            <TabsTrigger value="promos" className="whitespace-nowrap">
+              <Gift className="w-4 h-4 mr-2" />
+              Промокоды
+            </TabsTrigger>
+            <TabsTrigger value="settings" className="whitespace-nowrap">
+              <Settings className="w-4 h-4 mr-2" />
+              Настройки
+            </TabsTrigger>
+            <TabsTrigger value="logs" className="whitespace-nowrap">
+              <FileText className="w-4 h-4 mr-2" />
+              Логи
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
@@ -906,7 +913,7 @@ export function AdminRu({ currentUser }: AdminRuProps) {
                       <div>
                         <Label>Название *</Label>
                         <Input
-                          value={productForm.назв��ние}
+                          value={productForm.название}
                           onChange={(e) => setProductForm({ ...productForm, название: e.target.value })}
                           placeholder="Водородный порошок H₂"
                         />
@@ -1682,6 +1689,11 @@ export function AdminRu({ currentUser }: AdminRuProps) {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Achievements Tab */}
+        <TabsContent value="achievements">
+          <AchievementsAdminRu />
         </TabsContent>
 
         {/* Settings Tab */}
