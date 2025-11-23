@@ -37,7 +37,7 @@ export function SettingsRu({ currentUser, onLogout, onUpdate }: SettingsProps) {
   };
   
   const handleClearData = () => {
-    if (confirm('⚠️ ВНИМАНИЕ!\n\nВы действительно хотите очистить все данные?\n\nЭто удалит:\n• Все товары из корзины\n• Все демо-данные\n• Все настройки\n\nПосле этого потребуется повторный вход.\n\nПродолжить?')) {
+    if (confirm('⚠️ ВНИМАНИЕ!\n\nВы действительно хотите очистить все данные?\n\nЭто удалит:\n• Все товары из корзины\n• Все настройки\n\nПосле этого потребуется повторный вход.\n\nПродолжить?')) {
       // Очищаем весь localStorage
       localStorage.clear();
       
@@ -206,7 +206,7 @@ export function SettingsRu({ currentUser, onLogout, onUpdate }: SettingsProps) {
                 используйте эту кнопку для полной очистки данных.
               </p>
               <p className="text-[#666] mb-4">
-                <strong>Будет удалено:</strong> корзина, демо-данные, настройки. 
+                <strong>Будет удалено:</strong> корзина, настройки. 
                 После очистки потребуется повторный вход.
               </p>
             </div>

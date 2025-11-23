@@ -126,7 +126,7 @@ export default function AppRu() {
       if (session?.access_token && session?.user) {
         console.log('OAuth successful, creating user in database...');
         
-        // Вызываем API для создания/получения ��ользователя в базе данных
+        // Вызываем API для создания/получения оль��ователя в базе данных
         const apiUrl = `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/auth/oauth`;
         
         const response = await fetch(apiUrl, {
@@ -247,7 +247,7 @@ export default function AppRu() {
       
       setCurrentUser(userData);
       setIsAuthenticated(true);
-      toast.success(`Добро пожаловать, ${userData.имя || 'пользователь'}!`);
+      toast.success(`Добро пожало��ать, ${userData.имя || 'пользователь'}!`);
     } catch (error) {
       console.error('Error handling auth:', error);
       toast.error('Ошибка при обработке авторизации');
@@ -516,13 +516,8 @@ export default function AppRu() {
             }}
           />
           
-          {/* 🆕 Селектор демо-пользователей (только в демо-режиме) */}
-          {/* УДАЛЕНО: Теперь переключение пользователей встроено в AdminToolbar */}
-          
           <main className={`flex-1 overflow-auto pt-16 lg:pt-20`}>
-            <div className="transition-opacity duration-300">
-              {renderPage()}
-            </div>
+            <div className="transition-opacity duration-300">{renderPage()}</div>
           </main>
         </div>
         
