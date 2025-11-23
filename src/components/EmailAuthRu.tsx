@@ -6,12 +6,13 @@ interface EmailAuthProps {
 }
 
 export function EmailAuthRu({ onAuth }: EmailAuthProps) {
-  const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
+  const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'admin-register'>('login');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [referralCode, setReferralCode] = useState('');
+  const [adminCode, setAdminCode] = useState('');
   const [sponsorInfo, setSponsorInfo] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -293,6 +294,77 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
     }
   };
 
+  const handleAdminRegister = async () => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      console.log('👑 Admin Registration...');
+      
+      const { projectId, publicAnonKey } = await import('../utils/supabase/info');
+      
+      console.log('Attempting admin signup with:', { email: email.trim(), name: `${firstName.trim()} ${lastName.trim()}` });
+      console.log('Project ID:', projectId);
+      console.log('Has Anon Key:', !!publicAnonKey);
+      
+      const url = `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/auth/signup-admin`;
+      console.log('Admin Signup URL:', url);
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${publicAnonKey}`,
+        },
+        body: JSON.stringify({
+          email: email.trim(),
+          password: password,
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          referralCode: referralCode.trim() || null,
+          adminCode: adminCode.trim(),
+        }),
+      });
+
+      console.log('Admin Signup response status:', response.status);
+      console.log('Admin Signup response headers:', Object.fromEntries(response.headers.entries()));
+      
+      let data;
+      try {
+        data = await response.json();
+        console.log('Admin Signup response data:', data);
+      } catch (parseError) {
+        console.error('Failed to parse admin signup response:', parseError);
+        const text = await response.text();
+        console.error('Response text:', text);
+        setDebugInfo({ 
+          status: response.status, 
+          url,
+          parseError: String(parseError),
+          responseText: text 
+        });
+        throw new Error(`Сервер вернул невалидный ответ (статус ${response.status}). Возможно Edge Function не задеплоена.`);
+      }
+
+      if (!response.ok) {
+        console.error('Admin Signup failed:', data);
+        setDebugInfo({ response: data, status: response.status, url });
+        throw new Error(data.error || 'Ошибка регистрации администратора');
+      }
+
+      setSuccess('Регистрация администратора успешна! Входим...');
+      
+      // Автоматический вход после регистрации
+      setTimeout(() => handleLogin(), 1000);
+    } catch (err) {
+      console.error('Admin Register error:', err);
+      setDebugInfo((prev: any) => ({ ...prev, error: err instanceof Error ? err.message : String(err) }));
+      setError(err instanceof Error ? err.message : 'Ошибка. Попробуйте ещё раз.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-[#F7FAFC] to-[#E6E9EE] p-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8">
@@ -313,6 +385,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
           {mode === 'login' && 'Войдите в личный кабинет'}
           {mode === 'register' && 'Создайте новый аккаунт'}
           {mode === 'forgot' && 'Восстановление пароля'}
+          {mode === 'admin-register' && 'Регистрация администратора'}
         </p>
 
         {/* Toggle Mode */}
@@ -352,6 +425,15 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
           </button>
         )}
 
+        {mode === 'admin-register' && (
+          <button
+            onClick={() => setMode('login')}
+            className="mb-6 text-[#39B7FF] hover:underline text-sm"
+          >
+            ← Вернуться к входу
+          </button>
+        )}
+        
         {/* Success Message */}
         {success && (
           <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-xl flex items-start gap-3">
@@ -388,7 +470,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
 
         {/* Input Form */}
         <div className="space-y-4 mb-6">
-          {mode === 'register' && (
+          {(mode === 'register' || mode === 'admin-register') && (
             <div>
               <label className="block text-[#1E1E1E] mb-2" style={{ fontSize: '14px', fontWeight: '600' }}>
                 Ваше имя
@@ -407,7 +489,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
             </div>
           )}
 
-          {mode === 'register' && (
+          {(mode === 'register' || mode === 'admin-register') && (
             <div>
               <label className="block text-[#1E1E1E] mb-2" style={{ fontSize: '14px', fontWeight: '600' }}>
                 Ваша фамилия
@@ -475,7 +557,26 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
                   type="text"
                   value={referralCode}
                   onChange={(e) => setReferralCode(e.target.value)}
-                  placeholder="Введите ��еферальный код"
+                  placeholder="Введите реферальный код"
+                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#39B7FF] focus:border-transparent"
+                  disabled={loading}
+                />
+              </div>
+            </div>
+          )}
+
+          {mode === 'admin-register' && (
+            <div>
+              <label className="block text-[#1E1E1E] mb-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                Код администратора
+              </label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#666] w-5 h-5" />
+                <input
+                  type="text"
+                  value={adminCode}
+                  onChange={(e) => setAdminCode(e.target.value)}
+                  placeholder="Введите код администратора"
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#39B7FF] focus:border-transparent"
                   disabled={loading}
                 />
@@ -500,7 +601,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
             </button>
           ) : (
             <button
-              onClick={handleSubmit}
+              onClick={mode === 'admin-register' ? handleAdminRegister : handleSubmit}
               disabled={loading}
               className="flex items-center justify-center gap-3 w-full py-3 px-6 bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] hover:opacity-90 text-white rounded-xl transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -615,6 +716,18 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
                 50 пользователей • 6 месяцев истории • Все возможности
               </p>
             </div>
+            
+            {/* Admin Registration Link */}
+            {mode === 'login' && (
+              <div className="mt-4 text-center">
+                <button
+                  onClick={() => setMode('admin-register')}
+                  className="text-purple-600 hover:underline text-sm font-semibold"
+                >
+                  👑 Создать учётную запись CEO (код CEO-2024)
+                </button>
+              </div>
+            )}
           </>
         )}
 
@@ -659,7 +772,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
               </svg>
             </div>
             <div>
-              <p className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '14px' }}>4 ��ровня партнёрства</p>
+              <p className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '14px' }}>4 ровня партнёрства</p>
               <p className="text-[#666]" style={{ fontSize: '13px' }}>От Уровня 0 до Уровня 3</p>
             </div>
           </div>

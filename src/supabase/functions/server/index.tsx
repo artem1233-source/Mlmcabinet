@@ -489,14 +489,18 @@ app.post("/make-server-05aa3c8a/auth/login", async (c) => {
     
     console.log(`Login attempt for: ${login}`);
     
-    // 🆕 Определяем тип логина: ID (только цифры) или Email
+    // 🆕 Определяем тип логина: ID (только цифры), "ceo", или Email
     const isNumericId = /^\d+$/.test(login.trim());
+    const isCeoId = login.trim().toLowerCase() === 'ceo';
+    const isAdminId = login.trim().toLowerCase().startsWith('admin-');
+    
     let userData = null;
     let userEmail = null;
+    let isAdmin = false;
     
     if (isNumericId) {
-      // Вход по ID
-      console.log(`Login by ID: ${login}`);
+      // Вход по партнёрскому ID
+      console.log(`Login by User ID: ${login}`);
       const userKey = `user:id:${login.trim()}`;
       userData = await kv.get(userKey);
       
@@ -506,21 +510,49 @@ app.post("/make-server-05aa3c8a/auth/login", async (c) => {
       }
       
       userEmail = userData.email;
-    } else {
-      // Вход по Email
-      console.log(`Login by Email: ${login}`);
-      const emailKey = `user:email:${login.trim().toLowerCase()}`;
-      const emailData = await kv.get(emailKey);
+    } else if (isCeoId || isAdminId) {
+      // Вход по админскому ID (ceo, admin-1, admin-2...)
+      console.log(`Login by Admin ID: ${login}`);
+      const adminKey = `admin:id:${login.trim().toLowerCase()}`;
+      userData = await kv.get(adminKey);
       
-      if (!emailData || !emailData.id) {
-        console.log(`Login failed: Email ${login} not found`);
-        return c.json({ error: "Email не найден" }, 401);
+      if (!userData) {
+        console.log(`Login failed: Admin ID ${login} not found`);
+        return c.json({ error: "Администратор с таким ID не найден" }, 401);
       }
       
-      // Получаем полные данные пользователя
-      const userKey = `user:id:${emailData.id}`;
-      userData = await kv.get(userKey);
-      userEmail = login.trim();
+      userEmail = userData.email;
+      isAdmin = true;
+    } else {
+      // Вход по Email - проверяем и админов и партнёров
+      console.log(`Login by Email: ${login}`);
+      
+      // Сначала проверяем админов
+      const adminEmailKey = `admin:email:${login.trim().toLowerCase()}`;
+      const adminEmailData = await kv.get(adminEmailKey);
+      
+      if (adminEmailData && adminEmailData.id) {
+        // Это админ
+        const adminKey = `admin:id:${adminEmailData.id}`;
+        userData = await kv.get(adminKey);
+        userEmail = login.trim();
+        isAdmin = true;
+        console.log(`Found admin by email: ${adminEmailData.id}`);
+      } else {
+        // Проверяем партнёров
+        const userEmailKey = `user:email:${login.trim().toLowerCase()}`;
+        const userEmailData = await kv.get(userEmailKey);
+        
+        if (!userEmailData || !userEmailData.id) {
+          console.log(`Login failed: Email ${login} not found`);
+          return c.json({ error: "Email не найден" }, 401);
+        }
+        
+        // Получаем полные данные пользователя
+        const userKey = `user:id:${userEmailData.id}`;
+        userData = await kv.get(userKey);
+        userEmail = login.trim();
+      }
     }
     
     if (!userData) {
@@ -548,10 +580,14 @@ app.post("/make-server-05aa3c8a/auth/login", async (c) => {
     // Update last login
     userData.lastLogin = new Date().toISOString();
     
-    // Save updated user data
-    await kv.set(`user:id:${userData.id}`, userData);
-    
-    console.log(`✅ User logged in: ${userData.имя} ${userData.фамилия} (ID: ${userData.id})`);
+    // Save updated data
+    if (isAdmin) {
+      await kv.set(`admin:id:${userData.id}`, userData);
+      console.log(`✅ Admin logged in: ${userData.имя} ${userData.фамилия} (ID: ${userData.id}, Role: ${userData.role})`);
+    } else {
+      await kv.set(`user:id:${userData.id}`, userData);
+      console.log(`✅ User logged in: ${userData.имя} ${userData.фамилия} (ID: ${userData.id})`);
+    }
     
     return c.json({ 
       success: true, 
@@ -2815,6 +2851,198 @@ app.post("/make-server-05aa3c8a/admin/initialize", async (c) => {
   } catch (error) {
     console.log(`Initialization error: ${error}`);
     return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// ======================
+// ADMIN MANAGEMENT
+// ======================
+
+// Admin signup (CEO and other admins)
+app.post("/make-server-05aa3c8a/auth/signup-admin", async (c) => {
+  try {
+    console.log('Admin signup request headers:', Object.fromEntries(c.req.raw.headers.entries()));
+    
+    const { email, password, firstName, lastName, adminCode, role, creatorToken } = await c.req.json();
+    
+    if (!email || !password || !firstName || !lastName) {
+      return c.json({ error: "Email, password, имя и фамилия обязательны" }, 400);
+    }
+    
+    if (password.length < 6) {
+      return c.json({ error: "Пароль должен быть минимум 6 символов" }, 400);
+    }
+    
+    console.log(`Admin signup attempt for: ${email}, code: ${adminCode || 'none'}, role: ${role || 'none'}`);
+    
+    // Check if email already exists
+    const emailKey = `admin:email:${email.trim().toLowerCase()}`;
+    const existingAdmin = await kv.get(emailKey);
+    if (existingAdmin) {
+      console.log(`Admin signup failed: Email already exists: ${email}`);
+      return c.json({ error: "Email уже зарегистрирован" }, 400);
+    }
+    
+    let adminId = '';
+    let adminRole = '';
+    let createdBy = null;
+    
+    // 🔐 Проверка кода для создания CEO
+    if (adminCode === 'CEO-2024') {
+      // Проверяем, что CEO еще не создан
+      const ceoExists = await kv.get('admin:id:ceo');
+      if (ceoExists) {
+        console.log('CEO already exists');
+        return c.json({ error: "Главный администратор уже создан" }, 400);
+      }
+      
+      adminId = 'ceo';
+      adminRole = 'ceo';
+      createdBy = 'system';
+      
+      console.log('✅ Creating CEO account');
+    } 
+    // 🔐 Создание других админов (только CEO может создавать)
+    else if (creatorToken) {
+      // Проверяем что creator это CEO
+      const { data: { user }, error: authError } = await supabase.auth.getUser(creatorToken);
+      
+      if (authError || !user) {
+        return c.json({ error: "Не авторизован" }, 401);
+      }
+      
+      // Ищем админа по supabaseId
+      const allAdmins = await kv.getByPrefix('admin:id:');
+      const creatorAdmin = allAdmins.find((a: any) => a.supabaseId === user.id);
+      
+      if (!creatorAdmin || creatorAdmin.role !== 'ceo') {
+        console.log('Only CEO can create admins');
+        return c.json({ error: "Только главный администратор может создавать других админов" }, 403);
+      }
+      
+      // Генерируем ID для нового админа
+      const counterKey = 'counter:adminId';
+      let currentCounter = await kv.get(counterKey);
+      
+      if (!currentCounter) {
+        currentCounter = 0;
+      }
+      
+      const newAdminNum = currentCounter + 1;
+      await kv.set(counterKey, newAdminNum);
+      
+      adminId = `admin-${newAdminNum}`;
+      adminRole = role || 'support'; // По умолчанию support
+      createdBy = creatorAdmin.id;
+      
+      console.log(`✅ Creating admin by CEO: ${adminId} with role ${adminRole}`);
+    } else {
+      return c.json({ error: "Необходим код CEO-2024 или права главного администратора" }, 400);
+    }
+    
+    console.log('Creating admin in Supabase Auth...');
+    
+    // Create admin in Supabase Auth
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      email: email.trim(),
+      password: password,
+      user_metadata: { 
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        isAdmin: true,
+        adminRole: adminRole
+      },
+      email_confirm: true
+    });
+    
+    if (authError) {
+      console.log(`Supabase Auth error: ${authError.message}`, authError);
+      return c.json({ error: `Ошибка создания аккаунта: ${authError.message}` }, 400);
+    }
+    
+    if (!authData.user) {
+      console.log('Supabase Auth returned no user data');
+      return c.json({ error: "Failed to create admin" }, 500);
+    }
+    
+    console.log(`Supabase admin created: ${authData.user.id}`);
+    
+    // Import helper function
+    const { getPermissionsForRole } = await import('./admin_helpers.tsx');
+    
+    // Create admin in KV store
+    const adminKey = `admin:id:${adminId}`;
+    
+    const newAdmin = {
+      id: adminId,
+      type: 'admin',
+      supabaseId: authData.user.id,
+      email: email.trim().toLowerCase(),
+      имя: firstName.trim(),
+      фамилия: lastName.trim(),
+      role: adminRole,
+      permissions: getPermissionsForRole(adminRole),
+      created: new Date().toISOString(),
+      createdBy: createdBy,
+      lastLogin: new Date().toISOString(),
+      // Доп поля
+      телефон: '',
+      аватарка: ''
+    };
+    
+    console.log('Saving admin to KV store...');
+    await kv.set(adminKey, newAdmin);
+    await kv.set(emailKey, { id: adminId, type: 'admin' });
+    
+    console.log(`✅ New admin created: ${newAdmin.имя} ${newAdmin.фамилия} (ID: ${adminId}, Role: ${adminRole})`);
+    
+    return c.json({ 
+      success: true, 
+      admin: newAdmin,
+      message: 'Admin created successfully'
+    });
+    
+  } catch (error) {
+    console.error(`❌ Admin signup error:`, error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return c.json({ error: `Ошибка регистрации админа: ${errorMessage}` }, 500);
+  }
+});
+
+// Get all admins (CEO only)
+app.get("/make-server-05aa3c8a/admins", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    
+    if (!accessToken) {
+      return c.json({ error: "Не авторизован" }, 401);
+    }
+    
+    // Verify CEO access
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    
+    if (authError || !user) {
+      return c.json({ error: "Не авторизован" }, 401);
+    }
+    
+    // Find admin
+    const allAdmins = await kv.getByPrefix('admin:id:');
+    const requestorAdmin = allAdmins.find((a: any) => a.supabaseId === user.id);
+    
+    if (!requestorAdmin || requestorAdmin.role !== 'ceo') {
+      return c.json({ error: "Только CEO может просматривать список админов" }, 403);
+    }
+    
+    console.log(`✅ CEO ${requestorAdmin.id} requested admins list`);
+    
+    return c.json({
+      success: true,
+      admins: allAdmins
+    });
+    
+  } catch (error) {
+    console.error(`Get admins error:`, error);
+    return c.json({ error: String(error) }, 500);
   }
 });
 
