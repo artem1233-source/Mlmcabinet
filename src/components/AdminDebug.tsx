@@ -234,18 +234,17 @@ export function AdminDebug({ currentUser }: AdminDebugProps) {
                           Зарег: {new Date(user.зарегистрирован).toLocaleDateString('ru')}
                         </div>
                       </div>
-                    </div>
-                    {isAdmin && (
-                      <div className="mt-2">
+                      {user.id !== currentUser?.id && (
                         <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-red-300 text-red-600 hover:bg-red-50 ml-2"
                           onClick={() => deleteUser(user.id, user.имя, user.email)}
-                          className="bg-red-500 hover:bg-red-600 text-white"
                         >
-                          <Trash2 size={16} className="mr-2" />
-                          Удалить пользователя
+                          <Trash2 className="w-4 h-4" />
                         </Button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

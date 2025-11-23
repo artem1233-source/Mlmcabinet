@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Shield, Users, Plus, X, CheckCircle, AlertCircle } from 'lucide-react';
+import { Shield, Users, Plus, X, CheckCircle, AlertCircle, Trash2, UserX } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { toast } from 'sonner';
+import * as api from '../utils/api';
 
 interface AdminPanelProps {
   currentUser: any;
@@ -36,10 +38,12 @@ const roleDescriptions: { [key: string]: string } = {
 
 export function AdminPanel({ currentUser }: AdminPanelProps) {
   const [admins, setAdmins] = useState<Admin[]>([]);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'admins' | 'users'>('admins');
 
   // Create admin form state
   const [newAdmin, setNewAdmin] = useState({
@@ -56,6 +60,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
   useEffect(() => {
     if (isCEO) {
       loadAdmins();
+      loadAllUsers();
     }
   }, [isCEO]);
 
@@ -84,6 +89,37 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
       setAdmins(data.admins || []);
     } catch (err) {
       console.error('Load admins error:', err);
+      setError(err instanceof Error ? err.message : 'Ошибка загрузки');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadAllUsers = async () => {
+    try {
+      setLoading(true);
+      const accessToken = localStorage.getItem('access_token');
+
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/users`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Ошибка загрузки списка пользователей');
+      }
+
+      setAllUsers(data.users || []);
+    } catch (err) {
+      console.error('Load users error:', err);
       setError(err instanceof Error ? err.message : 'Ошибка загрузки');
     } finally {
       setLoading(false);
@@ -150,6 +186,43 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
     } catch (err) {
       console.error('Create admin error:', err);
       setError(err instanceof Error ? err.message : 'Ошибка создания');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteAdmin = async (adminId: string) => {
+    try {
+      setLoading(true);
+      const accessToken = localStorage.getItem('access_token');
+
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/auth/delete-admin`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${publicAnonKey}`,
+          },
+          body: JSON.stringify({
+            adminId,
+            creatorToken: accessToken,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Ошибка удаления админа');
+      }
+
+      toast.success(`Администратор успешно удален!`);
+      // Reload admins list
+      loadAdmins();
+    } catch (err) {
+      console.error('Delete admin error:', err);
+      toast.error(err instanceof Error ? err.message : 'Ошибка удаления');
     } finally {
       setLoading(false);
     }
@@ -397,6 +470,16 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
                         {admin.createdBy && ` • Создал: ${admin.createdBy}`}
                       </p>
                     </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleDeleteAdmin(admin.id)}
+                      className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                      <span>Удалить</span>
+                    </button>
                   </div>
                 </div>
 

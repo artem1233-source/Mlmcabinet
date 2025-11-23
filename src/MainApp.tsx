@@ -14,6 +14,9 @@ import { AchievementsRu } from './components/AchievementsRu';
 import { NotificationsRu } from './components/NotificationsRu';
 import { ProfileRu } from './components/ProfileRu';
 import { SettingsRu } from './components/SettingsRu';
+import { AdminRu } from './components/AdminRu';
+import { AdminPanel } from './components/AdminPanel';
+import { AdminDebug } from './components/AdminDebug';
 import * as api from './utils/api.ts';
 
 interface MainAppProps {
@@ -213,6 +216,15 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
             setAuthScreen('login');
           }}
         />; 
+      case 'админ':
+      case 'admin':
+        return <AdminRu />;
+      case 'управление-админами':
+      case 'adminpanel':
+        return <AdminPanel currentUser={currentUser} />;
+      case 'админдебаг':
+      case 'admindebug':
+        return <AdminDebug currentUser={currentUser} />;
       default:
         return <DashboardRu currentUser={currentUser} onRefresh={handleRefresh} refreshTrigger={refreshTrigger} />;
     }

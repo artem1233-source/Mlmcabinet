@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from './ui/dialog';
 import { toast } from 'sonner';
 import * as api from '../utils/api';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { CommissionEditor } from './CommissionEditor';
 import type { ProductCommission } from '../utils/types/commission';
 import { DEFAULT_COMMISSIONS } from '../utils/types/commission';
@@ -864,15 +865,58 @@ export function AdminRu({ currentUser }: AdminRuProps) {
                           )}
                         </div>
                         <p className="text-[#666]" style={{ fontSize: '13px' }}>
-                          {user.id} • {user.рефКод}
+                          {user.email} • ID: {user.id} • Реф: {user.рефКод}
                         </p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>
-                        ₽{user.баланс?.toLocaleString() || 0}
-                      </p>
-                      <p className="text-[#666]" style={{ fontSize: '12px' }}>Баланс</p>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <p className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>
+                          ₽{user.баланс?.toLocaleString() || 0}
+                        </p>
+                        <p className="text-[#666]" style={{ fontSize: '12px' }}>Баланс</p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-red-300 text-red-600 hover:bg-red-50"
+                        onClick={async () => {
+                          if (!confirm(`⚠️ УДАЛЕНИЕ ПОЛЬЗОВАТЕЛЯ\n\n${user.имя}\n${user.email}\nID: ${user.id}\n\nЭто действие необратимо!\n\nПродолжить?`)) {
+                            return;
+                          }
+
+                          try {
+                            const response = await fetch(
+                              `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/delete-user/${user.id}`,
+                              {
+                                method: 'DELETE',
+                                headers: {
+                                  'Authorization': `Bearer ${publicAnonKey}`,
+                                  'Content-Type': 'application/json',
+                                },
+                              }
+                            );
+
+                            const data = await response.json();
+
+                            if (data.success) {
+                              toast.success('Пользователь удалён!', {
+                                description: `${user.имя} (${user.email})`
+                              });
+                              // Reload users
+                              loadData();
+                            } else {
+                              throw new Error(data.error || 'Failed to delete user');
+                            }
+                          } catch (error) {
+                            console.error('Delete user error:', error);
+                            toast.error('Ошибка удаления пользователя');
+                          }
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4 mr-1" />
+                        Удалить
+                      </Button>
                     </div>
                   </div>
                 ))}
