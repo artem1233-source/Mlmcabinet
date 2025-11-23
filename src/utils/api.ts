@@ -410,18 +410,15 @@ export async function getAdminAnalytics() {
 // ======================
 
 export async function getAchievements() {
-  const gamification = await import('./gamification');
-  return gamification.demoGetAchievements();
+  return apiCall('/achievements');
 }
 
 export async function getChallenges() {
-  const gamification = await import('./gamification');
-  return gamification.demoGetChallenges();
+  return apiCall('/challenges');
 }
 
 export async function getLeaderboard() {
-  const gamification = await import('./gamification');
-  return gamification.demoGetLeaderboard();
+  return apiCall('/leaderboard');
 }
 
 // ======================
