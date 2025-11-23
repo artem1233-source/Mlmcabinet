@@ -1,7 +1,5 @@
-import { LayoutDashboard, Users, ShoppingBag, Wallet, Package, GraduationCap, UserCircle, Settings, Droplet, TrendingUp, Bell, Play, LogOut, Shield, Trophy, Sparkles } from 'lucide-react';
+import { LayoutDashboard, Users, ShoppingBag, Wallet, Package, GraduationCap, UserCircle, Settings, Droplet, TrendingUp, Bell, Shield, Trophy, Sparkles } from 'lucide-react';
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from './ui/sheet';
-import { isDemoMode } from '../utils/demoApi';
-import { clearDemoData } from '../utils/demoData';
 
 interface SidebarProps {
   текущаяВкладка: string;
@@ -12,17 +10,9 @@ interface SidebarProps {
 }
 
 export function SidebarRu({ текущаяВкладка, изменитьВкладку, mobileMenuOpen, setMobileMenuOpen, currentUser }: SidebarProps) {
-  const isDemo = isDemoMode();
   const isAdmin = currentUser?.isAdmin || false;
   const isCEO = currentUser?.type === 'admin' && currentUser?.role === 'ceo';
   
-  const handleExitDemo = () => {
-    if (confirm('Выйти из демо режима? Все демо данные будут удалены.')) {
-      clearDemoData();
-      window.location.reload();
-    }
-  };
-
   const navItems = [
     { id: 'дашборд', label: 'Дашборд', icon: LayoutDashboard },
     { id: 'структура', label: 'Структура', icon: Users },
@@ -80,33 +70,6 @@ export function SidebarRu({ текущаяВкладка, изменитьВкл
           );
         })}
       </nav>
-      
-      {/* Demo Mode Exit Button */}
-      {isDemo && (
-        <div className="p-4 border-t border-[#E6E9EE]">
-          <div className="bg-gradient-to-r from-[#39B7FF]/10 to-[#12C9B6]/10 rounded-xl p-4 mb-3">
-            <div className="flex items-center gap-2 mb-2">
-              <Play size={14} className="text-[#39B7FF]" />
-              <p className="text-[#1E1E1E]" style={{ fontSize: '12px', fontWeight: '600' }}>
-                Демо режим активен
-              </p>
-            </div>
-            <p className="text-[#666]" style={{ fontSize: '11px' }}>
-              50 человек, 6 месяцев данных
-            </p>
-          </div>
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={handleExitDemo}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-all"
-              style={{ fontSize: '13px', fontWeight: '600' }}
-            >
-              <LogOut size={16} />
-              Выйти из демо
-            </button>
-          </div>
-        </div>
-      )}
     </>
   );
 

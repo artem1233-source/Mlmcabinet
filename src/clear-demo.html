@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Очистка демо-данных</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .container {
+      background: white;
+      padding: 3rem;
+      border-radius: 1rem;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      text-align: center;
+      max-width: 400px;
+    }
+    h1 {
+      color: #1a202c;
+      margin-bottom: 1rem;
+    }
+    p {
+      color: #4a5568;
+      margin-bottom: 2rem;
+    }
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 1rem 2rem;
+      border-radius: 0.5rem;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    button:hover {
+      transform: translateY(-2px);
+    }
+    .success {
+      color: #48bb78;
+      font-weight: 600;
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🧹 Очистка демо-данных</h1>
+    <p>Нажмите кнопку ниже, чтобы очистить все демо-данные и начать работу с настоящей системой администратора.</p>
+    <button onclick="clearDemoData()">Очистить и перезагрузить</button>
+    <div id="message"></div>
+  </div>
+
+  <script>
+    function clearDemoData() {
+      // Очищаем все демо-данные
+      localStorage.removeItem('demoData');
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('cart');
+      
+      // Показываем сообщение
+      document.getElementById('message').innerHTML = '<p class="success">✅ Данные очищены! Перезагрузка...</p>';
+      
+      // Перезагружаем страницу через 1 секунду
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 1000);
+    }
+  </script>
+</body>
+</html>

@@ -12,7 +12,6 @@ import { TrainingRu } from './components/TrainingRu';
 import { AchievementsRu } from './components/AchievementsRu';
 import { NotificationsRu } from './components/NotificationsRu';
 import { ProfileRu } from './components/ProfileRu';
-// import { ProfileDebug } from './components/ProfileDebug'; // Закомментировано для сборки
 import { SettingsRu } from './components/SettingsRu';
 import { TelegramAuthRu } from './components/TelegramAuthRu';
 import { EmailAuthRu } from './components/EmailAuthRu';
@@ -26,7 +25,6 @@ import { toast } from 'sonner';
 import * as api from './utils/api';
 import { isDemoMode, getCurrentDemoUser } from './utils/demoApi';
 import { loadDemoDataFromStorage, generateAllDemoData, saveDemoDataToStorage } from './utils/demoData';
-import { DemoUserSelector } from './components/DemoUserSelector';
 import { AdminRu } from './components/AdminRu';
 import { AdminPanel } from './components/AdminPanel';
 import { MarketingToolsRu } from './components/MarketingToolsRu';
@@ -191,7 +189,7 @@ export default function AppRu() {
       console.log('Current URL:', window.location.href);
       console.log('URL Hash:', window.location.hash);
       
-      // ПРОВЕРКА ДЕМО ДАННЫХ: если старая версия - пере��оздаём
+      // ПРОВЕРКА ДЕМО ДАННЫХ: если старая версия - переоздаём
       const demoData = loadDemoDataFromStorage();
       if (!demoData) {
         // Демо данх нет - создаём новые
@@ -228,19 +226,6 @@ export default function AppRu() {
         } catch (error) {
           console.error('Session check error:', error);
           api.clearAuthToken();
-        }
-      } else if (isDemoMode()) {
-        // Если нет токена но есть демо данные - автоматически логиним
-        console.log('🎭 Auto-login demo user...');
-        // 🆕 Используем getCurrentDemoUser() вместо freshDemoData.currentUser
-        const currentDemoUser = getCurrentDemoUser();
-        
-        if (currentDemoUser) {
-          // Сохраняем ID демо-пользователя как auth_token для загрзки изображений
-          api.setAuthToken(currentDemoUser.id);
-          setCurrentUser(currentDemoUser);
-          setIsAuthenticated(true);
-          console.log('🎭 Demo user loaded:', currentDemoUser.имя, currentDemoUser.фамилия);
         }
       }
       setIsLoading(false);
