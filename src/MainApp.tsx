@@ -76,7 +76,14 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
   // Проверяем URL и устанавливаем правильный экран при загрузке
   useEffect(() => {
     const path = window.location.pathname;
-    if (path === '/register') {
+    const urlParams = new URLSearchParams(window.location.search);
+    const refCode = urlParams.get('ref');
+    
+    // Если есть реферальный код в URL, автоматически открываем форму регистрации
+    if (refCode) {
+      console.log('🔵 MainApp: Referral code detected:', refCode, 'switching to register screen');
+      setAuthScreen('register');
+    } else if (path === '/register') {
       console.log('🔵 MainApp: URL is /register, switching to register screen');
       setAuthScreen('register');
     } else if (path === '/login' || path === '/') {

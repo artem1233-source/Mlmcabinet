@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Users, UserPlus, TrendingUp, Award, Loader2, Share2, Copy, CheckCircle2, Network, BarChart3, Trophy, ChevronDown, ChevronRight, Minimize2, Maximize2 } from 'lucide-react';
+import { Users, UserPlus, TrendingUp, Award, Loader2, Share2, Copy, CheckCircle2, Network, BarChart3, Trophy, ChevronDown, ChevronRight, Minimize2, Maximize2, Edit2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
+import { Textarea } from './ui/textarea';
+import { Label } from './ui/label';
 import { UserProfileView } from './UserProfileView';
 import * as api from '../utils/api';
 import { toast } from 'sonner';
@@ -20,6 +23,8 @@ export function StructureRu({ currentUser, refreshTrigger }: StructureRuProps) {
   const [viewMode, setViewMode] = useState<'tree' | 'table' | 'top'>('tree');
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [showInviteDialog, setShowInviteDialog] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState('');
 
   const effectiveUserId = currentUser?.id;
 
@@ -113,19 +118,29 @@ export function StructureRu({ currentUser, refreshTrigger }: StructureRuProps) {
 
   const handleShare = () => {
     const link = `${window.location.origin}?ref=${currentUser.рефКод}`;
-    const text = `Присоединяйтесь к H₂ Partner Platform!\n\nПриглашаю вас стать партнёром по продаже водородного порошка H₂-Touch.\n\nРеферальная ссылка: ${link}`;
+    const defaultText = `Присоединяйтесь к H₂ Partner Platform!\\n\\nПриглашаю вас стать партнёром по продаже водородного порошка H₂-Touch.\\n\\nРеферальная ссылка: ${link}`;
     
+    // Открываем диалог для редактирования
+    setInviteMessage(defaultText);
+    setShowInviteDialog(true);
+  };
+
+  const handleSendInvite = () => {
     if (navigator.share) {
+      const link = `${window.location.origin}?ref=${currentUser.рефКод}`;
       navigator.share({
         title: 'H₂ Partner Platform',
-        text: text,
-        url: link
+        text: inviteMessage,
       }).catch(() => {
-        handleCopyReferralLink();
+        // Fallback: copy to clipboard
+        navigator.clipboard.writeText(inviteMessage);
+        toast.success('Сообщение ско��ировано в буфер обмена!');
       });
     } else {
-      handleCopyReferralLink();
+      navigator.clipboard.writeText(inviteMessage);
+      toast.success('Сообщение скопировано в буфер обмена!');
     }
+    setShowInviteDialog(false);
   };
 
   const toggleNode = (nodeId: string) => {
@@ -585,6 +600,41 @@ export function StructureRu({ currentUser, refreshTrigger }: StructureRuProps) {
           onClose={() => setSelectedUserId(null)}
         />
       )}
+
+      {/* Invite Dialog */}
+      <Dialog open={showInviteDialog} onOpenChange={setShowInviteDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Отправить приглашение</DialogTitle>
+            <DialogDescription>
+              Редактируйте и отправьте сообщение с реферальной ссылкой
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Label htmlFor="message">Сообщение</Label>
+            <Textarea
+              id="message"
+              value={inviteMessage}
+              onChange={(e) => setInviteMessage(e.target.value)}
+              className="h-40"
+            />
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button
+              onClick={handleSendInvite}
+              className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white"
+            >
+              Отправить
+            </Button>
+            <Button
+              onClick={() => setShowInviteDialog(false)}
+              variant="outline"
+            >
+              Отмена
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

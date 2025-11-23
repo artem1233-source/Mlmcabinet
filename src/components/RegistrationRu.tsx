@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -28,6 +28,20 @@ export function RegistrationRu({ onSwitchToLogin }: RegistrationRuProps = {}) {
   const [success, setSuccess] = useState(false);
   const [partnerId, setPartnerId] = useState('');
   const [refCode, setRefCode] = useState('');
+
+  // 🆕 Автоматически подставляем реферальный код из URL
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const refCode = urlParams.get('ref');
+    
+    if (refCode) {
+      console.log('🔵 RegistrationRu: Auto-filling referral code from URL:', refCode);
+      setFormData(prev => ({
+        ...prev,
+        sponsorRefCode: refCode
+      }));
+    }
+  }, []);
 
   console.log('🟢 RegistrationRu state:', { loading, error, success, partnerId, refCode });
 
@@ -299,7 +313,7 @@ export function RegistrationRu({ onSwitchToLogin }: RegistrationRuProps = {}) {
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Ре��истрация...
+                  Реистрация...
                 </>
               ) : (
                 'Зарегистрироваться'
