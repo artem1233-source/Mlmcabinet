@@ -1,6 +1,5 @@
 // API client for backend communication
 import { projectId, publicAnonKey } from './supabase/info';
-import * as demoApi from './demoApi';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a`;
 const ANON_KEY = publicAnonKey;
@@ -93,16 +92,10 @@ export async function telegramAuth(telegramData: any) {
 }
 
 export async function getCurrentUser() {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoGetCurrentUser();
-  }
   return apiCall('/user/me');
 }
 
 export async function updateProfile(profileData: any) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoUpdateProfile(profileData);
-  }
   return apiCall('/user/profile', {
     method: 'PUT',
     body: JSON.stringify(profileData),
@@ -122,23 +115,14 @@ export async function getUser(userId: string) {
 }
 
 export async function getUserTeam(userId: string) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoGetUserTeam(userId);
-  }
   return apiCall(`/user/${userId}/team`);
 }
 
 export async function getUserProfile(userId: string) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoGetUserProfile(userId);
-  }
   return apiCall(`/user/${userId}/profile`);
 }
 
 export async function updateUserProfile(profileData: any) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoUpdateUserProfile(profileData);
-  }
   return apiCall('/user/profile', {
     method: 'PUT',
     body: JSON.stringify(profileData),
@@ -150,9 +134,6 @@ export async function updateUserProfile(profileData: any) {
 // ======================
 
 export async function getProducts() {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoGetProducts();
-  }
   return apiCall('/products');
 }
 
@@ -169,9 +150,6 @@ export async function createOrder(sku: string, isPartner: boolean, quantity = 1)
   
   console.log('📦 Creating order with SKU:', sku, 'isPartner:', isPartner, 'quantity:', quantity);
   
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoCreateOrder({ sku, isPartner, quantity });
-  }
   return apiCall('/orders', {
     method: 'POST',
     body: JSON.stringify({ sku, isPartner, quantity }),
@@ -179,9 +157,6 @@ export async function createOrder(sku: string, isPartner: boolean, quantity = 1)
 }
 
 export async function getOrders() {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoGetOrders();
-  }
   return apiCall('/orders');
 }
 
@@ -196,9 +171,6 @@ export async function confirmOrder(orderId: string) {
 // ======================
 
 export async function getEarnings() {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoGetEarnings();
-  }
   return apiCall('/earnings');
 }
 
@@ -207,9 +179,6 @@ export async function getEarnings() {
 // ======================
 
 export async function requestWithdrawal(amount: number, method: string, details: any) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoRequestWithdrawal({ amount, method, details });
-  }
   return apiCall('/withdrawal', {
     method: 'POST',
     body: JSON.stringify({ amount, method, details }),
@@ -217,9 +186,6 @@ export async function requestWithdrawal(amount: number, method: string, details:
 }
 
 export async function getWithdrawals() {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoGetWithdrawals();
-  }
   return apiCall('/withdrawals');
 }
 
@@ -228,16 +194,10 @@ export async function getWithdrawals() {
 // ======================
 
 export async function getPaymentMethods() {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoGetPaymentMethods();
-  }
   return apiCall('/payment/methods');
 }
 
 export async function createPayment(orderId: string, method: string) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoCreatePayment(orderId, method);
-  }
   return apiCall('/payment/create', {
     method: 'POST',
     body: JSON.stringify({ orderId, method }),
@@ -249,26 +209,15 @@ export async function createPayment(orderId: string, method: string) {
 // ======================
 
 export async function getAdminStats() {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoGetAdminStats();
-  }
   return apiCall('/admin/stats');
 }
 
 export async function getAllUsers() {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoGetAllUsers();
-  }
   return apiCall('/admin/users');
 }
 
 // Debug function - get all users without admin check
 export async function debugGetAllUsers() {
-  if (demoApi.isDemoMode()) {
-    const response = await demoApi.demoGetAllUsers();
-    return Array.isArray(response.users) ? response.users : [];
-  }
-  
   try {
     const response = await apiCall('/debug/users');
     console.log('debugGetAllUsers response:', response);
@@ -290,16 +239,10 @@ export async function debugGetAllUsers() {
 }
 
 export async function getAllUsersAdmin() {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoGetAllUsers();
-  }
   return apiCall('/admin/users');
 }
 
 export async function getAllOrdersAdmin() {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoGetAllOrders();
-  }
   return apiCall('/admin/orders');
 }
 
@@ -309,16 +252,10 @@ export async function getAllWithdrawalsAdmin() {
 
 // Alias for inline admin usage
 export async function getAllWithdrawals() {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoGetAllWithdrawals();
-  }
   return apiCall('/admin/withdrawals');
 }
 
 export async function updateWithdrawalStatus(withdrawalId: string, status: string, note?: string) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoUpdateWithdrawalStatus(withdrawalId, status, note);
-  }
   return apiCall(`/admin/withdrawals/${withdrawalId}/status`, {
     method: 'POST',
     body: JSON.stringify({ status, note }),
@@ -326,9 +263,6 @@ export async function updateWithdrawalStatus(withdrawalId: string, status: strin
 }
 
 export async function updateUserLevel(userId: string, level: number) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoSetUserLevel(userId, level);
-  }
   return apiCall(`/admin/users/${userId}/level`, {
     method: 'POST',
     body: JSON.stringify({ level }),
@@ -343,18 +277,12 @@ export async function adjustUserBalance(userId: string, amount: number, reason: 
 }
 
 export async function deleteUserAdmin(userId: string) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoDeleteUser(userId);
-  }
   return apiCall(`/admin/users/${userId}`, {
     method: 'DELETE',
   });
 }
 
 export async function clearAllTransactions() {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoClearAllTransactions();
-  }
   return apiCall('/admin/clear-transactions', {
     method: 'POST',
   });
@@ -366,9 +294,6 @@ export async function createUser(userData: {
   уровень: number;
   sponsorId?: string;
 }) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoCreateUser(userData);
-  }
   return apiCall('/admin/users', {
     method: 'POST',
     body: JSON.stringify(userData),
@@ -376,9 +301,6 @@ export async function createUser(userData: {
 }
 
 export async function moveUser(userId: string, newSponsorId: string) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoMoveUser(userId, newSponsorId);
-  }
   return apiCall(`/admin/users/${userId}/move`, {
     method: 'POST',
     body: JSON.stringify({ newSponsorId }),
@@ -386,9 +308,6 @@ export async function moveUser(userId: string, newSponsorId: string) {
 }
 
 export async function setUserAdmin(userId: string, isAdmin: boolean) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoSetUserAdmin(userId, isAdmin);
-  }
   return apiCall(`/admin/users/${userId}/set-admin`, {
     method: 'POST',
     body: JSON.stringify({ isAdmin }),
@@ -409,18 +328,7 @@ export async function createProduct(productData: any) {
   console.log('   - commission:', productData.commission);
   console.log('   - retail_price:', productData.retail_price);
   console.log('   - partner_price:', productData.partner_price);
-  console.log('   - isDemoMode:', demoApi.isDemoMode());
   
-  if (demoApi.isDemoMode()) {
-    console.log('📦 Calling demoCreateProduct...');
-    if (typeof demoApi.demoCreateProduct !== 'function') {
-      console.error('❌ demoCreateProduct is not a function!', typeof demoApi.demoCreateProduct);
-      throw new Error('demoCreateProduct is not defined');
-    }
-    return demoApi.demoCreateProduct(productData);
-  }
-  
-  console.log('📦 Calling real API...');
   return apiCall('/admin/products', {
     method: 'POST',
     body: JSON.stringify(productData),
@@ -430,9 +338,6 @@ export async function createProduct(productData: any) {
 export async function updateProduct(productId: string, updates: any) {
   console.log('📦 Updating product:', productId, updates);
   
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoUpdateProduct(productId, updates);
-  }
   return apiCall(`/admin/products/${productId}`, {
     method: 'PUT',
     body: JSON.stringify(updates),
@@ -442,9 +347,6 @@ export async function updateProduct(productId: string, updates: any) {
 export async function deleteProduct(productId: string) {
   console.log('📦 Deleting product:', productId);
   
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoDeleteProduct(productId);
-  }
   return apiCall(`/admin/products/${productId}`, {
     method: 'DELETE',
   });
@@ -455,34 +357,22 @@ export async function deleteProduct(productId: string) {
 // ======================
 
 export async function getNotifications() {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoGetNotifications();
-  }
   return apiCall('/notifications');
 }
 
 export async function markNotificationAsRead(notificationId: string) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoMarkNotificationAsRead(notificationId);
-  }
   return apiCall(`/notifications/${notificationId}/read`, {
     method: 'POST',
   });
 }
 
 export async function markAllNotificationsAsRead() {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoMarkAllNotificationsAsRead();
-  }
   return apiCall('/notifications/mark-all-read', {
     method: 'POST',
   });
 }
 
 export async function deleteNotification(notificationId: string) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoDeleteNotification(notificationId);
-  }
   return apiCall(`/notifications/${notificationId}`, {
     method: 'DELETE',
   });
@@ -539,16 +429,10 @@ export async function getLeaderboard() {
 // ======================
 
 export async function getAchievementsAdmin() {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoGetAchievementsAdmin();
-  }
   return apiCall('/admin/achievements');
 }
 
 export async function createAchievement(achievementData: any) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoCreateAchievement(achievementData);
-  }
   return apiCall('/admin/achievements', {
     method: 'POST',
     body: JSON.stringify(achievementData)
@@ -556,9 +440,6 @@ export async function createAchievement(achievementData: any) {
 }
 
 export async function updateAchievement(id: string, achievementData: any) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoUpdateAchievement(id, achievementData);
-  }
   return apiCall(`/admin/achievements/${id}`, {
     method: 'PUT',
     body: JSON.stringify(achievementData)
@@ -566,9 +447,6 @@ export async function updateAchievement(id: string, achievementData: any) {
 }
 
 export async function deleteAchievement(id: string) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoDeleteAchievement(id);
-  }
   return apiCall(`/admin/achievements/${id}`, {
     method: 'DELETE'
   });
@@ -579,16 +457,10 @@ export async function deleteAchievement(id: string) {
 // ======================
 
 export async function getChallengesAdmin() {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoGetChallengesAdmin();
-  }
   return apiCall('/admin/challenges');
 }
 
 export async function createChallenge(challengeData: any) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoCreateChallenge(challengeData);
-  }
   return apiCall('/admin/challenges', {
     method: 'POST',
     body: JSON.stringify(challengeData)
@@ -596,9 +468,6 @@ export async function createChallenge(challengeData: any) {
 }
 
 export async function updateChallenge(id: string, challengeData: any) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoUpdateChallenge(id, challengeData);
-  }
   return apiCall(`/admin/challenges/${id}`, {
     method: 'PUT',
     body: JSON.stringify(challengeData)
@@ -606,9 +475,6 @@ export async function updateChallenge(id: string, challengeData: any) {
 }
 
 export async function deleteChallenge(id: string) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoDeleteChallenge(id);
-  }
   return apiCall(`/admin/challenges/${id}`, {
     method: 'DELETE'
   });
@@ -619,16 +485,10 @@ export async function deleteChallenge(id: string) {
 // ======================
 
 export async function getCourses() {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoGetCourses();
-  }
   return apiCall('/courses');
 }
 
 export async function createCourse(courseData: any) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoCreateCourse(courseData);
-  }
   return apiCall('/admin/courses', {
     method: 'POST',
     body: JSON.stringify(courseData),
@@ -636,9 +496,6 @@ export async function createCourse(courseData: any) {
 }
 
 export async function updateCourse(courseId: string, courseData: any) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoUpdateCourse(courseId, courseData);
-  }
   return apiCall(`/admin/courses/${courseId}`, {
     method: 'PUT',
     body: JSON.stringify(courseData),
@@ -646,19 +503,12 @@ export async function updateCourse(courseId: string, courseData: any) {
 }
 
 export async function deleteCourse(courseId: string) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoDeleteCourse(courseId);
-  }
   return apiCall(`/admin/courses/${courseId}`, {
     method: 'DELETE',
   });
 }
 
 export async function uploadCourseMaterial(file: File) {
-  if (demoApi.isDemoMode()) {
-    return demoApi.demoUploadCourseMaterial(file);
-  }
-  
   const formData = new FormData();
   formData.append('file', file);
   

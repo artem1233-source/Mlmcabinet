@@ -12,7 +12,6 @@ import { AdminToolbar } from './AdminToolbar';
 import { toast } from 'sonner';
 import { CheckoutRu } from './CheckoutRu';
 import * as api from '../utils/api';
-import { isDemoMode } from '../utils/demoApi';
 import { CommissionEditor } from './CommissionEditor';
 import type { ProductCommission } from '../utils/types/commission';
 import { DEFAULT_COMMISSIONS } from '../utils/types/commission';
@@ -25,7 +24,6 @@ interface CatalogRuProps {
 
 export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogRuProps) {
   const isAdmin = currentUser?.isAdmin === true || currentUser?.email === 'admin@admin.com';
-  const showAdminToolbar = isAdmin || isDemoMode();
   
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);

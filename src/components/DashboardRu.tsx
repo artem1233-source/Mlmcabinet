@@ -6,8 +6,6 @@ import { AdminToolbar } from './AdminToolbar';
 import { AchievementsWidget } from './AchievementsWidget';
 import * as api from '../utils/api';
 import { toast } from 'sonner';
-import { isDemoMode } from '../utils/demoApi';
-import { useDemoUser } from '../contexts/DemoUserContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { AdvancedAnalytics } from './AdvancedAnalytics';
@@ -19,11 +17,10 @@ interface DashboardRuProps {
 }
 
 export function DashboardRu({ currentUser, onRefresh, refreshTrigger }: DashboardRuProps) {
-  const { isDemoMode: demoMode, currentUserId } = useDemoUser();
   const isAdmin = currentUser?.isAdmin === true || currentUser?.email === 'admin@admin.com';
-  const showAdminToolbar = isAdmin || demoMode;
+  const showAdminToolbar = isAdmin;
   
-  const effectiveUserId = demoMode && currentUserId ? currentUserId : currentUser?.id;
+  const effectiveUserId = currentUser?.id;
   
   const [stats, setStats] = useState({
     totalEarnings: 0,
@@ -207,11 +204,11 @@ export function DashboardRu({ currentUser, onRefresh, refreshTrigger }: Dashboar
       <div className="flex items-center justify-between mb-6 lg:mb-8">
         <div>
           <h1 className="text-[#1E1E1E] mb-1" style={{ fontSize: '24px', fontWeight: '700' }}>
-            {isAdmin ? '�� Панель администратора' : `Добро пожаловаь, ${currentUser.имя}! 👋`}
+            {isAdmin ? ' Панель администратора' : `Добро пожаловаь, ${currentUser.имя}! 👋`}
           </h1>
           <p className="text-[#666]">
             {isAdmin 
-              ? 'Глобальная статистика и управление системой'
+              ? 'Глобальная ст��тистика и управление системой'
               : `Уровень ${currentUser.уровень} • Рефкод: ${currentUser.рефКод}`
             }
           </p>

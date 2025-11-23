@@ -7,7 +7,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
 import { UserProfileView } from './UserProfileView';
 import * as api from '../utils/api';
 import { toast } from 'sonner';
-import { useDemoUser } from '../contexts/DemoUserContext';
 
 interface StructureRuProps {
   currentUser: any;
@@ -15,7 +14,6 @@ interface StructureRuProps {
 }
 
 export function StructureRu({ currentUser, refreshTrigger }: StructureRuProps) {
-  const { isDemoMode, currentUserId } = useDemoUser();
   const [team, setTeam] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -23,8 +21,7 @@ export function StructureRu({ currentUser, refreshTrigger }: StructureRuProps) {
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
-  // 🆕 Определяем эффективного пользователя (для демо или реального режима)
-  const effectiveUserId = isDemoMode && currentUserId ? currentUserId : currentUser?.id;
+  const effectiveUserId = currentUser?.id;
 
   // Автоматически раскрываем первый уровень при переключении на дерево
   useEffect(() => {

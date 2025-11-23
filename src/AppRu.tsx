@@ -13,7 +13,6 @@ import { AchievementsRu } from './components/AchievementsRu';
 import { NotificationsRu } from './components/NotificationsRu';
 import { ProfileRu } from './components/ProfileRu';
 import { SettingsRu } from './components/SettingsRu';
-import { TelegramAuthRu } from './components/TelegramAuthRu';
 import { EmailAuthRu } from './components/EmailAuthRu';
 import { ResetPasswordRu } from './components/ResetPasswordRu';
 import { ServerHealthCheck } from './components/ServerHealthCheck';
@@ -23,12 +22,9 @@ import { Toaster } from './components/ui/sonner';
 import { PWAHead } from './components/PWAHead';
 import { toast } from 'sonner';
 import * as api from './utils/api';
-import { isDemoMode, getCurrentDemoUser } from './utils/demoApi';
-import { loadDemoDataFromStorage, generateAllDemoData, saveDemoDataToStorage } from './utils/demoData';
 import { AdminRu } from './components/AdminRu';
 import { AdminPanel } from './components/AdminPanel';
 import { MarketingToolsRu } from './components/MarketingToolsRu';
-import { useDemoUser } from './contexts/DemoUserContext'; // 🆕 Импортируем хук
 
 export default function AppRu() {
   // Если URL содержит /test-widget, показываем тестовую страницу
@@ -51,9 +47,6 @@ export default function AppRu() {
   if (window.location.pathname === '/reset-password' && window.location.hash.includes('type=recovery')) {
     return <ResetPasswordRu />;
   }
-  
-  // 🆕 ВСЕГДА получаем контекст (даже если не в демо-режиме), чтобы избежать условных хуков
-  const demoContext = useDemoUser();
   
   // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -133,7 +126,7 @@ export default function AppRu() {
       if (session?.access_token && session?.user) {
         console.log('OAuth successful, creating user in database...');
         
-        // Вызываем API для создания/получения пользователя в базе данных
+        // Вызываем API для создания/получения ��ользователя в базе данных
         const apiUrl = `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/auth/oauth`;
         
         const response = await fetch(apiUrl, {
@@ -189,16 +182,6 @@ export default function AppRu() {
       console.log('Current URL:', window.location.href);
       console.log('URL Hash:', window.location.hash);
       
-      // ПРОВЕРКА ДЕМО ДАННЫХ: если старая версия - переоздаём
-      const demoData = loadDemoDataFromStorage();
-      if (!demoData) {
-        // Демо данх нет - создаём новые
-        console.log('🔄 Создание демо данных...');
-        const newData = generateAllDemoData();
-        saveDemoDataToStorage(newData);
-        console.log('✅ Демо данные созданы!');
-      }
-      
       // Проверяем OAuth callback (access_token в URL hash)
       const hash = window.location.hash;
       console.log('🔍 Checking for OAuth callback...');
@@ -233,20 +216,6 @@ export default function AppRu() {
     
     checkSession();
   }, []);
-  
-  // 🆕 Отслеживаем изменения демо-пользователя в контексте
-  useEffect(() => {
-    if (!isDemoMode() || !demoContext || !isAuthenticated) return;
-    
-    console.log('🎭 Demo context changed, currentUserId:', demoContext.currentUserId);
-    
-    // Обновляем currentUser когда меняется currentUserId в контексте
-    if (demoContext.currentUser && demoContext.currentUser.id !== currentUser?.id) {
-      console.log('🎭 Updating currentUser from context:', demoContext.currentUser.имя, demoContext.currentUser.фамилия);
-      setCurrentUser(demoContext.currentUser);
-      refreshData(); // Обновляем все данные
-    }
-  }, [demoContext?.currentUserId, demoContext?.currentUser, isAuthenticated]);
   
   // 🎮 Listen for navigate-to-achievements event from widgets
   useEffect(() => {
@@ -289,12 +258,6 @@ export default function AppRu() {
   const handleLogout = () => {
     api.logout();
     
-    // Если был демо режим - очищаем демо данны
-    if (isDemoMode()) {
-      localStorage.removeItem('demoData');
-      console.log('🎭 Demo data cleared');
-    }
-    
     // Очищаем корзину
     setCartItems([]);
     localStorage.removeItem('cart');
@@ -310,21 +273,6 @@ export default function AppRu() {
     setRefreshTrigger(prev => prev + 1);
   };
   
-  // 🆕 Обновить текущего демо-пользователя после переключения
-  const handleDemoUserChange = async () => {
-    if (!isDemoMode()) return;
-    
-    console.log('🎭 Demo user changed, refreshing...');
-    const currentDemoUser = getCurrentDemoUser();
-    
-    if (currentDemoUser) {
-      api.setAuthToken(currentDemoUser.id);
-      setCurrentUser(currentDemoUser);
-      refreshData(); // Обновляем все данные
-      toast.success(`Перелючено на: ${currentDemoUser.имя} ${currentDemoUser.фамилия}`);
-    }
-  };
-  
   // Update user data
   const updateUser = async () => {
     try {
@@ -338,34 +286,10 @@ export default function AppRu() {
         return data.user;
       } else {
         console.error('❌ Failed to get user data:', data);
-        
-        // 🆕 Если не удалось загрузить - восстанавливаем из демо данных
-        if (isDemoMode()) {
-          console.log('🔄 Attempting to restore from demo data...');
-          const demoUser = getCurrentDemoUser();
-          if (demoUser) {
-            console.log('✅ Restored from demo data:', demoUser);
-            setCurrentUser(demoUser);
-            return demoUser;
-          }
-        }
-        
         return null;
       }
     } catch (error) {
       console.error('Error updating user:', error);
-      
-      // 🆕 При ошибке также пытаемся восстановить из демо данных
-      if (isDemoMode()) {
-        console.log('🔄 Error occurred, attempting to restore from demo data...');
-        const demoUser = getCurrentDemoUser();
-        if (demoUser) {
-          console.log('✅ Restored from demo data:', demoUser);
-          setCurrentUser(demoUser);
-          return demoUser;
-        }
-      }
-      
       return null;
     }
   };

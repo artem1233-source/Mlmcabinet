@@ -9,7 +9,6 @@ import { Badge } from './ui/badge';
 import { AdminToolbar } from './AdminToolbar';
 import { toast } from 'sonner';
 import * as api from '../utils/api';
-import { isDemoMode } from '../utils/demoApi';
 
 interface BalanceRuProps {
   currentUser: any;
@@ -19,7 +18,6 @@ interface BalanceRuProps {
 
 export function BalanceRu({ currentUser, onRefresh, refreshTrigger }: BalanceRuProps) {
   const isAdmin = currentUser?.isAdmin === true || currentUser?.email === 'admin@admin.com';
-  const showAdminToolbar = isAdmin || isDemoMode();
   
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
   const [allWithdrawals, setAllWithdrawals] = useState<any[]>([]);
@@ -170,7 +168,7 @@ export function BalanceRu({ currentUser, onRefresh, refreshTrigger }: BalanceRuP
 
   return (
     <div className="p-4 lg:p-8 max-w-full overflow-x-hidden" style={{ backgroundColor: '#F7FAFC' }}>
-      {showAdminToolbar && <AdminToolbar userName={currentUser.имя} onUserChange={onRefresh} />}
+      {isAdmin && <AdminToolbar userName={currentUser.имя} onUserChange={onRefresh} />}
       
       {/* Header */}
       <div className="mb-6 lg:mb-8">

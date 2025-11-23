@@ -1,6 +1,5 @@
-import { Bell, Wallet, Droplet, Menu, Play, ShoppingCart } from 'lucide-react';
+import { Bell, Wallet, Droplet, Menu, ShoppingCart } from 'lucide-react';
 import { Avatar, AvatarFallback } from './ui/avatar';
-import { isDemoMode } from '../utils/demoApi';
 import { NotificationBell } from './NotificationBell';
 
 interface TopBarProps {
@@ -17,7 +16,6 @@ interface TopBarProps {
 
 export function TopBarRu({ имяПользователя, балансПользователя, cartItemsCount = 0, onMenuClick, onProfileClick, onBalanceClick, onNotificationsClick, onLogoClick, onCartClick }: TopBarProps) {
   const initials = имяПользователя.split(' ').map(n => n[0]).join('').toUpperCase();
-  const isDemo = isDemoMode();
   
   return (
     <div className="fixed top-0 left-0 lg:left-[220px] right-0 z-50 h-16 lg:h-20 bg-white border-b border-[#E6E9EE] flex items-center justify-between px-4 lg:px-8 shadow-sm">
@@ -40,15 +38,9 @@ export function TopBarRu({ имяПользователя, балансПоль�
           <div className="hidden md:block text-left">
             <h2 className="text-[#1E1E1E] flex items-center gap-2" style={{ fontSize: '18px', fontWeight: '700' }}>
               Партнёрская платформа H₂
-              {isDemo && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white rounded-lg" style={{ fontSize: '11px', fontWeight: '600' }}>
-                  <Play size={10} />
-                  ДЕМО
-                </span>
-              )}
             </h2>
             <p className="text-[#666]">
-              {isDemo ? 'Демо режим - 50 человек, 6 месяцев' : 'Личный кабинет партнёра'}
+              Личный кабинет партнёра
             </p>
           </div>
         </button>
