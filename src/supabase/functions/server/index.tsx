@@ -534,6 +534,27 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
       
       await kv.set(`user:id:${sponsor.id}`, updatedSponsor);
       console.log(`Updated sponsor ${sponsor.id} team: added ${newUserId}`);
+      
+      // 🆕 Создаём уведомление для спонсора о новом партнёре
+      const notificationId = `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const notification = {
+        id: notificationId,
+        userId: sponsor.id,
+        тип: 'новый_партнёр',
+        заголовок: 'Новый партнёр в вашей команде!',
+        сообщение: `${newUser.имя} ${newUser.фамилия} зарегистрировался по вашей реферальной ссылке`,
+        прочитано: false,
+        timestamp: Date.now(),
+        дата: new Date().toISOString(),
+        данные: {
+          partnerId: newUserId,
+          partnerName: `${newUser.имя} ${newUser.фамилия}`,
+          partnerRefCode: refCode
+        }
+      };
+      
+      await kv.set(`notification:user:${sponsor.id}:${notificationId}`, notification);
+      console.log(`✅ Created notification for sponsor ${sponsor.id} about new partner ${newUserId}`);
     }
     
     console.log(`✅ New user registered: ${newUser.имя} ${newUser.фамилия} (ID: ${newUserId}, RefCode: ${refCode})${(isFirstUser || isAdminEmail) ? ' [ADMIN]' : ''}${sponsor ? ` sponsored by ${sponsor.id}` : ''}`);
@@ -864,6 +885,27 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
       
       await kv.set(`user:id:${sponsor.id}`, updatedSponsor);
       console.log(`Updated sponsor ${sponsor.id} team: added ${partnerId}`);
+      
+      // 🆕 Создаём уведомление для спонсора о новом партнёре
+      const notificationId = `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const notification = {
+        id: notificationId,
+        userId: sponsor.id,
+        тип: 'новый_партнёр',
+        заголовок: 'Новый партнёр в вашей команде!',
+        сообщение: `${newUser.имя} ${newUser.фамилия} зарегистрировался по вашей реферальной ссылке`,
+        прочитано: false,
+        timestamp: Date.now(),
+        дата: new Date().toISOString(),
+        данные: {
+          partnerId: partnerId,
+          partnerName: `${newUser.имя} ${newUser.фамилия}`,
+          partnerRefCode: refCode
+        }
+      };
+      
+      await kv.set(`notification:user:${sponsor.id}:${notificationId}`, notification);
+      console.log(`✅ Created notification for sponsor ${sponsor.id} about new partner ${partnerId}`);
     }
     
     console.log(`✅ New partner registered: ${newUser.имя} ${newUser.фамилия} (ID: ${partnerId}, RefCode: ${refCode})${sponsor ? ` sponsored by ${sponsor.id}` : ''}`);
@@ -1380,16 +1422,151 @@ app.get("/make-server-05aa3c8a/user/:userId", async (c) => {
   }
 });
 
+// Get user profile with privacy settings
+app.get("/make-server-05aa3c8a/user/:userId/profile", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    const userId = c.req.param('userId');
+    
+    console.log(`📋 Getting profile for user: ${userId}, requested by: ${currentUser.id}`);
+    
+    const userData = await kv.get(`user:id:${userId}`);
+    
+    if (!userData) {
+      return c.json({ error: "User not found" }, 404);
+    }
+    
+    // Получаем настройки приватности
+    const privacySettings = userData.privacySettings || {};
+    console.log(`🔒 Privacy settings for user ${userId}:`, privacySettings);
+    
+    // Если пользователь смотрит свой профиль - показываем всё
+    const isOwnProfile = currentUser.id === userId;
+    
+    // Подготавливаем данные с учётом настроек приватности
+    const profileData: any = {
+      id: userData.id,
+      имя: userData.имя || '',
+      фамилия: userData.фамилия || '',
+      уровень: userData.уровень || 1,
+      рефКод: userData.рефКод || '',
+      зарегистрирован: userData.зарегистрирован,
+      команда: userData.команда || []
+    };
+    
+    // Добавляем размер команды
+    const allUsers = await kv.getByPrefix('user:id:');
+    const allUsersArray = Array.isArray(allUsers) ? allUsers : [];
+    const teamMembers = allUsersArray.filter((u: any) => u.спонсорId === userId);
+    profileData.teamSize = teamMembers.length;
+    
+    // Поля которые показываем только если разрешено или это свой профиль
+    if (isOwnProfile || privacySettings.showBalance !== false) {
+      profileData.баланс = userData.баланс || 0;
+    }
+    
+    if (isOwnProfile || privacySettings.showEarnings !== false) {
+      // Подсчитываем общий заработок из earnings
+      const earnings = await kv.getByPrefix(`earning:user:${userId}:`);
+      const totalEarnings = earnings.reduce((sum: number, e: any) => sum + (e.сумма || e.amount || 0), 0);
+      profileData.totalEarnings = totalEarnings;
+    }
+    
+    if (isOwnProfile || privacySettings.showPhone !== false) {
+      profileData.телефон = userData.телефон || '';
+    }
+    
+    if (isOwnProfile || privacySettings.showEmail !== false) {
+      profileData.email = userData.email || '';
+    }
+    
+    // Социальные сети
+    const socialMedia: any = {};
+    
+    if (isOwnProfile || privacySettings.showTelegram !== false) {
+      socialMedia.telegram = userData.telegram || '';
+    }
+    
+    if (isOwnProfile || privacySettings.showWhatsapp !== false) {
+      socialMedia.whatsapp = userData.телефон || ''; // используем телефон для WhatsApp
+    }
+    
+    if (isOwnProfile || privacySettings.showInstagram !== false) {
+      socialMedia.instagram = userData.instagram || '';
+    }
+    
+    if (isOwnProfile || privacySettings.showVk !== false) {
+      socialMedia.vk = userData.vk || '';
+    }
+    
+    profileData.socialMedia = socialMedia;
+    profileData.privacySettings = privacySettings;
+    
+    console.log(`✅ Profile data prepared for user ${userId}, fields included:`, Object.keys(profileData));
+    
+    return c.json({ success: true, user: profileData });
+  } catch (error) {
+    console.log(`Get user profile error: ${error}`);
+    return c.json({ error: `Failed to get user profile: ${error}` }, 500);
+  }
+});
+
 // Get user's team structure
 app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
   try {
     await verifyUser(c.req.header('X-User-Id'));
     const userId = c.req.param('userId');
     
-    // Get all users with this sponsor
+    console.log(`📊 Building team structure for user: ${userId}`);
+    
+    // Get all users
     const allUsers = await kv.getByPrefix('user:id:');
     const allUsersArray = Array.isArray(allUsers) ? allUsers : [];
-    const teamMembers = allUsersArray.filter((u: any) => u.спонсорId === userId);
+    
+    // Получаем данные текущего пользователя для рефкода
+    const currentUser = allUsersArray.find((u: any) => u.id === userId);
+    if (!currentUser) {
+      return c.json({ success: true, team: [] });
+    }
+    
+    // Рекурсивная функция для построения команды с глубиной
+    const buildTeamWithDepth = (sponsorId: string, sponsorRefCode: string, depth: number, visited: Set<string> = new Set()): any[] => {
+      // Защита от циклических ссылок
+      if (visited.has(sponsorId) || depth > 10) {
+        return [];
+      }
+      
+      visited.add(sponsorId);
+      
+      // Найти всех прямых партнёров
+      const directPartners = allUsersArray.filter((u: any) => 
+        u.спонсорId === sponsorId && u.id !== sponsorId
+      );
+      
+      // Для каждого партнёра добавляем глубину и пригласительный код
+      const partnersWithDepth = directPartners.map((partner: any) => {
+        return {
+          ...partner,
+          глубина: depth,
+          пригласительКод: sponsorRefCode
+        };
+      });
+      
+      // Получаем команды всех прямых партнёров (следующий уровень)
+      const subTeams = directPartners.flatMap((partner: any) => 
+        buildTeamWithDepth(partner.id, partner.рефКод, depth + 1, new Set(visited))
+      );
+      
+      return [...partnersWithDepth, ...subTeams];
+    };
+    
+    // Строим всю команду начиная с глубины 1
+    const teamMembers = buildTeamWithDepth(userId, currentUser.рефКод, 1);
+    
+    console.log(`✅ Built team structure: ${teamMembers.length} members across all levels`);
+    console.log(`   Level 1: ${teamMembers.filter(m => m.глубина === 1).length}`);
+    console.log(`   Level 2: ${teamMembers.filter(m => m.глубина === 2).length}`);
+    console.log(`   Level 3: ${teamMembers.filter(m => m.глубина === 3).length}`);
     
     return c.json({ success: true, team: teamMembers });
   } catch (error) {

@@ -21,14 +21,20 @@ export function UserProfileView({ userId, onClose }: UserProfileViewProps) {
   const loadUserProfile = async () => {
     setLoading(true);
     try {
+      console.log('📋 UserProfileView: Loading profile for user:', userId);
       const response = await api.getUserProfile(userId);
+      console.log('📋 UserProfileView: API response:', response);
+      
       if (response.success) {
+        console.log('✅ UserProfileView: Profile loaded:', response.user);
+        console.log('📊 UserProfileView: Privacy settings:', response.user.privacySettings);
         setUser(response.user);
       } else {
+        console.error('❌ UserProfileView: Failed to load profile:', response);
         toast.error('Не удалось загрузить профиль');
       }
     } catch (error) {
-      console.error('Failed to load user profile:', error);
+      console.error('❌ UserProfileView: Error loading profile:', error);
       toast.error('Ошибка загрузки профиля');
     } finally {
       setLoading(false);
@@ -84,7 +90,7 @@ export function UserProfileView({ userId, onClose }: UserProfileViewProps) {
                 {user.имя?.[0]?.toUpperCase() || '👤'}
               </div>
               <div className="flex-1">
-                <h2 className="text-2xl font-bold mb-1">{user.имя}</h2>
+                <h2 className="text-2xl font-bold mb-1">{user.имя} {user.фамилия || ''}</h2>
                 <p className="text-white/90 text-sm">Уровень {user.уровень} • Рефкод: {user.рефКод}</p>
               </div>
             </div>
@@ -94,7 +100,7 @@ export function UserProfileView({ userId, onClose }: UserProfileViewProps) {
           <div className="p-6 space-y-6">
             {/* Stats Cards */}
             <div className="grid grid-cols-3 gap-4">
-              {privacy.showBalance !== false && (
+              {privacy.showBalance !== false && user.баланс !== undefined && (
                 <div className="text-center p-4 bg-blue-50 rounded-xl">
                   <Wallet className="w-6 h-6 text-[#39B7FF] mx-auto mb-2" />
                   <div className="font-bold text-[#39B7FF] text-xl">
@@ -104,7 +110,7 @@ export function UserProfileView({ userId, onClose }: UserProfileViewProps) {
                 </div>
               )}
               
-              {privacy.showEarnings !== false && (
+              {privacy.showEarnings !== false && user.totalEarnings !== undefined && (
                 <div className="text-center p-4 bg-green-50 rounded-xl">
                   <TrendingUp className="w-6 h-6 text-[#12C9B6] mx-auto mb-2" />
                   <div className="font-bold text-[#12C9B6] text-xl">

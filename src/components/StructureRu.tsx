@@ -50,12 +50,24 @@ export function StructureRu({ currentUser, refreshTrigger }: StructureRuProps) {
     try {
       console.log('📊 StructureRu: Loading team for user:', effectiveUserId);
       const data = await api.getUserTeam(effectiveUserId); // 🆕 Используем effectiveUserId
+      console.log('📊 StructureRu: API response:', data);
+      
       if (data.success && data.team) {
         // 🆕 ИСПРАВЛЕНИЕ: Фильтруем самого пользователя из структуры
         // Каждый пользователь видит только СВОИХ партнёров, а не себя
         const filteredTeam = data.team.filter((m: any) => m.id !== effectiveUserId);
         console.log('✅ StructureRu: Loaded team:', filteredTeam.length, 'members');
+        console.log('✅ StructureRu: Team members:', filteredTeam.map((m: any) => ({
+          id: m.id,
+          name: `${m.имя} ${m.фамилия}`,
+          sponsorId: m.спонсорId,
+          depth: m.глубина,
+          inviteCode: m.пригласительКод
+        })));
         setTeam(filteredTeam);
+      } else {
+        console.warn('⚠️ StructureRu: No team data or unsuccessful response');
+        setTeam([]);
       }
     } catch (error) {
       console.error('Failed to load team:', error);
@@ -134,7 +146,7 @@ export function StructureRu({ currentUser, refreshTrigger }: StructureRuProps) {
       }).catch(() => {
         // Fallback: copy to clipboard
         navigator.clipboard.writeText(inviteMessage);
-        toast.success('Сообщение ско��ировано в буфер обмена!');
+        toast.success('Сообщение скопировано в буфер обмена!');
       });
     } else {
       navigator.clipboard.writeText(inviteMessage);
