@@ -1,34 +1,34 @@
 import { useState, useEffect } from 'react';
 import { 
-  Users, Loader2, Trash2, Shield, 
-  Search, Mail, Phone,
-  Calendar, Award, ChevronDown, ChevronUp,
-  List, Network, User, Edit
+  Users, 
+  Search, 
+  ChevronDown, 
+  ChevronUp, 
+  Mail, 
+  Phone, 
+  Shield, 
+  Trash2, 
+  Calendar,
+  Loader2,
+  ChevronRight,
+  Network,
+  List,
+  AlertTriangle
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from './ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from './ui/select';
 import { toast } from 'sonner';
 import * as api from '../utils/api';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import * as localCounter from '../utils/localCounter';
 import { IdManager } from './admin/IdManager';
+import { ChangeUserId } from './admin/ChangeUserId';
+import { ManualLinkFixer } from './admin/ManualLinkFixer';
+import { ManualSponsorAssign } from './admin/ManualSponsorAssign';
+import { OrphanUsersManager } from './admin/OrphanUsersManager';
 
 interface UsersManagementRuProps {
   currentUser: any;
@@ -42,22 +42,29 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
   const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
   const [nextUserId, setNextUserId] = useState<string>('001');
   const [viewMode, setViewMode] = useState<'list' | 'tree'>('list');
+  const [showAdmins, setShowAdmins] = useState(true); // 🆕 Состояние для сворачивания секции админов
 
   useEffect(() => {
     loadData();
   }, []);
 
+  useEffect(() => {
+    if (viewMode === 'tree' && users.length > 0) {
+      const rootUsers = users.filter((u: any) => !u.спонсорId && u.isAdmin !== true);
+      setExpandedUsers(new Set(rootUsers.map((u: any) => u.id)));
+    }
+  }, [viewMode, users.length]);
+
   const loadData = async () => {
     try {
       setLoading(true);
       
-      // Load users
       const usersResponse = await api.getAllUsers();
       if (usersResponse.success) {
-        setUsers(usersResponse.users || []);
+        const loadedUsers = usersResponse.users || [];
+        setUsers(loadedUsers);
       }
 
-      // Load counter from local storage
       const localNextUserId = localCounter.getNextLocalUserId();
       setNextUserId(localNextUserId);
 
@@ -70,8 +77,6 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
   };
 
   const handleDeleteUser = async (userId: string, userName: string, userEmail: string) => {
-    console.log('🗑️ Delete user clicked:', userId, userName, userEmail);
-    
     if (!confirm(`⚠️ УДАЛЕНИЕ ПОЛЬЗОВАТЕЛЯ\n\n${userName}\n${userEmail}\nID: ${userId}\n\nЭто действие необратимо!\n\nПродолжить?`)) {
       return;
     }
@@ -90,21 +95,15 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
       const data = await response.json();
 
       if (data.success) {
-        toast.success('Пользователь удалён!', {
-          description: `${userName} (${userEmail})`
-        });
+        toast.success('Пользователь удалён!');
         loadData();
-        if (onRefresh) {
-          onRefresh();
-        }
+        if (onRefresh) onRefresh();
       } else {
         throw new Error(data.error || 'Failed to delete user');
       }
     } catch (error) {
-      console.error('❌ Delete user error:', error);
-      toast.error('Ошибка удаления пользователя', {
-        description: String(error)
-      });
+      console.error('Delete user error:', error);
+      toast.error('Ошибка удаления пользователя');
     }
   };
 
@@ -118,7 +117,52 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
     setExpandedUsers(newExpanded);
   };
 
-  // Filter users based on search and level
+  const handleCleanBrokenRefs = async () => {
+    if (!confirm('🧹 ОЧИСТКА БИТЫХ ССЫЛОК\n\nЭта операция удалит все ссылки на несуществующих пользователей.\n\nПродолжить?')) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const response = await api.cleanBrokenRefs();
+      
+      if (response.success) {
+        toast.success('Очистка завершена!');
+        await loadData();
+      } else {
+        throw new Error(response.error || 'Failed to clean');
+      }
+    } catch (error) {
+      console.error('Clean error:', error);
+      toast.error('Ошибка очистки');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSyncTeams = async () => {
+    if (!confirm('🔄 СИНХРОНИЗАЦИЯ КОМАНД\n\nЭта операция синхронизирует команды пользователей.\n\nПродолжить?')) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const response = await api.syncTeams();
+      
+      if (response.success) {
+        toast.success('Синхронизация завершена!');
+        await loadData();
+      } else {
+        throw new Error(response.error || 'Failed to sync');
+      }
+    } catch (error) {
+      console.error('Sync error:', error);
+      toast.error('Ошибка синхронизации');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const filteredUsers = users.filter(user => {
     const matchesSearch = !searchQuery || 
       user.имя?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -130,13 +174,15 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
     return matchesSearch;
   });
 
-  // Recursive tree render function
+  // Разделяем пользователей на админов и обычных
+  const adminUsers = filteredUsers.filter(user => user.isAdmin === true);
+  const regularUsers = filteredUsers.filter(user => user.isAdmin !== true);
+
   const renderUserTree = (user: any, level: number): JSX.Element => {
     const hasChildren = user.команда && user.команда.length > 0;
     const isExpanded = expandedUsers.has(user.id);
-    // Ограничиваем визуальный отступ для глубокой вложенности (max 12 уровней)
     const visualLevel = Math.min(level, 12);
-    const indent = visualLevel * 20; // 20px indent per level
+    const indent = visualLevel * 20;
 
     return (
       <div key={user.id} className="mb-1">
@@ -145,7 +191,6 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
           style={{ marginLeft: `${indent}px` }}
         >
           <div className="flex items-center gap-3">
-            {/* Level indicator for deep nesting */}
             {level > 0 && (
               <div className="flex items-center gap-1">
                 <div className="w-px h-8 bg-[#E6E9EE]" />
@@ -153,7 +198,6 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
               </div>
             )}
             
-            {/* Toggle button */}
             {hasChildren ? (
               <button
                 onClick={() => toggleUserExpanded(user.id)}
@@ -162,21 +206,19 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                 {isExpanded ? (
                   <ChevronDown className="w-4 h-4 text-[#666]" />
                 ) : (
-                  <ChevronUp className="w-4 h-4 text-[#666]" />
+                  <ChevronRight className="w-4 h-4 text-[#666]" />
                 )}
               </button>
             ) : (
               <div className="w-7" />
             )}
             
-            {/* Avatar */}
             <div className="w-10 h-10 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-lg flex items-center justify-center text-white shrink-0">
               <span style={{ fontWeight: '600', fontSize: '14px' }}>
                 {user.имя?.charAt(0).toUpperCase() || '?'}
               </span>
             </div>
             
-            {/* User info */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                 <p className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '14px' }}>
@@ -189,11 +231,6 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                   <Badge className="bg-red-100 text-red-700 text-xs">
                     <Shield className="w-3 h-3 mr-1" />
                     Админ
-                  </Badge>
-                )}
-                {user.id === currentUser?.id && (
-                  <Badge className="bg-blue-100 text-blue-700 text-xs">
-                    Вы
                   </Badge>
                 )}
               </div>
@@ -213,7 +250,6 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
           </div>
         </div>
         
-        {/* Children */}
         {hasChildren && isExpanded && (
           <div className="mt-1">
             {user.команда.map((childId: string) => {
@@ -237,7 +273,6 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
   return (
     <div className="min-h-screen bg-[#F7FAFC] p-6">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-12 h-12 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-2xl flex items-center justify-center">
@@ -250,7 +285,6 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
           </div>
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-1 gap-6 mb-8">
           <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
             <CardContent className="p-6">
@@ -267,7 +301,6 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
           </Card>
         </div>
 
-        {/* Tabs */}
         <Tabs defaultValue="users" className="space-y-6">
           <TabsList className="bg-white border border-[#E6E9EE] p-1 rounded-xl">
             <TabsTrigger 
@@ -286,7 +319,6 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
             </TabsTrigger>
           </TabsList>
 
-          {/* Users List Tab */}
           <TabsContent value="users" className="space-y-6">
             <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
               <CardHeader>
@@ -319,10 +351,28 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                   
                   {viewMode === 'list' && (
                     <div className="flex items-center gap-3">
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={handleCleanBrokenRefs}
+                        className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                      >
+                        <AlertTriangle className="w-4 h-4 mr-2" />
+                        Очистить битые ссылки
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={handleSyncTeams}
+                        className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                      >
+                        <Users className="w-4 h-4 mr-2" />
+                        Синхронизировать команды
+                      </Button>
                       <div className="relative">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[#666]" />
                         <Input
-                          placeholder="Поиск по имени, email, ID..."
+                          placeholder="Поиск..."
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                           className="pl-10 pr-4 w-64"
@@ -334,162 +384,262 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
               </CardHeader>
               <CardContent>
                 {viewMode === 'list' ? (
-                  // List View
-                  <div className="space-y-3">
-                    {filteredUsers.map((user) => (
-                      <div key={user.id} className="border border-[#E6E9EE] rounded-xl overflow-hidden">
-                        {/* Main User Row */}
-                        <div className="flex items-center justify-between p-4 bg-[#F7FAFC]">
-                          <div className="flex items-center gap-4 flex-1">
-                            <div className="w-12 h-12 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-xl flex items-center justify-center text-white">
-                              <span style={{ fontWeight: '700' }}>
-                                {user.имя?.charAt(0).toUpperCase() || '?'}
-                              </span>
-                            </div>
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                <p className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>
-                                  {user.имя} {user.фамилия}
-                                </p>
-                                <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white">
-                                  ID: {user.id}
-                                </Badge>
-                                <Badge className="bg-gray-100 text-gray-700">
-                                  Уровень {user.уровень}
-                                </Badge>
-                                {user.isAdmin && (
-                                  <Badge className="bg-red-100 text-red-700">
-                                    <Shield className="w-3 h-3 mr-1" />
-                                    Админ
-                                  </Badge>
-                                )}
-                                {user.id === currentUser?.id && (
-                                  <Badge className="bg-blue-100 text-blue-700">
-                                    Вы
-                                  </Badge>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-4 text-[#666]" style={{ fontSize: '13px' }}>
-                                <span className="flex items-center gap-1">
-                                  <Mail className="w-3 h-3" />
-                                  {user.email}
-                                </span>
-                                <span className="flex items-center gap-1">
-                                  Реф: {user.рефКод}
-                                </span>
-                                {user.телефон && (
-                                  <span className="flex items-center gap-1">
-                                    <Phone className="w-3 h-3" />
-                                    {user.телефон}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
+                  <div className="space-y-6">
+                    {/* Секция администраторов */}
+                    {adminUsers.length > 0 && (
+                      <div className="space-y-3">
+                        <button
+                          onClick={() => setShowAdmins(!showAdmins)}
+                          className="w-full flex items-center gap-2 mb-3 hover:bg-gray-50 rounded-lg p-2 -m-2 transition-colors"
+                        >
+                          <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center shrink-0">
+                            <Shield className="w-5 h-5 text-red-600" />
                           </div>
-                          <div className="flex items-center gap-4">
-                            <div className="text-right">
-                              <p className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>
-                                ₽{user.баланс?.toLocaleString() || 0}
-                              </p>
-                              <p className="text-[#666]" style={{ fontSize: '12px' }}>Баланс</p>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => toggleUserExpanded(user.id)}
-                            >
-                              {expandedUsers.has(user.id) ? (
-                                <ChevronUp className="w-4 h-4" />
-                              ) : (
-                                <ChevronDown className="w-4 h-4" />
-                              )}
-                            </Button>
-                            {user.id !== currentUser?.id ? (
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={() => handleDeleteUser(user.id, `${user.имя} ${user.фамилия}`, user.email)}
-                              >
-                                <Trash2 className="w-4 h-4 mr-1" />
-                                Удалить
-                              </Button>
+                          <div className="flex-1 text-left">
+                            <h3 className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '16px' }}>
+                              Администраторы
+                            </h3>
+                            <p className="text-[#666]" style={{ fontSize: '13px' }}>
+                              {adminUsers.length} {adminUsers.length === 1 ? 'администратор' : 'администраторов'}
+                            </p>
+                          </div>
+                          <div className="shrink-0">
+                            {showAdmins ? (
+                              <ChevronUp className="w-5 h-5 text-[#666]" />
                             ) : (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                disabled
-                                className="border-gray-300 text-gray-400 cursor-not-allowed"
-                              >
-                                <Shield className="w-4 h-4 mr-1" />
-                                Это вы
-                              </Button>
+                              <ChevronDown className="w-5 h-5 text-[#666]" />
                             )}
+                          </div>
+                        </button>
+
+                        {showAdmins && adminUsers.map((user) => (
+                          <div key={user.id} className="border border-red-200 rounded-xl overflow-hidden bg-red-50/30">
+                            <div className="flex items-center justify-between p-4">
+                              <div className="flex items-center gap-4 flex-1">
+                                <div className="w-12 h-12 bg-gradient-to-br from-red-500 to-red-600 rounded-xl flex items-center justify-center text-white">
+                                  <span style={{ fontWeight: '700' }}>
+                                    {user.имя?.charAt(0).toUpperCase() || '?'}
+                                  </span>
+                                </div>
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                    <p className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>
+                                      {user.имя} {user.фамилия}
+                                    </p>
+                                    <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white">
+                                      ID: {user.id}
+                                    </Badge>
+                                    <Badge className="bg-gray-100 text-gray-700">
+                                      Уровень {user.уровень}
+                                    </Badge>
+                                    <Badge className="bg-red-100 text-red-700">
+                                      <Shield className="w-3 h-3 mr-1" />
+                                      Админ
+                                    </Badge>
+                                  </div>
+                                  <div className="flex items-center gap-4 text-[#666]" style={{ fontSize: '13px' }}>
+                                    <span className="flex items-center gap-1">
+                                      <Mail className="w-3 h-3" />
+                                      {user.email}
+                                    </span>
+                                    <span>Реф: {user.рефКод}</span>
+                                    {user.телефон && (
+                                      <span className="flex items-center gap-1">
+                                        <Phone className="w-3 h-3" />
+                                        {user.телефон}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <div className="text-right">
+                                  <p className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>
+                                    ₽{user.баланс?.toLocaleString() || 0}
+                                  </p>
+                                  <p className="text-[#666]" style={{ fontSize: '12px' }}>Баланс</p>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => toggleUserExpanded(user.id)}
+                                >
+                                  {expandedUsers.has(user.id) ? (
+                                    <ChevronUp className="w-4 h-4" />
+                                  ) : (
+                                    <ChevronDown className="w-4 h-4" />
+                                  )}
+                                </Button>
+                                {user.id !== currentUser?.id && (
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => handleDeleteUser(user.id, `${user.имя} ${user.фамилия}`, user.email)}
+                                  >
+                                    <Trash2 className="w-4 h-4 mr-1" />
+                                    Удалить
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+
+                            {expandedUsers.has(user.id) && (
+                              <div className="p-4 bg-white border-t border-red-200">
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                  <div>
+                                    <p className="text-[#666] text-xs mb-1">Дата регистрации</p>
+                                    <p className="text-[#1E1E1E] text-sm font-medium flex items-center gap-1">
+                                      <Calendar className="w-3 h-3" />
+                                      {user.зарегистрирован ? new Date(user.зарегистрирован).toLocaleDateString('ru-RU') : '-'}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[#666] text-xs mb-1">Спонсор</p>
+                                    <p className="text-[#1E1E1E] text-sm font-medium">
+                                      {user.спонсорId ? `ID: ${user.спонсорId}` : 'Нет'}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[#666] text-xs mb-1">Партнёров в команде</p>
+                                    <p className="text-[#1E1E1E] text-sm font-medium flex items-center gap-1">
+                                      <Users className="w-3 h-3" />
+                                      {user.команда?.length || 0}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Секция обычных пользователей */}
+                    {regularUsers.length > 0 && (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="w-10 h-10 bg-[#F0F9FF] rounded-lg flex items-center justify-center">
+                            <Users className="w-5 h-5 text-[#39B7FF]" />
+                          </div>
+                          <div className="flex-1">
+                            <h3 className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '16px' }}>
+                              Пользователи
+                            </h3>
+                            <p className="text-[#666]" style={{ fontSize: '13px' }}>
+                              {regularUsers.length} {regularUsers.length === 1 ? 'пользователь' : 'пользователей'}
+                            </p>
                           </div>
                         </div>
 
-                        {/* Extended Info (Collapsible) */}
-                        {expandedUsers.has(user.id) && (
-                          <div className="p-4 bg-white border-t border-[#E6E9EE]">
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                              <div>
-                                <p className="text-[#666] text-xs mb-1">Дата регистрации</p>
-                                <p className="text-[#1E1E1E] text-sm font-medium flex items-center gap-1">
-                                  <Calendar className="w-3 h-3" />
-                                  {user.зарегистрирован ? new Date(user.зарегистрирован).toLocaleDateString('ru-RU') : '-'}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-[#666] text-xs mb-1">Спонсор</p>
-                                <p className="text-[#1E1E1E] text-sm font-medium">
-                                  {user.спонсорId ? `ID: ${user.спонсорId}` : 'Нет'}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-[#666] text-xs mb-1">Партнёров в команде</p>
-                                <p className="text-[#1E1E1E] text-sm font-medium flex items-center gap-1">
-                                  <Users className="w-3 h-3" />
-                                  {user.команда?.length || 0}
-                                </p>
-                              </div>
-                              {user.telegram && (
-                                <div>
-                                  <p className="text-[#666] text-xs mb-1">Telegram</p>
-                                  <p className="text-[#1E1E1E] text-sm font-medium">@{user.telegram}</p>
+                        {regularUsers.map((user) => (
+                          <div key={user.id} className="border border-[#E6E9EE] rounded-xl overflow-hidden">
+                            <div className="flex items-center justify-between p-4 bg-[#F7FAFC]">
+                              <div className="flex items-center gap-4 flex-1">
+                                <div className="w-12 h-12 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-xl flex items-center justify-center text-white">
+                                  <span style={{ fontWeight: '700' }}>
+                                    {user.имя?.charAt(0).toUpperCase() || '?'}
+                                  </span>
                                 </div>
-                              )}
-                              {user.instagram && (
-                                <div>
-                                  <p className="text-[#666] text-xs mb-1">Instagram</p>
-                                  <p className="text-[#1E1E1E] text-sm font-medium">@{user.instagram}</p>
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                    <p className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>
+                                      {user.имя} {user.фамилия}
+                                    </p>
+                                    <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white">
+                                      ID: {user.id}
+                                    </Badge>
+                                    <Badge className="bg-gray-100 text-gray-700">
+                                      Уровень {user.уровень}
+                                    </Badge>
+                                  </div>
+                                  <div className="flex items-center gap-4 text-[#666]" style={{ fontSize: '13px' }}>
+                                    <span className="flex items-center gap-1">
+                                      <Mail className="w-3 h-3" />
+                                      {user.email}
+                                    </span>
+                                    <span>Реф: {user.рефКод}</span>
+                                    {user.телефон && (
+                                      <span className="flex items-center gap-1">
+                                        <Phone className="w-3 h-3" />
+                                        {user.телефон}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
-                              )}
-                              <div>
-                                <p className="text-[#666] text-xs mb-1">Supabase ID</p>
-                                <p className="text-[#1E1E1E] text-xs font-mono">
-                                  {user.supabaseId?.substring(0, 8) || '-'}...
-                                </p>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <div className="text-right">
+                                  <p className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>
+                                    ₽{user.баланс?.toLocaleString() || 0}
+                                  </p>
+                                  <p className="text-[#666]" style={{ fontSize: '12px' }}>Баланс</p>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => toggleUserExpanded(user.id)}
+                                >
+                                  {expandedUsers.has(user.id) ? (
+                                    <ChevronUp className="w-4 h-4" />
+                                  ) : (
+                                    <ChevronDown className="w-4 h-4" />
+                                  )}
+                                </Button>
+                                {user.id !== currentUser?.id && (
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => handleDeleteUser(user.id, `${user.имя} ${user.фамилия}`, user.email)}
+                                  >
+                                    <Trash2 className="w-4 h-4 mr-1" />
+                                    Удалить
+                                  </Button>
+                                )}
                               </div>
                             </div>
+
+                            {expandedUsers.has(user.id) && (
+                              <div className="p-4 bg-white border-t border-[#E6E9EE]">
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                  <div>
+                                    <p className="text-[#666] text-xs mb-1">Дата регистрации</p>
+                                    <p className="text-[#1E1E1E] text-sm font-medium flex items-center gap-1">
+                                      <Calendar className="w-3 h-3" />
+                                      {user.зарегистрирован ? new Date(user.зарегистрирован).toLocaleDateString('ru-RU') : '-'}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[#666] text-xs mb-1">Спонсор</p>
+                                    <p className="text-[#1E1E1E] text-sm font-medium">
+                                      {user.спонсорId ? `ID: ${user.спонсорId}` : 'Нет'}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[#666] text-xs mb-1">Партнёров в команде</p>
+                                    <p className="text-[#1E1E1E] text-sm font-medium flex items-center gap-1">
+                                      <Users className="w-3 h-3" />
+                                      {user.команда?.length || 0}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
-                        )}
+                        ))}
                       </div>
-                    ))}
+                    )}
 
                     {filteredUsers.length === 0 && (
                       <div className="text-center py-12">
                         <Users className="w-12 h-12 text-[#666] mx-auto mb-4 opacity-50" />
                         <p className="text-[#666]">Пользователи не найдены</p>
-                        <p className="text-[#999] text-sm mt-2">
-                          {searchQuery ? 'Попробуйте изменить поисковый запрос' : 'В системе пока нет пользователей'}
-                        </p>
                       </div>
                     )}
                   </div>
                 ) : (
-                  // Tree View
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
-                      <p className="text-[#666]">Древовидная структура всех партнёров ({users.length} чел.)</p>
+                      <p className="text-[#666]">Древовидная структура ({users.length} чел.)</p>
                       <div className="flex gap-2">
                         <Button 
                           variant="outline" 
@@ -516,14 +666,13 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                       </div>
                     </div>
                     
-                    {/* Tree rendering */}
                     <div className="space-y-2">
                       {users
-                        .filter(user => !user.спонсорId) // Root users without sponsors
+                        .filter(user => !user.спонсорId && user.isAdmin !== true)
                         .map(user => renderUserTree(user, 0))}
                     </div>
                     
-                    {users.filter(user => !user.спонсорId).length === 0 && (
+                    {users.filter(user => !user.спонсорId && user.isAdmin !== true).length === 0 && (
                       <div className="text-center py-12">
                         <Network className="w-12 h-12 text-[#666] mx-auto mb-4 opacity-50" />
                         <p className="text-[#666]">Нет пользователей для отображения</p>
@@ -535,15 +684,40 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
             </Card>
           </TabsContent>
 
-          {/* ID Management Tab */}
-          <TabsContent value="ids">
+          <TabsContent value="ids" className="space-y-6">
             <IdManager 
               currentUser={currentUser} 
               onDataChange={() => {
                 loadData();
-                if (onRefresh) {
-                  onRefresh();
-                }
+                if (onRefresh) onRefresh();
+              }} 
+            />
+            <ChangeUserId 
+              currentUser={currentUser} 
+              onSuccess={() => {
+                loadData();
+                if (onRefresh) onRefresh();
+              }} 
+            />
+            <ManualLinkFixer 
+              currentUser={currentUser} 
+              onSuccess={() => {
+                loadData();
+                if (onRefresh) onRefresh();
+              }} 
+            />
+            <ManualSponsorAssign 
+              currentUser={currentUser} 
+              onSuccess={() => {
+                loadData();
+                if (onRefresh) onRefresh();
+              }} 
+            />
+            <OrphanUsersManager 
+              currentUser={currentUser} 
+              onSuccess={() => {
+                loadData();
+                if (onRefresh) onRefresh();
               }} 
             />
           </TabsContent>

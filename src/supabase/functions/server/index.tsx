@@ -114,7 +114,14 @@ async function verifyUser(userIdHeader: string | null) {
   if ((isFirstUser || isAdminEmail || isCEO) && !user.isAdmin) {
     console.log(`⚠️ User ${user.id} (${user.email}) should be admin but isAdmin flag is missing. Fixing...`);
     user.isAdmin = true;
-    await kv.set(`user:id:${user.id}`, user);
+    
+    // Save to correct location based on user type
+    if (isCEO || user.type === 'admin') {
+      await kv.set(`admin:id:${user.id}`, user);
+    } else {
+      await kv.set(`user:id:${user.id}`, user);
+    }
+    
     console.log(`✅ Fixed isAdmin flag for user ${user.id}`);
   }
   
@@ -153,8 +160,9 @@ async function getNextUserId(): Promise<string> {
       freedIds = freedIds.filter((id: number) => id !== nextId);
       await kv.set(freedIdsKey, freedIds);
       
-      console.log(`♻️ Reusing freed user ID: ${nextId} (formatted as ${String(nextId).padStart(6, '0')})`);
-      return String(nextId).padStart(6, '0'); // Format as 6-digit ID (000001)
+      const formattedId = nextId <= 999 ? String(nextId).padStart(3, '0') : String(nextId);
+      console.log('Reusing freed user ID:', nextId);
+      return formattedId;
     }
   }
   
@@ -168,8 +176,9 @@ async function getNextUserId(): Promise<string> {
   } while (reservedIds.includes(counter));
   
   await kv.set(counterKey, counter);
-  console.log(`🆕 Generated new user ID: ${counter} (formatted as ${String(counter).padStart(6, '0')})`);
-  return String(counter).padStart(6, '0'); // Format as 6-digit ID (000001)
+  const formattedCounter = counter <= 999 ? String(counter).padStart(3, '0') : String(counter);
+  console.log('Generated new user ID:', counter);
+  return formattedCounter;
 }
 
 // Get next available partner ID (checks freed IDs first, then uses counter)
@@ -699,7 +708,11 @@ app.post("/make-server-05aa3c8a/auth/login", async (c) => {
       return c.json({ error: "Логин (ID или Email) и пароль обязательны" }, 400);
     }
     
-    console.log(`Login attempt for: ${login}`);
+    console.log('═══════════════════════════════════════════════');
+    console.log(`🔐 LOGIN ATTEMPT`);
+    console.log(`   Login: ${login}`);
+    console.log(`   Password: ${password ? '***' : 'MISSING'}`);
+    console.log('═══════════════════════════════════════════════');
     
     // 🆕 Определяем тип логина: ID (только цифры), "ceo", или Email
     const isNumericId = /^\d+$/.test(login.trim());
@@ -756,14 +769,36 @@ app.post("/make-server-05aa3c8a/auth/login", async (c) => {
         const userEmailData = await kv.get(userEmailKey);
         
         if (!userEmailData || !userEmailData.id) {
-          console.log(`Login failed: Email ${login} not found`);
-          return c.json({ error: "Email не найден" }, 401);
+          console.log(`Login failed: Email ${login} not found in user:email index`);
+          
+          // 🆕 FALLBACK: Ищем среди всех пользователей (для старых админов)
+          console.log(`🔍 Searching all users for email: ${login}`);
+          const allUsers = await kv.getByPrefix('user:id:');
+          const userByEmail = allUsers.find((u: any) => 
+            u.email && u.email.toLowerCase() === login.trim().toLowerCase()
+          );
+          
+          if (userByEmail) {
+            console.log(`✅ Found user by email scan: ${userByEmail.id} (isAdmin: ${userByEmail.isAdmin})`);
+            userData = userByEmail;
+            userEmail = login.trim();
+            isAdmin = userByEmail.isAdmin === true;
+            
+            // Создаём индекс для будущих входов
+            const indexKey = `user:email:${login.trim().toLowerCase()}`;
+            await kv.set(indexKey, { id: userByEmail.id });
+            console.log(`✅ Created missing email index: ${indexKey} -> ${userByEmail.id}`);
+          } else {
+            console.log(`❌ Email ${login} not found anywhere`);
+            return c.json({ error: "Email не найден" }, 401);
+          }
+        } else {
+          // Получаем полные данные пользователя
+          const userKey = `user:id:${userEmailData.id}`;
+          userData = await kv.get(userKey);
+          userEmail = login.trim();
+          isAdmin = userData?.isAdmin === true;
         }
-        
-        // Получаем полные данные пользователя
-        const userKey = `user:id:${userEmailData.id}`;
-        userData = await kv.get(userKey);
-        userEmail = login.trim();
       }
     }
     
@@ -816,6 +851,12 @@ app.post("/make-server-05aa3c8a/auth/login", async (c) => {
     
     // Update last login
     userData.lastLogin = new Date().toISOString();
+    
+    // Ensure isAdmin flag is set correctly
+    if (isAdmin && !userData.isAdmin) {
+      userData.isAdmin = true;
+      console.log(`✅ Setting isAdmin flag for user: ${userData.id}`);
+    }
     
     // Save updated data
     if (isAdmin) {
@@ -1603,12 +1644,23 @@ app.delete("/make-server-05aa3c8a/user/account", async (c) => {
 app.get("/make-server-05aa3c8a/user/:userId", async (c) => {
   try {
     const userId = c.req.param('userId');
-    const userData = await kv.get(`user:id:${userId}`);
+    console.log(`📥 Getting user data for ID: ${userId}`);
+    
+    // Try user first
+    let userData = await kv.get(`user:id:${userId}`);
+    
+    // If not found, try admin (for CEO and admin-X IDs)
+    if (!userData) {
+      console.log(`   Not found in user:id:${userId}, checking admin:id:${userId}`);
+      userData = await kv.get(`admin:id:${userId}`);
+    }
     
     if (!userData) {
+      console.log(`❌ User ${userId} not found in user:id or admin:id`);
       return c.json({ error: "User not found" }, 404);
     }
     
+    console.log(`✅ Found user: ${userData.имя} ${userData.фамилия} (type: ${userData.type || 'user'})`);
     return c.json({ success: true, user: userData });
   } catch (error) {
     console.log(`Get user error: ${error}`);
@@ -1624,7 +1676,11 @@ app.get("/make-server-05aa3c8a/user/:userId/profile", async (c) => {
     
     console.log(`📋 Getting profile for user: ${userId}, requested by: ${currentUser.id}`);
     
-    const userData = await kv.get(`user:id:${userId}`);
+    // Try user first, then admin
+    let userData = await kv.get(`user:id:${userId}`);
+    if (!userData) {
+      userData = await kv.get(`admin:id:${userId}`);
+    }
     
     if (!userData) {
       return c.json({ error: "User not found" }, 404);
@@ -1713,12 +1769,16 @@ app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
     
     console.log(`📊 Building team structure for user: ${userId}`);
     
-    // Get all users
+    // Get all users (excluding admins)
     const allUsers = await kv.getByPrefix('user:id:');
     const allUsersArray = Array.isArray(allUsers) ? allUsers : [];
     
+    // 🆕 ИСПРАВЛЕНИЕ: Фильтруем администраторов из списка пользователей
+    const nonAdminUsers = allUsersArray.filter((u: any) => !isUserAdmin(u));
+    console.log(`📊 Filtered ${allUsersArray.length} total users to ${nonAdminUsers.length} non-admin users`);
+    
     // Получаем данные текущего пользователя для рефкода
-    const currentUser = allUsersArray.find((u: any) => u.id === userId);
+    const currentUser = nonAdminUsers.find((u: any) => u.id === userId);
     if (!currentUser) {
       return c.json({ success: true, team: [] });
     }
@@ -1732,8 +1792,8 @@ app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
       
       visited.add(sponsorId);
       
-      // Найти всех прямых партнёров
-      const directPartners = allUsersArray.filter((u: any) => 
+      // Найти всех прямых партнёров (только не-админов)
+      const directPartners = nonAdminUsers.filter((u: any) => 
         u.спонсорId === sponsorId && u.id !== sponsorId
       );
       
@@ -2798,8 +2858,10 @@ app.get("/make-server-05aa3c8a/admin/users-tree", async (c) => {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    // Get all users
-    const users = await kv.getByPrefix('user:id:');
+    // Get all users (excluding admins)
+    const allUsers = await kv.getByPrefix('user:id:');
+    const users = allUsers.filter((u: any) => !isUserAdmin(u));
+    console.log(`📊 Filtered ${allUsers.length} total users to ${users.length} non-admin users for tree`);
     
     // Build tree structure
     const buildTree = (sponsorId: string | null = null): any[] => {
@@ -4301,7 +4363,7 @@ app.get("/make-server-05aa3c8a/notifications", async (c) => {
     });
   } catch (error) {
     console.error('Get notifications error:', error);
-    // Если ошибка авторизации, возвращаем пустой массив вместо 500
+    // Если о��ибка авторизации, возвращаем пустой массив вместо 500
     const errorStr = String(error);
     if (errorStr.includes('user ID') || errorStr.includes('not found')) {
       return c.json({ 
@@ -4955,15 +5017,8 @@ app.notFound((c) => {
 // Get reserved IDs
 app.get('/make-server-05aa3c8a/admin/reserved-ids', async (c) => {
   try {
-    const userId = c.req.header('X-User-Id');
-    if (!userId) {
-      return c.json({ success: false, error: 'Не авторизован' }, 401);
-    }
-
-    const currentUser = await kv.get(`user:id:${userId}`);
-    if (!currentUser?.isAdmin) {
-      return c.json({ success: false, error: 'Доступ запрещён' }, 403);
-    }
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
 
     const reserved = await kv.get('reserved:user:ids') || [];
     
@@ -4982,21 +5037,10 @@ app.post('/make-server-05aa3c8a/admin/reserve-ids', async (c) => {
   try {
     console.log('📥 Reserve IDs request received');
     
-    const userId = c.req.header('X-User-Id');
-    console.log('👤 User ID:', userId);
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
     
-    if (!userId) {
-      console.log('❌ No user ID');
-      return c.json({ success: false, error: 'Не авторизован' }, 401);
-    }
-
-    const currentUser = await kv.get(`user:id:${userId}`);
     console.log('👤 Current user:', currentUser?.имя, 'isAdmin:', currentUser?.isAdmin);
-    
-    if (!currentUser?.isAdmin) {
-      console.log('❌ Not admin');
-      return c.json({ success: false, error: 'Доступ запрещён' }, 403);
-    }
 
     const body = await c.req.json();
     console.log('📦 Request body:', body);
@@ -5035,15 +5079,8 @@ app.post('/make-server-05aa3c8a/admin/reserve-ids', async (c) => {
 // Unreserve ID
 app.post('/make-server-05aa3c8a/admin/unreserve-id', async (c) => {
   try {
-    const userId = c.req.header('X-User-Id');
-    if (!userId) {
-      return c.json({ success: false, error: 'Не авторизован' }, 401);
-    }
-
-    const currentUser = await kv.get(`user:id:${userId}`);
-    if (!currentUser?.isAdmin) {
-      return c.json({ success: false, error: 'Доступ запрещён' }, 403);
-    }
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
 
     const { id } = await c.req.json();
     
@@ -5071,15 +5108,8 @@ app.post('/make-server-05aa3c8a/admin/unreserve-id', async (c) => {
 // Assign reserved ID to user
 app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
   try {
-    const userId = c.req.header('X-User-Id');
-    if (!userId) {
-      return c.json({ success: false, error: 'Не авторизован' }, 401);
-    }
-
-    const currentUser = await kv.get(`user:id:${userId}`);
-    if (!currentUser?.isAdmin) {
-      return c.json({ success: false, error: 'Доступ запрещён' }, 403);
-    }
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
 
     const { newId, userId: targetUserId } = await c.req.json();
     
@@ -5112,6 +5142,8 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
     targetUser.id = newId;
     targetUser.рефКод = newId; // refCode = ID
 
+    console.log(`🔄 Assigning ID: ${oldId} → ${newId} for user ${targetUser.имя} ${targetUser.фамилия}`);
+
     // Save user with new ID
     await kv.set(`user:id:${newId}`, targetUser);
 
@@ -5134,7 +5166,7 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
 
     // Update in all team references
     const allUsersKeys = await kv.getByPrefix('user:id:');
-    console.log(`🔄 Updating references in ${allUsersKeys.length} users...`);
+    console.log(`🔄 CASCADE UPDATE: Scanning ${allUsersKeys.length} users for references to ${oldId}...`);
     
     let updatedCount = 0;
     for (const key of allUsersKeys) {
@@ -5144,18 +5176,20 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
       if (user && Array.isArray(user.команда)) {
         const index = user.команда.indexOf(oldId);
         if (index !== -1) {
+          console.log(`   🔍 FOUND in team array: User ${user.id} (${user.имя}) has ${oldId} in команда`);
           user.команда[index] = newId;
           needsUpdate = true;
-          console.log(`   ✓ Updated team array for user ${user.id}: ${oldId} → ${newId}`);
+          console.log(`   ✅ Updated team array for user ${user.id}: ${oldId} → ${newId}`);
         }
       }
       // Update sponsor references
       if (user && user.спонсорId === oldId) {
+        console.log(`   🔍 FOUND in sponsor: User ${user.id} (${user.имя}) has sponsorId=${oldId}`);
         user.спонсорId = newId;
         // Update рефКодСпонсора because refCode changed too
         user.рефКодСпонсора = newId;
         needsUpdate = true;
-        console.log(`   ✓ Updated sponsorId for user ${user.id}: ${oldId} → ${newId}`);
+        console.log(`   ✅ Updated sponsorId for user ${user.id}: ${oldId} → ${newId}`);
       }
       // Update upline
       if (user && user.upline) {
@@ -5182,12 +5216,59 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
       }
       
       if (needsUpdate) {
+        console.log(`   💾 Saving updated user ${user.id}...`);
         await kv.set(key, user);
         updatedCount++;
       }
     }
     
-    console.log(`✅ Updated ${updatedCount} users with new ID references`);
+    console.log(`✅ CASCADE UPDATE COMPLETE: Updated ${updatedCount} users with new ID references (${oldId} → ${newId})`);
+
+    // Update orders
+    const orderKeys = await kv.getByPrefix('order:');
+    console.log(`🔄 CASCADE UPDATE: Scanning ${orderKeys.length} orders for references to ${oldId}...`);
+    let ordersUpdated = 0;
+    for (const key of orderKeys) {
+      const order = await kv.get(key);
+      let orderNeedsUpdate = false;
+      
+      if (order && order.userId === oldId) {
+        console.log(`   🔍 FOUND in order: Order ${order.id} has userId=${oldId}`);
+        order.userId = newId;
+        orderNeedsUpdate = true;
+        console.log(`   ✅ Updated order ${order.id}: userId ${oldId} → ${newId}`);
+      }
+      
+      // Update commission recipients (d0, d1, d2, d3)
+      if (order && order.комиссии) {
+        if (order.комиссии.d0?.userId === oldId) {
+          order.комиссии.d0.userId = newId;
+          orderNeedsUpdate = true;
+          console.log(`   ✅ Updated order ${order.id}: комиссии.d0.userId ${oldId} → ${newId}`);
+        }
+        if (order.комиссии.d1?.userId === oldId) {
+          order.комиссии.d1.userId = newId;
+          orderNeedsUpdate = true;
+          console.log(`   ✅ Updated order ${order.id}: комиссии.d1.userId ${oldId} → ${newId}`);
+        }
+        if (order.комиссии.d2?.userId === oldId) {
+          order.комиссии.d2.userId = newId;
+          orderNeedsUpdate = true;
+          console.log(`   ✅ Updated order ${order.id}: комиссии.d2.userId ${oldId} → ${newId}`);
+        }
+        if (order.комиссии.d3?.userId === oldId) {
+          order.комиссии.d3.userId = newId;
+          orderNeedsUpdate = true;
+          console.log(`   ✅ Updated order ${order.id}: комиссии.d3.userId ${oldId} → ${newId}`);
+        }
+      }
+      
+      if (orderNeedsUpdate) {
+        await kv.set(key, order);
+        ordersUpdated++;
+      }
+    }
+    console.log(`✅ CASCADE UPDATE: Updated ${ordersUpdated} orders`);
 
     // Remove from reserved
     const newReserved = reserved.filter((rid: number) => rid !== numericNewId);
@@ -5206,6 +5287,391 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
   } catch (error) {
     console.error('Error assigning reserved ID:', error);
     return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Clean broken references (remove non-existent user IDs from team arrays)
+app.post('/make-server-05aa3c8a/admin/clean-broken-refs', async (c) => {
+  try {
+    const userId = c.req.header('X-User-Id');
+    if (!userId) {
+      return c.json({ success: false, error: 'Не авторизован' }, 401);
+    }
+
+    const currentUser = await kv.get(`user:id:${userId}`);
+    if (!currentUser?.isAdmin) {
+      return c.json({ success: false, error: 'Доступ запрещён' }, 403);
+    }
+
+    console.log('🧹 Starting broken references cleanup...');
+
+    // Get all users
+    const allUsers = await kv.getByPrefix('user:id:');
+    console.log(`📋 Loaded ${allUsers.length} users from database`);
+
+    // Create a set of valid user IDs for fast lookup
+    const validUserIds = new Set(allUsers.map((u: any) => u.id));
+    console.log(`📋 Valid user IDs (${validUserIds.size}):`, Array.from(validUserIds));
+
+    let cleanedUsers = 0;
+    let removedReferences = 0;
+    const cleanupLog: string[] = [];
+
+    // Check each user's team array
+    for (const user of allUsers) {
+      let needsUpdate = false;
+      const originalTeam = user.команда ? [...user.команда] : [];
+
+      if (Array.isArray(user.команда) && user.команда.length > 0) {
+        const brokenRefs = user.команда.filter((childId: string) => !validUserIds.has(childId));
+        
+        if (brokenRefs.length > 0) {
+          console.log(`🔍 User ${user.id} (${user.имя}) has broken refs:`, brokenRefs);
+          cleanupLog.push(`User ${user.id} (${user.имя}): removed [${brokenRefs.join(', ')}]`);
+          
+          // Remove broken references
+          user.команда = user.команда.filter((childId: string) => validUserIds.has(childId));
+          needsUpdate = true;
+          removedReferences += brokenRefs.length;
+          
+          console.log(`   ✂️ Cleaned: [${originalTeam.join(', ')}] → [${user.команда.join(', ')}]`);
+        }
+      }
+
+      // Check sponsorId
+      if (user.спонсорId && !validUserIds.has(user.спонсорId)) {
+        console.log(`🔍 User ${user.id} (${user.имя}) has broken sponsorId: ${user.спонсорId}`);
+        cleanupLog.push(`User ${user.id} (${user.имя}): removed invalid sponsorId ${user.спонсорId}`);
+        user.спонсорId = null;
+        needsUpdate = true;
+        removedReferences++;
+      }
+
+      if (needsUpdate) {
+        await kv.set(`user:id:${user.id}`, user);
+        cleanedUsers++;
+      }
+    }
+
+    console.log(`✅ Cleanup complete: ${cleanedUsers} users cleaned, ${removedReferences} broken references removed`);
+
+    return c.json({
+      success: true,
+      message: `Очистка завершена: обновлено ${cleanedUsers} пользователей, удалено ${removedReferences} битых ссылок`,
+      cleanedUsers,
+      removedReferences,
+      log: cleanupLog
+    });
+  } catch (error) {
+    console.error('Error cleaning broken references:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Sync teams (rebuild team arrays from sponsorId relationships)
+app.post('/make-server-05aa3c8a/admin/sync-teams', async (c) => {
+  try {
+    const userId = c.req.header('X-User-Id');
+    if (!userId) {
+      return c.json({ success: false, error: 'Не авторизован' }, 401);
+    }
+
+    const currentUser = await kv.get(`user:id:${userId}`);
+    if (!currentUser?.isAdmin) {
+      return c.json({ success: false, error: 'Доступ запрещён' }, 403);
+    }
+
+    console.log('🔄 Starting team synchronization...');
+
+    // Get all users
+    const allUsers = await kv.getByPrefix('user:id:');
+    console.log(`📋 Loaded ${allUsers.length} users`);
+
+    // Create user map for quick lookup
+    const userMap = new Map<string, any>();
+    allUsers.forEach((u: any) => userMap.set(u.id, u));
+
+    let updatedUsers = 0;
+    const syncLog: string[] = [];
+
+    // STEP 1: Fix sponsorId based on team arrays (reverse sync)
+    console.log('🔄 Step 1: Fixing sponsorId based on team arrays...');
+    for (const user of allUsers) {
+      if (user.команда && Array.isArray(user.команда) && user.команда.length > 0) {
+        for (const childId of user.команда) {
+          const childUser = userMap.get(childId);
+          if (childUser) {
+            // If child doesn't have sponsorId or has wrong sponsorId, fix it
+            if (!childUser.спонсорId || childUser.спонсорId !== user.id) {
+              console.log(`🔧 Fixing sponsorId for ${childId} (${childUser.имя}): ${childUser.спонсорId || 'null'} → ${user.id}`);
+              childUser.спонсорId = user.id;
+              await kv.set(`user:id:${childId}`, childUser);
+              syncLog.push(`User ${childId} (${childUser.имя}): sponsorId fixed to ${user.id}`);
+              updatedUsers++;
+            }
+          }
+        }
+      }
+    }
+
+    // STEP 2: Rebuild team arrays based on sponsorId
+    console.log('🔄 Step 2: Rebuilding team arrays based on sponsorId...');
+    
+    // Reload users to get updated data
+    const reloadedUsers = await kv.getByPrefix('user:id:');
+    
+    // Create a map of sponsorId -> children IDs
+    const teamMap = new Map<string, string[]>();
+    
+    reloadedUsers.forEach((user: any) => {
+      if (user.спонсорId) {
+        if (!teamMap.has(user.спонсорId)) {
+          teamMap.set(user.спонсорId, []);
+        }
+        teamMap.get(user.спонсорId)!.push(user.id);
+        console.log(`  📎 ${user.id} (${user.имя}) -> sponsor: ${user.спонсорId}`);
+      }
+    });
+
+    // Update each user's team array
+    for (const user of reloadedUsers) {
+      const correctTeam = teamMap.get(user.id) || [];
+      const currentTeam = user.команда || [];
+      
+      // Sort for comparison
+      const sortedCorrect = [...correctTeam].sort();
+      const sortedCurrent = [...currentTeam].sort();
+      
+      if (JSON.stringify(sortedCorrect) !== JSON.stringify(sortedCurrent)) {
+        console.log(`🔧 Syncing user ${user.id} (${user.имя}):`);
+        console.log(`   Old team: [${currentTeam.join(', ')}]`);
+        console.log(`   New team: [${correctTeam.join(', ')}]`);
+        
+        user.команда = correctTeam;
+        await kv.set(`user:id:${user.id}`, user);
+        updatedUsers++;
+        
+        syncLog.push(`User ${user.id} (${user.имя}): team [${currentTeam.join(', ')}] → [${correctTeam.join(', ')}]`);
+      }
+    }
+
+    console.log(`✅ Team sync complete: ${updatedUsers} users updated`);
+
+    return c.json({
+      success: true,
+      message: `Синхронизация завершена: обновлено ${updatedUsers} пользователей`,
+      updatedUsers,
+      log: syncLog
+    });
+  } catch (error) {
+    console.error('Error syncing teams:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Change user ID safely (updates all references)
+app.post('/make-server-05aa3c8a/admin/change-user-id', async (c) => {
+  try {
+    const userId = c.req.header('X-User-Id');
+    if (!userId) {
+      return c.json({ success: false, error: 'Не авторизован' }, 401);
+    }
+
+    const currentUser = await kv.get(`user:id:${userId}`);
+    if (!currentUser?.isAdmin) {
+      return c.json({ success: false, error: 'Доступ запрещён' }, 403);
+    }
+
+    const body = await c.req.json();
+    const { oldId, newId } = body;
+
+    if (!oldId || !newId) {
+      return c.json({ success: false, error: 'Не указаны oldId или newId' }, 400);
+    }
+
+    if (oldId === newId) {
+      return c.json({ success: false, error: 'Старый и новый ID совпадают' }, 400);
+    }
+
+    console.log(`🔄 Changing user ID: ${oldId} → ${newId}`);
+
+    // Check if old user exists
+    const oldUser = await kv.get(`user:id:${oldId}`);
+    if (!oldUser) {
+      return c.json({ success: false, error: `Пользователь ${oldId} не найден` }, 404);
+    }
+
+    // Check if new ID is already taken
+    const existingUser = await kv.get(`user:id:${newId}`);
+    if (existingUser) {
+      return c.json({ success: false, error: `ID ${newId} уже занят` }, 400);
+    }
+
+    // Get all users
+    const allUsers = await kv.getByPrefix('user:id:');
+    console.log(`📋 Loaded ${allUsers.length} users`);
+
+    let updatedReferences = 0;
+    const updateLog: string[] = [];
+
+    // Update all references to this user
+    for (const user of allUsers) {
+      let needsUpdate = false;
+
+      // Update sponsorId if it points to old ID
+      if (user.спонсорId === oldId) {
+        console.log(`🔧 Updating sponsorId for user ${user.id}: ${oldId} → ${newId}`);
+        user.спонсорId = newId;
+        needsUpdate = true;
+        updatedReferences++;
+        updateLog.push(`User ${user.id}: sponsorId updated`);
+      }
+
+      // Update team array if it contains old ID
+      if (user.команда && Array.isArray(user.команда)) {
+        const oldTeam = [...user.команда];
+        user.команда = user.команда.map((id: string) => id === oldId ? newId : id);
+        
+        if (JSON.stringify(oldTeam) !== JSON.stringify(user.команда)) {
+          console.log(`🔧 Updating team for user ${user.id}: [${oldTeam.join(', ')}] → [${user.команда.join(', ')}]`);
+          needsUpdate = true;
+          updatedReferences++;
+          updateLog.push(`User ${user.id}: team array updated`);
+        }
+      }
+
+      if (needsUpdate && user.id !== oldId) {
+        await kv.set(`user:id:${user.id}`, user);
+      }
+    }
+
+    // Update the user's own ID
+    oldUser.id = newId;
+    await kv.set(`user:id:${newId}`, oldUser);
+    
+    // Delete old ID entry
+    await kv.del(`user:id:${oldId}`);
+
+    console.log(`✅ User ID changed successfully: ${oldId} → ${newId}`);
+    console.log(`📊 Updated ${updatedReferences} references in other users`);
+
+    return c.json({
+      success: true,
+      message: `ID изменён: ${oldId} → ${newId}. Обновлено ${updatedReferences} ссылок.`,
+      updatedReferences,
+      log: updateLog
+    });
+  } catch (error) {
+    console.error('Error changing user ID:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Update user data (admin endpoint for MLM structure management)
+app.put('/make-server-05aa3c8a/admin/update-user/:userId', async (c) => {
+  try {
+    const userId = c.req.param('userId');
+    const { userData } = await c.req.json();
+    
+    if (!userId || !userData) {
+      return c.json({ success: false, error: 'userId and userData are required' }, 400);
+    }
+
+    console.log(`🔄 Updating user ${userId}:`, JSON.stringify(userData, null, 2));
+
+    // Get existing user
+    const existingUser = await kv.get(`user:id:${userId}`);
+    if (!existingUser) {
+      return c.json({ success: false, error: `User ${userId} not found` }, 404);
+    }
+
+    // Merge with existing data, ensuring ID doesn't change
+    const updatedUser = {
+      ...existingUser,
+      ...userData,
+      id: userId // Force ID to stay the same
+    };
+
+    // Save updated user
+    await kv.set(`user:id:${userId}`, updatedUser);
+    
+    console.log(`✅ User ${userId} updated successfully`);
+
+    return c.json({
+      success: true,
+      user: updatedUser
+    });
+  } catch (error) {
+    console.error('Error updating user:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// 🔧 DIAGNOSTIC: Check user by email
+app.get('/make-server-05aa3c8a/diagnostic/check-email/:email', async (c) => {
+  try {
+    const email = c.req.param('email');
+    console.log(`🔍 Diagnostic: Checking email: ${email}`);
+    
+    const result: any = {
+      email: email,
+      searchResults: {}
+    };
+    
+    // 1. Check admin:email index
+    const adminEmailKey = `admin:email:${email.toLowerCase()}`;
+    const adminEmailData = await kv.get(adminEmailKey);
+    result.searchResults.adminEmailIndex = {
+      key: adminEmailKey,
+      found: !!adminEmailData,
+      data: adminEmailData
+    };
+    
+    // 2. Check user:email index
+    const userEmailKey = `user:email:${email.toLowerCase()}`;
+    const userEmailData = await kv.get(userEmailKey);
+    result.searchResults.userEmailIndex = {
+      key: userEmailKey,
+      found: !!userEmailData,
+      data: userEmailData
+    };
+    
+    // 3. Scan all users
+    const allUsers = await kv.getByPrefix('user:id:');
+    const userByEmail = allUsers.find((u: any) => 
+      u.email && u.email.toLowerCase() === email.toLowerCase()
+    );
+    result.searchResults.scanAllUsers = {
+      totalUsers: allUsers.length,
+      foundByEmail: !!userByEmail,
+      userData: userByEmail || null
+    };
+    
+    // 4. Scan all admins
+    const allAdmins = await kv.getByPrefix('admin:id:');
+    const adminByEmail = allAdmins.find((a: any) => 
+      a.email && a.email.toLowerCase() === email.toLowerCase()
+    );
+    result.searchResults.scanAllAdmins = {
+      totalAdmins: allAdmins.length,
+      foundByEmail: !!adminByEmail,
+      adminData: adminByEmail || null
+    };
+    
+    // 5. List first 10 users for reference
+    result.sampleUsers = allUsers.slice(0, 10).map((u: any) => ({
+      id: u.id,
+      email: u.email,
+      имя: u.имя,
+      фамилия: u.фамилия,
+      isAdmin: u.isAdmin
+    }));
+    
+    console.log(`✅ Diagnostic complete for ${email}`);
+    return c.json(result);
+  } catch (error) {
+    console.error('Diagnostic error:', error);
+    return c.json({ error: String(error) }, 500);
   }
 });
 

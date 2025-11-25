@@ -9,6 +9,7 @@ import { AuthDiagnostic } from './components/AuthDiagnostic';
 import { ResetPasswordRu } from './components/ResetPasswordRu';
 import { MainApp } from './MainApp';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { EmailDiagnostic } from './components/EmailDiagnostic';
 
 export default function AppRu() {
   const currentPath = window.location.pathname;
@@ -18,6 +19,11 @@ export default function AppRu() {
   // State для управления экранами аутентификации (только для главной страницы)
   const [authScreen, setAuthScreen] = useState<'login' | 'register'>('login');
   console.log('🔵 AppRu: authScreen state =', authScreen);
+  
+  // Если URL содержит /email-diagnostic, показываем диагностику email
+  if (currentPath === '/email-diagnostic') {
+    return <EmailDiagnostic />;
+  }
   
   // Если URL содержит /partner-id-demo, показываем демо страницу
   if (currentPath === '/partner-id-demo') {

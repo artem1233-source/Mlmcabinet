@@ -39,9 +39,9 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
     setRefreshTrigger(prev => prev + 1);
   };
 
-  // 🔄 Загружаем полные данные пользователя при изменении userId
+  // 🔄 Загружаем полные данные пользователя при изменении userId или refreshTrigger
   useEffect(() => {
-    console.log('🔄 MainApp useEffect triggered. userId:', userId, 'currentUser:', currentUser);
+    console.log('🔄 MainApp useEffect triggered. userId:', userId, 'refreshTrigger:', refreshTrigger);
     
     const loadUserData = async () => {
       if (!userId) {
@@ -75,7 +75,7 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
     };
 
     loadUserData();
-  }, [userId]);
+  }, [userId, refreshTrigger]); // 🆕 Добавили refreshTrigger в зависимости
 
   // Проверяем URL и устанавливаем правильный экран при загрузке
   useEffect(() => {

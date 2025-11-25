@@ -40,6 +40,7 @@ export function StructureRu({ currentUser, refreshTrigger }: StructureRuProps) {
 
   useEffect(() => {
     console.log('🔄 StructureRu: effectiveUserId changed:', effectiveUserId);
+    console.log('🔄 StructureRu: refreshTrigger value:', refreshTrigger);
     loadTeam();
   }, [refreshTrigger, effectiveUserId]); // 🆕 Слушаем effectiveUserId вместо currentUser.id
 
@@ -57,14 +58,29 @@ export function StructureRu({ currentUser, refreshTrigger }: StructureRuProps) {
         // Каждый пользователь видит только СВОИХ партнёров, а не себя
         const filteredTeam = data.team.filter((m: any) => m.id !== effectiveUserId);
         console.log('✅ StructureRu: Loaded team:', filteredTeam.length, 'members');
+        console.log('✅ StructureRu: Current user refCode:', currentUser.рефКод);
         console.log('✅ StructureRu: Team members:', filteredTeam.map((m: any) => ({
           id: m.id,
           name: `${m.имя} ${m.фамилия}`,
           sponsorId: m.спонсорId,
           depth: m.глубина,
-          inviteCode: m.пригласительКод
+          inviteCode: m.пригласительКод,
+          refCode: m.рефКод
         })));
         setTeam(filteredTeam);
+        
+        // 🆕 Автоматически раскрываем первый уровень после загрузки
+        if (viewMode === 'tree' && filteredTeam.length > 0) {
+          const firstLevelMembers = filteredTeam.filter((m: any) => m.пригласительКод === currentUser.рефКод);
+          const firstLevelIds = firstLevelMembers.map((m: any) => m.id);
+          console.log('🔓 StructureRu: First level members:', firstLevelMembers.map(m => ({
+            id: m.id,
+            name: `${m.имя} ${m.фамилия}`,
+            inviteCode: m.пригласительКод
+          })));
+          console.log('🔓 StructureRu: Auto-expanding first level IDs:', firstLevelIds);
+          setExpandedNodes(new Set(firstLevelIds));
+        }
       } else {
         console.warn('⚠️ StructureRu: No team data or unsuccessful response');
         setTeam([]);
@@ -178,19 +194,32 @@ export function StructureRu({ currentUser, refreshTrigger }: StructureRuProps) {
 
   // Построение дерева партнёров
   const buildTree = (parentRefCode: string, depth = 0): any[] => {
-    return team
-      .filter(member => member.пригласительКод === parentRefCode)
-      .map(member => ({
-        ...member,
-        children: buildTree(member.рефКод, depth + 1),
-        depth
-      }));
+    const children = team.filter(member => member.пригласительКод === parentRefCode);
+    
+    console.log(`🌳 buildTree: parentRefCode="${parentRefCode}", depth=${depth}, found ${children.length} children:`, 
+      children.map(m => ({ id: m.id, name: `${m.имя} ${m.фамилия}`, refCode: m.рефКод }))
+    );
+    
+    return children.map(member => ({
+      ...member,
+      children: buildTree(member.рефКод, depth + 1),
+      depth
+    }));
   };
 
   // Рекурсивный рендер дерева
   const renderTreeNode = (node: any) => {
     const hasChildren = node.children && node.children.length > 0;
     const isExpanded = expandedNodes.has(node.id);
+    
+    console.log('🎨 Rendering node:', {
+      id: node.id,
+      name: `${node.имя} ${node.фамилия}`,
+      hasChildren,
+      childrenCount: node.children?.length || 0,
+      isExpanded,
+      expandedNodes: Array.from(expandedNodes)
+    });
 
     return (
       <div key={node.id} className="ml-0">

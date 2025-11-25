@@ -21,6 +21,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '../ui/tooltip';
 import * as api from '../../utils/api';
 import { toast } from 'sonner';
 
@@ -73,14 +79,17 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
     }
   };
 
-  // Generate all IDs from 000001 to 999999 (6-digit format)
-  const allIds = Array.from({ length: 999999 }, (_, i) => String(i + 1).padStart(6, '0'));
+  // Generate all IDs from 001 to 99999 (up to 5-digit format)
+  const allIds = Array.from({ length: 99999 }, (_, i) => String(i + 1).padStart(3, '0'));
   
   // Occupied IDs (users have them)
   const occupiedIds = users.map(u => u.id).sort((a, b) => a.localeCompare(b));
   
   // Free IDs (not occupied and not reserved) - convert reservedIds to strings with padding
-  const reservedIdsFormatted = reservedIds.map(id => String(id).padStart(6, '0'));
+  const reservedIdsFormatted = reservedIds.map(id => {
+    const numId = parseInt(id);
+    return numId <= 999 ? String(numId).padStart(3, '0') : String(numId);
+  });
   const freeIds = allIds.filter(id => !occupiedIds.includes(id) && !reservedIdsFormatted.includes(id));
   
   // Next ID to assign (first free)
@@ -161,7 +170,7 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
 
   const handleUserClick = (userId: string) => {
     // Scroll to user in the tree (future enhancement)
-    toast.info(`Переход к пользователю ${userId} (в разработке)`);
+    toast.info(`Переход к пользователю ${userId} (в азработке)`);
   };
 
   if (loading) {
@@ -182,144 +191,205 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
 
   return (
     <>
-      <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <CardTitle className="flex items-center gap-3 text-[#1E1E1E]">
-              <div className="w-10 h-10 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-xl flex items-center justify-center">
-                <Hash className="w-5 h-5 text-white" />
+      <TooltipProvider>
+        <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
+          <CardHeader>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <CardTitle className="flex items-center gap-3 text-[#1E1E1E]">
+                <div className="w-10 h-10 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-xl flex items-center justify-center">
+                  <Hash className="w-5 h-5 text-white" />
+                </div>
+                <span className="text-base sm:text-lg">Управление ID номерами (001-99999)</span>
+              </CardTitle>
+              <Button variant="outline" size="sm" onClick={loadData}>
+                Обновить
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4 mt-4 text-xs sm:text-sm">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-gray-300 rounded" />
+                <span className="text-[#666]">Занятые: {occupiedIds.length}</span>
               </div>
-              <span className="text-base sm:text-lg">Управление ID номерами (000001-999999)</span>
-            </CardTitle>
-            <Button variant="outline" size="sm" onClick={loadData}>
-              Обновить
-            </Button>
-          </div>
-          <div className="flex flex-wrap items-center gap-3 sm:gap-4 mt-4 text-xs sm:text-sm">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-gray-300 rounded" />
-              <span className="text-[#666]">Занятые: {occupiedIds.length}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-green-500 rounded" />
-              <span className="text-[#666]">Свободные: {freeIds.length}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-purple-500 rounded" />
-              <span className="text-[#666]">Зарезервированные: {reservedIds.length}</span>
-            </div>
-            <div className="sm:ml-auto">
-              <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white text-xs">
-                Следующий: {nextId}
-              </Badge>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
-            {/* Column 1: Occupied IDs */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-[#1E1E1E]">
-                  Занятые номера
-                </h3>
-                <Badge variant="secondary">{occupiedIds.length}</Badge>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-green-500 rounded" />
+                <span className="text-[#666]">Свободные: {freeIds.length}</span>
               </div>
-              <ScrollArea className="h-[600px] rounded-xl border border-[#E6E9EE] p-3 bg-gray-50">
-                <div className="space-y-1">
-                  {occupiedIds.map(id => {
-                    const user = users.find(u => u.id === id);
-                    return (
-                      <button
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-purple-500 rounded" />
+                <span className="text-[#666]">Зарезервированные: {reservedIds.length}</span>
+              </div>
+              <div className="sm:ml-auto">
+                <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white text-xs">
+                  Следующий: {nextId}
+                </Badge>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
+              {/* Column 1: Occupied IDs */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-[#1E1E1E]">
+                    Занятые номера
+                  </h3>
+                  <Badge variant="secondary">{occupiedIds.length}</Badge>
+                </div>
+                <ScrollArea className="h-[600px] rounded-xl border border-[#E6E9EE] p-3 bg-gray-50">
+                  <div className="space-y-1">
+                    {occupiedIds.map(id => {
+                      const user = users.find(u => u.id === id);
+                      return (
+                        <button
+                          key={id}
+                          onClick={() => handleUserClick(id)}
+                          className="w-full text-left px-3 py-2 rounded-lg bg-white border border-gray-200 hover:border-[#39B7FF] hover:bg-[#F7FAFC] transition-colors group"
+                        >
+                          <div className="flex items-center justify-between">
+                            <code className="text-sm font-mono text-[#1E1E1E] font-semibold">
+                              {id}
+                            </code>
+                            <User className="w-3 h-3 text-[#666] group-hover:text-[#39B7FF]" />
+                          </div>
+                          {user && (
+                            <p className="text-xs text-[#666] mt-1 truncate">
+                              {user.имя} {user.фамилия}
+                            </p>
+                          )}
+                        </button>
+                      );
+                    })}
+                    {occupiedIds.length === 0 && (
+                      <p className="text-center text-[#999] text-sm py-8">
+                        Нет занятых номеров
+                      </p>
+                    )}
+                  </div>
+                </ScrollArea>
+              </div>
+
+              {/* Column 2: Free IDs */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-[#1E1E1E]">
+                    Свободные номера
+                  </h3>
+                  <Badge variant="secondary">{freeIds.length}</Badge>
+                </div>
+                <div className="space-y-2">
+                  {selectedFreeIds.length > 0 && (
+                    <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
+                      <span className="text-sm text-[#666]">
+                        Выбрано: {selectedFreeIds.length}
+                      </span>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          onClick={handleReserveSelected}
+                          className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white"
+                        >
+                          <ArrowRight className="w-4 h-4 mr-1" />
+                          Зарезервировать
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setSelectedFreeIds([])}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  <ScrollArea className="h-[560px] rounded-xl border border-[#E6E9EE] p-3 bg-green-50">
+                    <div className="space-y-1">
+                      {freeIds.slice(0, 500).map(id => (
+                        <div
+                          key={id}
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-green-200 hover:border-green-400 transition-colors"
+                        >
+                          <Checkbox
+                            checked={selectedFreeIds.includes(id)}
+                            onCheckedChange={() => toggleFreeId(id)}
+                          />
+                          <code className="text-sm font-mono text-[#1E1E1E] flex-1">
+                            {id}
+                          </code>
+                          {id === nextId && (
+                            <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white text-xs">
+                              Следующий
+                            </Badge>
+                          )}
+                        </div>
+                      ))}
+                      {freeIds.length > 500 && (
+                        <p className="text-center text-[#666] text-xs py-2">
+                          ... и ещё {freeIds.length - 500} номеров
+                        </p>
+                      )}
+                      {freeIds.length === 0 && (
+                        <p className="text-center text-[#999] text-sm py-8">
+                          Нет свободных номеров
+                        </p>
+                      )}
+                    </div>
+                  </ScrollArea>
+                </div>
+              </div>
+
+              {/* Column 3: Reserved IDs */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-[#1E1E1E]">
+                    Зарезервированные
+                  </h3>
+                  <Badge variant="secondary">{reservedIds.length}</Badge>
+                </div>
+                <ScrollArea className="h-[600px] rounded-xl border border-[#E6E9EE] p-3 bg-purple-50">
+                  <div className="space-y-2">
+                    {reservedIdsFormatted.map(id => (
+                      <div
                         key={id}
-                        onClick={() => handleUserClick(id)}
-                        className="w-full text-left px-3 py-2 rounded-lg bg-white border border-gray-200 hover:border-[#39B7FF] hover:bg-[#F7FAFC] transition-colors group"
+                        className="px-3 py-3 rounded-lg bg-white border border-purple-200 hover:border-purple-400 transition-colors"
                       >
                         <div className="flex items-center justify-between">
                           <code className="text-sm font-mono text-[#1E1E1E] font-semibold">
                             {id}
                           </code>
-                          <User className="w-3 h-3 text-[#666] group-hover:text-[#39B7FF]" />
+                          <div className="flex gap-1">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setSelectedReservedId(id);
+                                    setAssignDialogOpen(true);
+                                  }}
+                                  className="h-7 w-7 p-0"
+                                >
+                                  <User className="w-3 h-3" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Присвоить пользователю</p>
+                              </TooltipContent>
+                            </Tooltip>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleUnreserveId(id)}
+                              className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                            >
+                              <X className="w-3 h-3" />
+                            </Button>
+                          </div>
                         </div>
-                        {user && (
-                          <p className="text-xs text-[#666] mt-1 truncate">
-                            {user.имя} {user.фамилия}
-                          </p>
-                        )}
-                      </button>
-                    );
-                  })}
-                  {occupiedIds.length === 0 && (
-                    <p className="text-center text-[#999] text-sm py-8">
-                      Нет занятых номеров
-                    </p>
-                  )}
-                </div>
-              </ScrollArea>
-            </div>
-
-            {/* Column 2: Free IDs */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-[#1E1E1E]">
-                  Свободные номера
-                </h3>
-                <Badge variant="secondary">{freeIds.length}</Badge>
-              </div>
-              <div className="space-y-2">
-                {selectedFreeIds.length > 0 && (
-                  <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
-                    <span className="text-sm text-[#666]">
-                      Выбрано: {selectedFreeIds.length}
-                    </span>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        onClick={handleReserveSelected}
-                        className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white"
-                      >
-                        <ArrowRight className="w-4 h-4 mr-1" />
-                        Зарезервировать
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setSelectedFreeIds([])}
-                      >
-                        <X className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
-                <ScrollArea className="h-[560px] rounded-xl border border-[#E6E9EE] p-3 bg-green-50">
-                  <div className="space-y-1">
-                    {freeIds.slice(0, 500).map(id => (
-                      <div
-                        key={id}
-                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-green-200 hover:border-green-400 transition-colors"
-                      >
-                        <Checkbox
-                          checked={selectedFreeIds.includes(id)}
-                          onCheckedChange={() => toggleFreeId(id)}
-                        />
-                        <code className="text-sm font-mono text-[#1E1E1E] flex-1">
-                          {id}
-                        </code>
-                        {id === nextId && (
-                          <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white text-xs">
-                            Следующий
-                          </Badge>
-                        )}
                       </div>
                     ))}
-                    {freeIds.length > 500 && (
-                      <p className="text-center text-[#666] text-xs py-2">
-                        ... и ещё {freeIds.length - 500} номеров
-                      </p>
-                    )}
-                    {freeIds.length === 0 && (
+                    {reservedIds.length === 0 && (
                       <p className="text-center text-[#999] text-sm py-8">
-                        Нет свободных номеров
+                        Нет зарезервированных номеров
                       </p>
                     )}
                   </div>
@@ -327,72 +397,21 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
               </div>
             </div>
 
-            {/* Column 3: Reserved IDs */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-[#1E1E1E]">
-                  Зарезервированные
-                </h3>
-                <Badge variant="secondary">{reservedIds.length}</Badge>
-              </div>
-              <ScrollArea className="h-[600px] rounded-xl border border-[#E6E9EE] p-3 bg-purple-50">
-                <div className="space-y-2">
-                  {reservedIdsFormatted.map(id => (
-                    <div
-                      key={id}
-                      className="px-3 py-3 rounded-lg bg-white border border-purple-200 hover:border-purple-400 transition-colors"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <code className="text-sm font-mono text-[#1E1E1E] font-semibold">
-                          {id}
-                        </code>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleUnreserveId(id)}
-                          className="h-7 text-red-600 hover:text-red-700 hover:bg-red-50"
-                        >
-                          <X className="w-3 h-3" />
-                        </Button>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="w-full text-xs"
-                        onClick={() => {
-                          setSelectedReservedId(id);
-                          setAssignDialogOpen(true);
-                        }}
-                      >
-                        <User className="w-3 h-3 mr-1" />
-                        Присвоить пользователю
-                      </Button>
-                    </div>
-                  ))}
-                  {reservedIds.length === 0 && (
-                    <p className="text-center text-[#999] text-sm py-8">
-                      Нет зарезервированных номеров
-                    </p>
-                  )}
-                </div>
-              </ScrollArea>
+            {/* Help */}
+            <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+              <h4 className="font-semibold text-[#1E1E1E] mb-2">
+                💡 Как это работает:
+              </h4>
+              <ul className="text-sm text-[#666] space-y-1">
+                <li>• <strong>Занятые</strong> — присвоены пользователям (кликабельны для перехода)</li>
+                <li>• <strong>Свободные</strong> — выдаются по порядку при егистрации</li>
+                <li>• <strong>Зарезервированные</strong> — не выдаются автоматически, можно присвоить вручную</li>
+                <li>• При смене номера старый возвращается в свободные</li>
+              </ul>
             </div>
-          </div>
-
-          {/* Help */}
-          <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-            <h4 className="font-semibold text-[#1E1E1E] mb-2">
-              💡 Как это работает:
-            </h4>
-            <ul className="text-sm text-[#666] space-y-1">
-              <li>• <strong>Занятые</strong> — присвоены пользователям (кликабельны для перехода)</li>
-              <li>• <strong>Свободные</strong> — выдаются по порядку при егистрации</li>
-              <li>• <strong>Зарезервированные</strong> — не выдаются автоматически, можно присвоить вручную</li>
-              <li>• При смене номера старый возвращается в свободные</li>
-            </ul>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </TooltipProvider>
 
       {/* Assign Dialog */}
       <Dialog 

@@ -6,6 +6,9 @@ import { Label } from './ui/label';
 import { Button } from './ui/button';
 import { toast } from 'sonner';
 import { DeleteAccountButton } from './DeleteAccountButton';
+import { AdminIdManager } from './admin/AdminIdManager';
+import { useState, useEffect } from 'react';
+import * as api from '../utils/api';
 
 interface SettingsProps {
   currentUser: any;
@@ -15,6 +18,30 @@ interface SettingsProps {
 
 export function SettingsRu({ currentUser, onLogout, onUpdate }: SettingsProps) {
   console.log('🔵 SettingsRu: Rendering with currentUser:', currentUser);
+  
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  
+  // Загружаем всех пользователей если текущий пользователь - админ
+  useEffect(() => {
+    const loadUsers = async () => {
+      if (currentUser?.isAdmin === true) {
+        setLoadingUsers(true);
+        try {
+          const response = await api.getAllUsers();
+          if (response.success && response.users) {
+            setAllUsers(response.users);
+          }
+        } catch (error) {
+          console.error('Error loading users:', error);
+        } finally {
+          setLoadingUsers(false);
+        }
+      }
+    };
+    
+    loadUsers();
+  }, [currentUser?.isAdmin]);
   
   // Guard clause
   if (!currentUser) {
@@ -168,7 +195,7 @@ export function SettingsRu({ currentUser, onLogout, onUpdate }: SettingsProps) {
           <CardHeader>
             <CardTitle className="text-[#1E1E1E] flex items-center gap-2">
               <Shield size={20} className="text-[#39B7FF]" />
-              Безопасность и конфиденциал��ность
+              Безопасность и конфиденциалность
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -193,6 +220,30 @@ export function SettingsRu({ currentUser, onLogout, onUpdate }: SettingsProps) {
             </div>
           </CardContent>
         </Card>
+        
+        {/* 🆕 Управление ID администраторов (только для CEO) */}
+        {currentUser?.isAdmin === true && (
+          <AdminIdManager
+            currentUser={currentUser}
+            allUsers={allUsers}
+            onIdChanged={async () => {
+              // Перезагружаем список пользователей
+              try {
+                const response = await api.getAllUsers();
+                if (response.success && response.users) {
+                  setAllUsers(response.users);
+                }
+              } catch (error) {
+                console.error('Error reloading users:', error);
+              }
+              
+              // Также вызываем родительский обновление
+              if (onUpdate) {
+                onUpdate();
+              }
+            }}
+          />
+        )}
         
         {/* 🆕 Секция очистки данных для решения проблем */}
         <Card className="border-orange-200 rounded-2xl shadow-sm bg-orange-50">

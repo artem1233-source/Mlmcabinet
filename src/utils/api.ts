@@ -330,6 +330,25 @@ export async function assignReservedId(newId: string, userId: string) {
   });
 }
 
+export async function cleanBrokenRefs() {
+  return apiCall('/admin/clean-broken-refs', {
+    method: 'POST',
+  });
+}
+
+export async function syncTeams() {
+  return apiCall('/admin/sync-teams', {
+    method: 'POST',
+  });
+}
+
+export async function changeUserId(oldId: string, newId: string) {
+  return apiCall('/admin/change-user-id', {
+    method: 'POST',
+    body: JSON.stringify({ oldId, newId }),
+  });
+}
+
 export async function getAllOrdersAdmin() {
   return apiCall('/admin/orders');
 }
