@@ -3,7 +3,7 @@ import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
 import * as kv from "./kv_store.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { getUserRank, invalidateRankCache } from "./rank_calculator.tsx";
+import { getUserRank, invalidateRankCache, updateUplineRanks } from "./rank_calculator.tsx";
 
 // Helper function for HMAC using Web Crypto API (works in Deno, no node:crypto needed)
 async function createHmacSha256(key: string | Uint8Array, data: string): Promise<string> {
@@ -819,29 +819,9 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
       await kv.set(`user:id:${sponsor.id}`, updatedSponsor);
       console.log(`Updated sponsor ${sponsor.id} team: added ${newUserId}`);
       
-      // 🆕 Инвалидируем кэш рангов для спонсора и всей upline цепочки
-      console.log(`🔄 Invalidating rank cache starting from sponsor ${sponsor.id}...`);
-      await invalidateRankCache(sponsor.id);
-      
-      // 🆕 Автоматически пересчитываем ранги для спонсора и upline
-      console.log(`🏆 Auto-recalculating ranks for sponsor ${sponsor.id} and upline...`);
-      try {
-        // Пересчитываем ранг спонсора (это автоматически вычислит и закэширует)
-        await getUserRank(sponsor.id, false);
-        
-        // Пересчитываем ранги для upline
-        let currentSponsorId = sponsor.спонсорId;
-        while (currentSponsorId) {
-          await getUserRank(currentSponsorId, false);
-          const currentSponsor = await kv.get(`user:id:${currentSponsorId}`);
-          if (!currentSponsor) break;
-          currentSponsorId = currentSponsor.спонсорId;
-        }
-        
-        console.log(`✅ Ranks auto-recalculated for sponsor ${sponsor.id} and upline`);
-      } catch (error) {
-        console.error(`⚠️ Error auto-recalculating ranks:`, error);
-      }
+      // ✨ ПРОСТО обновляем ранги для спонсора и всей upline
+      console.log(`🏆 [/auth/signup] Updating ranks for sponsor ${sponsor.id} and upline...`);
+      await updateUplineRanks(sponsor.id);
       
       // 🆕 Создаём уведомление для спонсора о новом партнёре
       const notificationId = `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -863,16 +843,6 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
       
       await kv.set(`notification:user:${sponsor.id}:${notificationId}`, notification);
       console.log(`✅ Created notification for sponsor ${sponsor.id} about new partner ${newUserId}`);
-    }
-    
-    // 🆕 Вычисляем и кэшируем ранг для нового партнёра (обычно 0, но на всякий случай)
-    if (!isFirstUser && !isAdminEmail) {
-      try {
-        await getUserRank(newUserId, false);
-        console.log(`✅ Rank calculated for new user ${newUserId}`);
-      } catch (error) {
-        console.error(`⚠️ Error calculating rank for new user ${newUserId}:`, error);
-      }
     }
     
     console.log(`✅ New user registered: ${newUser.имя} ${newUser.фамилия} (ID: ${newUserId}, RefCode: ${refCode})${(isFirstUser || isAdminEmail) ? ' [ADMIN]' : ''}${sponsor ? ` sponsored by ${sponsor.id}` : ''}`);
@@ -1082,6 +1052,7 @@ app.post("/make-server-05aa3c8a/auth/login", async (c) => {
 // Register new partner with auto-generated ID
 app.post("/make-server-05aa3c8a/register", async (c) => {
   try {
+    console.log('🚀🚀🚀 Partner registration request - AUTO-RANK CALCULATION ENABLED 🚀🚀🚀');
     console.log('Partner registration request');
     
     const { firstName, lastName, email, password, phone, sponsorRefCode } = await c.req.json();
@@ -1228,29 +1199,9 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
       await kv.set(`user:id:${sponsor.id}`, updatedSponsor);
       console.log(`Updated sponsor ${sponsor.id} team: added ${partnerId}`);
       
-      // 🆕 Инвалидируем кэш рангов для спонсора и всей upline цепочки
-      console.log(`🔄 Invalidating rank cache starting from sponsor ${sponsor.id}...`);
-      await invalidateRankCache(sponsor.id);
-      
-      // 🆕 Автоматически пересчитываем ранги для спонсора и upline
-      console.log(`🏆 Auto-recalculating ranks for sponsor ${sponsor.id} and upline...`);
-      try {
-        // Пересчитываем ранг спонсора (это автоматически вычислит и закэширует)
-        await getUserRank(sponsor.id, false);
-        
-        // Пересчитываем ранги для upline
-        let currentSponsorId = sponsor.спонсорId;
-        while (currentSponsorId) {
-          await getUserRank(currentSponsorId, false);
-          const currentSponsor = await kv.get(`user:id:${currentSponsorId}`);
-          if (!currentSponsor) break;
-          currentSponsorId = currentSponsor.спонсорId;
-        }
-        
-        console.log(`✅ Ranks auto-recalculated for sponsor ${sponsor.id} and upline`);
-      } catch (error) {
-        console.error(`⚠️ Error auto-recalculating ranks:`, error);
-      }
+      // ✨ ПРОСТО обновляем ранги для спонсора и всей upline
+      console.log(`🏆 [/register] Updating ranks for sponsor ${sponsor.id} and upline...`);
+      await updateUplineRanks(sponsor.id);
       
       // 🆕 Создаём уведомление для спонсора о новом партнёре
       const notificationId = `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -1272,14 +1223,6 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
       
       await kv.set(`notification:user:${sponsor.id}:${notificationId}`, notification);
       console.log(`✅ Created notification for sponsor ${sponsor.id} about new partner ${partnerId}`);
-    }
-    
-    // 🆕 Вычисляем и кэшируем ранг для нового партнёра (обычно 0, но на всякий случай)
-    try {
-      await getUserRank(partnerId, false);
-      console.log(`✅ Rank calculated for new partner ${partnerId}`);
-    } catch (error) {
-      console.error(`⚠️ Error calculating rank for new partner ${partnerId}:`, error);
     }
     
     console.log(`✅ New partner registered: ${newUser.имя} ${newUser.фамилия} (ID: ${partnerId}, RefCode: ${refCode})${sponsor ? ` sponsored by ${sponsor.id}` : ''}`);
@@ -2176,19 +2119,19 @@ app.get("/make-server-05aa3c8a/user/:userId/rank", async (c) => {
   try {
     await verifyUser(c.req.header('X-User-Id'));
     const userId = c.req.param('userId');
-    const useCache = c.req.query('cache') !== 'false';
     
-    console.log(`🏆 Getting rank for user: ${userId} (cache: ${useCache})`);
+    console.log(`🏆 Getting rank for user: ${userId}`);
     
-    const rank = await getUserRank(userId, useCache);
+    // ✨ ПРОСТО читаем ранг из объекта пользователя
+    const user = await kv.get(`user:id:${userId}`);
+    const rank = user?.уровень || 0;
     
     console.log(`✅ Rank for user ${userId}: ${rank}`);
     
     return c.json({ 
       success: true, 
       userId,
-      rank,
-      cached: useCache
+      rank
     });
   } catch (error) {
     console.log(`Get rank error: ${error}`);
@@ -7028,21 +6971,19 @@ app.post("/make-server-05aa3c8a/admin/recalculate-ranks", async (c) => {
     
     console.log(`📊 Found ${partners.length} partners to recalculate`);
     
-    // Clear all rank cache
-    console.log('🗑️ Clearing all rank cache...');
-    const rankKeys = await kv.getByPrefix('rank:user:');
-    for (const key of rankKeys) {
-      await kv.del(`rank:user:${key.userId || key.id || ''}`);
-    }
-    console.log(`✅ Cleared ${rankKeys.length} cached ranks`);
-    
-    // Recalculate ranks for all partners
+    // ✨ ПРОСТО обновляем ранг в объекте каждого пользователя
     const results: any[] = [];
     let processed = 0;
     
     for (const partner of partners) {
       try {
-        const rank = await getUserRank(partner.id, false); // Force recalculation
+        // Используем ПРОСТУЮ функцию обновления ранга
+        await updateUplineRanks(partner.id);
+        
+        // Читаем обновлённый ранг
+        const updatedUser = await kv.get(`user:id:${partner.id}`);
+        const rank = updatedUser?.уровень || 0;
+        
         results.push({
           userId: partner.id,
           name: `${partner.имя} ${partner.фамилия}`,

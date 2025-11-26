@@ -75,6 +75,66 @@ export async function calculateUserRank(userId: string): Promise<number> {
 }
 
 /**
+ * ПРОСТАЯ функция: Рассчитывает и СОХРАНЯЕТ ранг в объект пользователя
+ * @param userId - ID партнёра
+ */
+export async function updateUserRank(userId: string): Promise<void> {
+  try {
+    console.log(`🔄 Updating rank for user ${userId}...`);
+    
+    // Вычисляем ранг
+    const rank = await calculateUserRank(userId);
+    
+    // Получаем пользователя
+    const user = await kv.get(`user:id:${userId}`);
+    if (!user) {
+      console.error(`❌ User ${userId} not found, cannot update rank`);
+      return;
+    }
+    
+    // Обновляем уровень в объекте пользователя
+    user.уровень = rank;
+    await kv.set(`user:id:${userId}`, user);
+    
+    console.log(`✅ User ${userId} rank updated: ${rank}`);
+  } catch (error) {
+    console.error(`❌ Error updating rank for user ${userId}:`, error);
+  }
+}
+
+/**
+ * Обновляет ранги для пользователя и всей upline цепочки
+ * @param userId - ID партнёра (с которого начинается обновление)
+ */
+export async function updateUplineRanks(userId: string): Promise<void> {
+  try {
+    console.log(`🔄 Updating ranks for user ${userId} and upline...`);
+    
+    let currentUserId = userId;
+    let depth = 0;
+    const maxDepth = 100; // Защита от бесконечного цикла
+    
+    while (currentUserId && depth < maxDepth) {
+      // Обновляем ранг текущего пользователя
+      await updateUserRank(currentUserId);
+      
+      // Переходим к спонсору
+      const user = await kv.get(`user:id:${currentUserId}`);
+      if (!user || !user.спонсорId) {
+        break;
+      }
+      
+      currentUserId = user.спонсорId;
+      depth++;
+    }
+    
+    console.log(`✅ Updated ranks for upline chain (${depth} users)`);
+  } catch (error) {
+    console.error(`❌ Error updating upline ranks:`, error);
+  }
+}
+
+/**
  * Получает ранг партнёра с кэшированием
  * @param userId - ID партнёра
  * @param useCache - Использовать кэш (по умолчанию true)
