@@ -453,13 +453,36 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                       <div className="text-[#666] mb-2" style={{ fontSize: '12px' }}>Соц. сети</div>
                       <div 
                         data-social-container="true"
-                        style={{ 
-                          display: 'flex',
-                          flexWrap: 'wrap',
-                          gap: '8px',
-                          width: '100%'
-                        }}
+                        className="grid grid-cols-1 sm:grid-cols-2 gap-2"
                       >
+                        {currentUser.telegram && (
+                          <a 
+                            data-social="telegram"
+                            data-value={currentUser.telegram}
+                            href={`https://t.me/${String(currentUser.telegram).replace(/^@/, '').trim()}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 p-3 bg-[#0088cc] text-white rounded-xl hover:opacity-90 transition-opacity"
+                          >
+                            <MessageCircle size={16} className="flex-shrink-0" />
+                            <span className="text-sm truncate">@{String(currentUser.telegram).replace(/^@/, '').trim()}</span>
+                          </a>
+                        )}
+                        
+                        {currentUser.whatsapp && (
+                          <a 
+                            data-social="whatsapp"
+                            data-value={currentUser.whatsapp}
+                            href={`https://wa.me/${String(currentUser.whatsapp).replace(/[^0-9]/g, '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 p-3 bg-[#25D366] text-white rounded-xl hover:opacity-90 transition-opacity"
+                          >
+                            <Phone size={16} className="flex-shrink-0" />
+                            <span className="text-sm truncate">{String(currentUser.whatsapp).trim()}</span>
+                          </a>
+                        )}
+                        
                         {currentUser.instagram && (
                           <a 
                             data-social="instagram"
@@ -467,24 +490,13 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                             href={`https://instagram.com/${String(currentUser.instagram).replace(/^@/, '').trim()}`}
                             target="_blank"
                             rel="noopener noreferrer"
+                            className="flex items-center gap-2 p-3 rounded-xl text-white hover:opacity-90 transition-opacity"
                             style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '8px',
-                              padding: '8px 12px',
-                              background: 'linear-gradient(to right, #f09433 0%, #e6683c 50%, #bc1888 100%)',
-                              color: 'white',
-                              borderRadius: '8px',
-                              textDecoration: 'none',
-                              fontSize: '13px',
-                              transition: 'opacity 0.2s',
-                              cursor: 'pointer'
+                              background: 'linear-gradient(to right, #f09433 0%, #e6683c 50%, #bc1888 100%)'
                             }}
-                            onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
-                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
                           >
-                            <Instagram size={16} />
-                            <span>@{String(currentUser.instagram).replace(/^@/, '').trim()}</span>
+                            <Instagram size={16} className="flex-shrink-0" />
+                            <span className="text-sm truncate">@{String(currentUser.instagram).replace(/^@/, '').trim()}</span>
                           </a>
                         )}
                         
@@ -495,23 +507,10 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                             href={`https://vk.com/${String(currentUser.vk).replace(/^@/, '').trim()}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '8px',
-                              padding: '8px 12px',
-                              backgroundColor: '#0077FF',
-                              color: 'white',
-                              borderRadius: '8px',
-                              textDecoration: 'none',
-                              fontSize: '13px',
-                              transition: 'opacity 0.2s',
-                              cursor: 'pointer'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
-                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                            className="flex items-center gap-2 p-3 bg-[#0077FF] text-white rounded-xl hover:opacity-90 transition-opacity"
                           >
-                            <span>VK: {String(currentUser.vk).replace(/^@/, '').trim()}</span>
+                            <span className="font-bold text-sm flex-shrink-0">VK</span>
+                            <span className="text-sm truncate">{String(currentUser.vk).replace(/^@/, '').trim()}</span>
                           </a>
                         )}
                       </div>

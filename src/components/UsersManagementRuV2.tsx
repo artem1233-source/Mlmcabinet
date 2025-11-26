@@ -34,7 +34,20 @@ import {
   MessageCircle,
   Instagram,
   Facebook,
-  Send
+  Send,
+  Info,
+  PhoneCall,
+  ExternalLink,
+  Copy,
+  Download,
+  Bell,
+  Link2,
+  BarChart3,
+  TrendingDown,
+  CheckCircle2,
+  XCircle,
+  ArrowUpRight,
+  ArrowDownRight
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -96,6 +109,10 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
   const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'list' | 'tree'>('list');
   
+  // 📋 State для модального окна детальной информации
+  const [userDetailsOpen, setUserDetailsOpen] = useState(false);
+  const [selectedUserForDetails, setSelectedUserForDetails] = useState<any | null>(null);
+  
   const isInitialLoad = useRef(true);
   const previousSearch = useRef('');
 
@@ -142,6 +159,18 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
     vk: '',
   });
   const [saving, setSaving] = useState(false);
+  const [balanceConfirmOpen, setBalanceConfirmOpen] = useState(false);
+  const [originalBalances, setOriginalBalances] = useState({ баланс: 0, доступныйБаланс: 0 });
+
+  // 🔔 State для отправки уведомлений
+  const [notificationDialogOpen, setNotificationDialogOpen] = useState(false);
+  const [notificationData, setNotificationData] = useState({
+    тип: 'course' as 'order' | 'commission' | 'new_partner' | 'goal' | 'inactive' | 'withdrawal' | 'course',
+    заголовок: '',
+    сообщение: '',
+  });
+  const [sendingNotification, setSendingNotification] = useState(false);
+  const [notificationTargetUser, setNotificationTargetUser] = useState<any | null>(null);
 
   // 🆕 State для рангов пользователей
   const [userRanks, setUserRanks] = useState<Map<string, number>>(new Map());
@@ -485,10 +514,32 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
       instagram: user.instagram || user.socialMedia?.instagram || '',
       vk: user.vk || user.socialMedia?.vk || '',
     });
+    setOriginalBalances({ 
+      баланс: user.баланс || 0, 
+      доступныйБаланс: user.доступныйБаланс || 0 
+    });
     setEditDialogOpen(true);
   };
 
   const handleSaveUser = async () => {
+    if (!editingUser) return;
+
+    // Проверяем, изменились ли балансы
+    const balanceChanged = 
+      editFormData.баланс !== originalBalances.баланс || 
+      editFormData.доступныйБаланс !== originalBalances.доступныйБаланс;
+
+    // Если баланс изменился, показываем подтверждение
+    if (balanceChanged) {
+      setBalanceConfirmOpen(true);
+      return;
+    }
+
+    // Если баланс не изменился, сохраняем сразу
+    await saveUserData();
+  };
+
+  const saveUserData = async () => {
     if (!editingUser) return;
 
     try {
@@ -516,6 +567,7 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
 
       toast.success('Пользователь обновлён!');
       setEditDialogOpen(false);
+      setBalanceConfirmOpen(false);
       setEditingUser(null);
       loadUsers();
       if (onRefresh) onRefresh();
@@ -524,6 +576,38 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
       toast.error(error.message || 'Ошибка обновления пользователя');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // 🔔 Открытие диалога отправки уведомления
+  const openNotificationDialog = (user: any) => {
+    setNotificationTargetUser(user);
+    setNotificationData({
+      тип: 'course',
+      заголовок: '',
+      сообщение: '',
+    });
+    setNotificationDialogOpen(true);
+  };
+
+  // 🔔 Отправка уведомления пользователю
+  const handleSendNotification = async () => {
+    if (!notificationTargetUser || !notificationData.заголовок || !notificationData.сообщение) {
+      toast.error('Заполните все поля');
+      return;
+    }
+
+    try {
+      setSendingNotification(true);
+      await api.sendNotificationToUser(notificationTargetUser.id, notificationData);
+      toast.success('Уведомление отправлено!');
+      setNotificationDialogOpen(false);
+      setNotificationTargetUser(null);
+    } catch (error: any) {
+      console.error('Error sending notification:', error);
+      toast.error(error.message || 'Ошибка отправки уведомления');
+    } finally {
+      setSendingNotification(false);
     }
   };
 
@@ -587,7 +671,7 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
         onClick={(e) => {
           // Предотвращаем открытие если кликнули на кнопку действия
           const target = e.target as HTMLElement;
-          if (target.closest('button')) return;
+          if (target.closest('button') || target.closest('a')) return;
           toggleUserExpanded(user.id);
         }}
       >
@@ -707,12 +791,13 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                   size="sm"
                   onClick={(e) => {
                     e.stopPropagation();
-                    openQuickView(user, e);
+                    setSelectedUserForDetails(user);
+                    setUserDetailsOpen(true);
                   }}
-                  className="w-8 h-8 p-0 hover:bg-purple-50"
-                  title="Открыть детали"
+                  className="w-8 h-8 p-0 hover:bg-blue-50"
+                  title="Детальная информация"
                 >
-                  <ChevronRight className="w-4 h-4 text-purple-600" />
+                  <Info className="w-4 h-4 text-[#39B7FF]" />
                 </Button>
                 <Button
                   variant="ghost"
@@ -777,38 +862,74 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
               {(user.telegram || user.whatsapp || user.instagram || user.vk || user.socialMedia) && (
                 <div className="mt-2">
                   <p className="text-[#999] mb-1.5" style={{ fontSize: '10px', fontWeight: '600' }}>СОЦИАЛЬНЫЕ СЕТИ</p>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 auto-rows-fr">
                     {(user.telegram || user.socialMedia?.telegram) && (
-                      <div className="flex items-center gap-1.5 bg-blue-50 p-1.5 rounded">
-                        <Send className="w-3 h-3 text-blue-600 flex-shrink-0" />
-                        <span className="text-[#1E1E1E] truncate" style={{ fontSize: '10px', fontWeight: '500' }}>
-                          {user.telegram || user.socialMedia?.telegram}
-                        </span>
-                      </div>
+                      <a
+                        href={`https://t.me/${(user.telegram || user.socialMedia?.telegram).replace(/^@/, '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-blue-50 hover:bg-blue-100 p-2 rounded-lg transition-colors cursor-pointer block min-h-[60px]"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <Send className="w-3 h-3 text-blue-600" />
+                          <p className="text-[#999]" style={{ fontSize: '10px', fontWeight: '600' }}>TELEGRAM</p>
+                        </div>
+                        <p className="text-blue-700 truncate" style={{ fontSize: '12px', fontWeight: '600' }}>
+                          @{(user.telegram || user.socialMedia?.telegram).replace(/^@/, '')}
+                        </p>
+                      </a>
                     )}
                     {(user.whatsapp || user.socialMedia?.whatsapp) && (
-                      <div className="flex items-center gap-1.5 bg-green-50 p-1.5 rounded">
-                        <Phone className="w-3 h-3 text-green-600 flex-shrink-0" />
-                        <span className="text-[#1E1E1E] truncate" style={{ fontSize: '10px', fontWeight: '500' }}>
+                      <a
+                        href={`https://wa.me/${(user.whatsapp || user.socialMedia?.whatsapp).replace(/[^0-9]/g, '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-green-50 hover:bg-green-100 p-2 rounded-lg transition-colors cursor-pointer block min-h-[60px]"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <Phone className="w-3 h-3 text-green-600" />
+                          <p className="text-[#999]" style={{ fontSize: '10px', fontWeight: '600' }}>WHATSAPP</p>
+                        </div>
+                        <p className="text-green-700 truncate" style={{ fontSize: '12px', fontWeight: '600' }}>
                           {user.whatsapp || user.socialMedia?.whatsapp}
-                        </span>
-                      </div>
+                        </p>
+                      </a>
                     )}
                     {(user.instagram || user.socialMedia?.instagram) && (
-                      <div className="flex items-center gap-1.5 bg-pink-50 p-1.5 rounded">
-                        <Instagram className="w-3 h-3 text-pink-600 flex-shrink-0" />
-                        <span className="text-[#1E1E1E] truncate" style={{ fontSize: '10px', fontWeight: '500' }}>
-                          {user.instagram || user.socialMedia?.instagram}
-                        </span>
-                      </div>
+                      <a
+                        href={`https://instagram.com/${(user.instagram || user.socialMedia?.instagram).replace(/^@/, '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-pink-50 hover:bg-pink-100 p-2 rounded-lg transition-colors cursor-pointer block min-h-[60px]"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <Instagram className="w-3 h-3 text-pink-600" />
+                          <p className="text-[#999]" style={{ fontSize: '10px', fontWeight: '600' }}>INSTAGRAM</p>
+                        </div>
+                        <p className="text-pink-700 truncate" style={{ fontSize: '12px', fontWeight: '600' }}>
+                          @{(user.instagram || user.socialMedia?.instagram).replace(/^@/, '')}
+                        </p>
+                      </a>
                     )}
                     {(user.vk || user.socialMedia?.vk) && (
-                      <div className="flex items-center gap-1.5 bg-indigo-50 p-1.5 rounded">
-                        <Facebook className="w-3 h-3 text-indigo-600 flex-shrink-0" />
-                        <span className="text-[#1E1E1E] truncate" style={{ fontSize: '10px', fontWeight: '500' }}>
-                          {user.vk || user.socialMedia?.vk}
-                        </span>
-                      </div>
+                      <a
+                        href={`https://vk.com/${(user.vk || user.socialMedia?.vk).replace(/^@/, '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-indigo-50 hover:bg-indigo-100 p-2 rounded-lg transition-colors cursor-pointer block min-h-[60px]"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <Facebook className="w-3 h-3 text-indigo-600" />
+                          <p className="text-[#999]" style={{ fontSize: '10px', fontWeight: '600' }}>VK</p>
+                        </div>
+                        <p className="text-indigo-700 truncate" style={{ fontSize: '12px', fontWeight: '600' }}>
+                          {(user.vk || user.socialMedia?.vk).replace(/^@/, '')}
+                        </p>
+                      </a>
                     )}
                   </div>
                 </div>
@@ -1452,8 +1573,8 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                     <Input
                       id="баланс"
                       type="number"
-                      value={editFormData.баланс}
-                      onChange={(e) => setEditFormData({ ...editFormData, баланс: Number(e.target.value) })}
+                      value={editFormData.баланс === 0 ? '' : editFormData.баланс}
+                      onChange={(e) => setEditFormData({ ...editFormData, баланс: e.target.value === '' ? 0 : Number(e.target.value) })}
                       placeholder="0"
                     />
                   </div>
@@ -1465,8 +1586,8 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                     <Input
                       id="доступныйБаланс"
                       type="number"
-                      value={editFormData.доступныйБаланс}
-                      onChange={(e) => setEditFormData({ ...editFormData, доступныйБаланс: Number(e.target.value) })}
+                      value={editFormData.доступныйБаланс === 0 ? '' : editFormData.доступныйБаланс}
+                      onChange={(e) => setEditFormData({ ...editFormData, доступныйБаланс: e.target.value === '' ? 0 : Number(e.target.value) })}
                       placeholder="0"
                     />
                   </div>
@@ -1504,6 +1625,202 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                 </>
               ) : (
                 'Сохранить'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ⚠️ Подтверждение изменения баланса */}
+      <Dialog open={balanceConfirmOpen} onOpenChange={setBalanceConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center">
+                <AlertTriangle className="w-6 h-6 text-yellow-600" />
+              </div>
+              <div>
+                <DialogTitle>Подтверждение изменения баланса</DialogTitle>
+                <DialogDescription>
+                  Это критическое изменение финансовых данных
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg space-y-3">
+              <p className="text-sm text-yellow-900 font-medium">
+                Вы собираетесь изменить баланс пользователя:
+              </p>
+              
+              {originalBalances.баланс !== editFormData.баланс && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">Общий баланс:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="line-through text-gray-400">₽{originalBalances.баланс.toLocaleString()}</span>
+                    <ArrowUpRight className="w-4 h-4 text-yellow-600" />
+                    <span className="font-bold text-yellow-900">₽{editFormData.баланс.toLocaleString()}</span>
+                  </div>
+                </div>
+              )}
+              
+              {originalBalances.доступныйБаланс !== editFormData.доступныйБаланс && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">Доступный баланс:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="line-through text-gray-400">₽{originalBalances.доступныйБаланс.toLocaleString()}</span>
+                    <ArrowUpRight className="w-4 h-4 text-yellow-600" />
+                    <span className="font-bold text-yellow-900">₽{editFormData.доступныйБаланс.toLocaleString()}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-xs text-red-800">
+                ⚠️ Изменение баланса повлияет на финансовые операции пользователя. Убедитесь в корректности данных.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setBalanceConfirmOpen(false)}
+              disabled={saving}
+            >
+              Отмена
+            </Button>
+            <Button
+              onClick={saveUserData}
+              disabled={saving}
+              className="bg-yellow-600 hover:bg-yellow-700 text-white"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Сохранение...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  Подтверждаю изменение
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 🔔 Диалог отправки уведомления */}
+      <Dialog open={notificationDialogOpen} onOpenChange={setNotificationDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-12 h-12 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-full flex items-center justify-center">
+                <Bell className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <DialogTitle>Отправить уведомление</DialogTitle>
+                <DialogDescription>
+                  {notificationTargetUser && `Пользователю: ${notificationTargetUser.имя} ${notificationTargetUser.фамилия || ''}`}
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* Тип уведомления */}
+            <div className="space-y-2">
+              <Label htmlFor="notification-type">Тип уведомления</Label>
+              <select
+                id="notification-type"
+                value={notificationData.тип}
+                onChange={(e) => setNotificationData({ ...notificationData, тип: e.target.value as any })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#39B7FF]"
+              >
+                <option value="course">📚 Обучение</option>
+                <option value="order">🛒 Заказ</option>
+                <option value="commission">💰 Комиссия</option>
+                <option value="new_partner">👥 Новый партнер</option>
+                <option value="goal">🎯 Цель</option>
+                <option value="withdrawal">💳 Вывод средств</option>
+                <option value="inactive">⏰ Неактивность</option>
+              </select>
+            </div>
+
+            {/* Заголовок */}
+            <div className="space-y-2">
+              <Label htmlFor="notification-title">Заголовок</Label>
+              <Input
+                id="notification-title"
+                value={notificationData.заголовок}
+                onChange={(e) => setNotificationData({ ...notificationData, заголовок: e.target.value })}
+                placeholder="Введите заголовок уведомления"
+                maxLength={100}
+              />
+            </div>
+
+            {/* Сообщение */}
+            <div className="space-y-2">
+              <Label htmlFor="notification-message">Сообщение</Label>
+              <textarea
+                id="notification-message"
+                value={notificationData.сообщение}
+                onChange={(e) => setNotificationData({ ...notificationData, сообщение: e.target.value })}
+                placeholder="Введите текст уведомления"
+                rows={4}
+                maxLength={500}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#39B7FF] resize-none"
+              />
+              <p className="text-xs text-gray-500 text-right">
+                {notificationData.сообщение.length}/500
+              </p>
+            </div>
+
+            {/* Превью */}
+            <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+              <p className="text-xs text-gray-500 mb-2">Превью:</p>
+              <div className="bg-white p-3 rounded-lg border border-gray-200">
+                <div className="flex items-start gap-2">
+                  <Bell className="w-4 h-4 text-[#39B7FF] mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-gray-900">
+                      {notificationData.заголовок || 'Заголовок уведомления'}
+                    </p>
+                    <p className="text-xs text-gray-600 mt-1">
+                      {notificationData.сообщение || 'Текст уведомления появится здесь'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setNotificationDialogOpen(false)}
+              disabled={sendingNotification}
+            >
+              Отмена
+            </Button>
+            <Button
+              onClick={handleSendNotification}
+              disabled={sendingNotification || !notificationData.заголовок || !notificationData.сообщение}
+              className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white"
+            >
+              {sendingNotification ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Отправка...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4 mr-2" />
+                  Отправить
+                </>
               )}
             </Button>
           </DialogFooter>
@@ -1562,14 +1879,14 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                       <p className="text-sm font-medium">{selectedUserForView.телефон || '—'}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-[#999] mb-1">Уровень</p>
-                      <Badge className="bg-blue-100 text-blue-700">{selectedUserForView.уровень}</Badge>
-                    </div>
-                    <div>
                       <p className="text-xs text-[#999] mb-1">Ранг</p>
                       <Badge className="bg-orange-100 text-orange-700">
                         {userRanks.get(selectedUserForView.id) ?? 0}
                       </Badge>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#999] mb-1">Уровень</p>
+                      <Badge className="bg-blue-100 text-blue-700">{selectedUserForView.уровень}</Badge>
                     </div>
                     <div>
                       <p className="text-xs text-[#999] mb-1">Регистрация</p>
@@ -1643,54 +1960,86 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
               </Card>
 
               {/* 📱 Social Media */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <MessageCircle className="w-4 h-4" />
-                    Социальные сети
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
-                      <Send className="w-4 h-4 text-blue-600" />
-                      <div>
-                        <p className="text-xs text-[#999] mb-0.5">Telegram</p>
-                        <p className="text-sm font-medium">
-                          {selectedUserForView.telegram || selectedUserForView.socialMedia?.telegram || <span className="text-[#999]">Не указан</span>}
-                        </p>
-                      </div>
+              {(selectedUserForView.telegram || selectedUserForView.whatsapp || selectedUserForView.instagram || selectedUserForView.vk || 
+                selectedUserForView.socialMedia?.telegram || selectedUserForView.socialMedia?.whatsapp || 
+                selectedUserForView.socialMedia?.instagram || selectedUserForView.socialMedia?.vk) && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <MessageCircle className="w-4 h-4" />
+                      Социальные сети
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-3 auto-rows-fr">
+                      {(selectedUserForView.telegram || selectedUserForView.socialMedia?.telegram) && (
+                        <a
+                          href={`https://t.me/${(selectedUserForView.telegram || selectedUserForView.socialMedia?.telegram).replace(/^@/, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 p-3 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors cursor-pointer w-full"
+                        >
+                          <Send className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs text-[#999] mb-0.5">Telegram</p>
+                            <p className="text-sm font-medium truncate text-blue-700">
+                              @{(selectedUserForView.telegram || selectedUserForView.socialMedia?.telegram).replace(/^@/, '')}
+                            </p>
+                          </div>
+                        </a>
+                      )}
+                      {(selectedUserForView.whatsapp || selectedUserForView.socialMedia?.whatsapp) && (
+                        <a
+                          href={`https://wa.me/${(selectedUserForView.whatsapp || selectedUserForView.socialMedia?.whatsapp).replace(/[^0-9]/g, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 p-3 bg-green-50 rounded-lg hover:bg-green-100 transition-colors cursor-pointer w-full"
+                        >
+                          <Phone className="w-4 h-4 text-green-600 flex-shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs text-[#999] mb-0.5">WhatsApp</p>
+                            <p className="text-sm font-medium truncate text-green-700">
+                              {selectedUserForView.whatsapp || selectedUserForView.socialMedia?.whatsapp}
+                            </p>
+                          </div>
+                        </a>
+                      )}
+                      {(selectedUserForView.instagram || selectedUserForView.socialMedia?.instagram) && (
+                        <a
+                          href={`https://instagram.com/${(selectedUserForView.instagram || selectedUserForView.socialMedia?.instagram).replace(/^@/, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 p-3 bg-pink-50 rounded-lg hover:bg-pink-100 transition-colors cursor-pointer w-full"
+                        >
+                          <Instagram className="w-4 h-4 text-pink-600 flex-shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs text-[#999] mb-0.5">Instagram</p>
+                            <p className="text-sm font-medium truncate text-pink-700">
+                              @{(selectedUserForView.instagram || selectedUserForView.socialMedia?.instagram).replace(/^@/, '')}
+                            </p>
+                          </div>
+                        </a>
+                      )}
+                      {(selectedUserForView.vk || selectedUserForView.socialMedia?.vk) && (
+                        <a
+                          href={`https://vk.com/${(selectedUserForView.vk || selectedUserForView.socialMedia?.vk).replace(/^@/, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 p-3 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors cursor-pointer w-full"
+                        >
+                          <Facebook className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs text-[#999] mb-0.5">VK</p>
+                            <p className="text-sm font-medium truncate text-indigo-700">
+                              {(selectedUserForView.vk || selectedUserForView.socialMedia?.vk).replace(/^@/, '')}
+                            </p>
+                          </div>
+                        </a>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2 p-3 bg-green-50 rounded-lg">
-                      <Phone className="w-4 h-4 text-green-600" />
-                      <div>
-                        <p className="text-xs text-[#999] mb-0.5">WhatsApp</p>
-                        <p className="text-sm font-medium">
-                          {selectedUserForView.whatsapp || selectedUserForView.socialMedia?.whatsapp || <span className="text-[#999]">Не указан</span>}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 p-3 bg-pink-50 rounded-lg">
-                      <Instagram className="w-4 h-4 text-pink-600" />
-                      <div>
-                        <p className="text-xs text-[#999] mb-0.5">Instagram</p>
-                        <p className="text-sm font-medium">
-                          {selectedUserForView.instagram || selectedUserForView.socialMedia?.instagram || <span className="text-[#999]">Не указан</span>}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 p-3 bg-indigo-50 rounded-lg">
-                      <Facebook className="w-4 h-4 text-indigo-600" />
-                      <div>
-                        <p className="text-xs text-[#999] mb-0.5">VK</p>
-                        <p className="text-sm font-medium">
-                          {selectedUserForView.vk || selectedUserForView.socialMedia?.vk || <span className="text-[#999]">Не указан</span>}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Orders */}
               <Card>
@@ -1778,6 +2127,580 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
           )}
         </SheetContent>
       </Sheet>
+
+      {/* User Details Modal */}
+      <Dialog open={userDetailsOpen} onOpenChange={setUserDetailsOpen}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                selectedUserForDetails?.isAdmin 
+                  ? 'bg-gradient-to-br from-purple-500 to-purple-700' 
+                  : 'bg-gradient-to-br from-[#39B7FF] to-[#12C9B6]'
+              }`}>
+                {selectedUserForDetails?.isAdmin ? (
+                  <Shield className="w-6 h-6 text-white" />
+                ) : (
+                  <Users className="w-6 h-6 text-white" />
+                )}
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span>{selectedUserForDetails?.имя} {selectedUserForDetails?.фамилия}</span>
+                  {selectedUserForDetails?.isAdmin && (
+                    <Badge className="bg-purple-100 text-purple-700">Admin</Badge>
+                  )}
+                  <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white">
+                    Ранг {userRanks.get(selectedUserForDetails?.id || '') ?? 0}
+                  </Badge>
+                </div>
+              </div>
+            </DialogTitle>
+            <DialogDescription>
+              ID: {selectedUserForDetails?.id} {selectedUserForDetails?.партнёрскийID && `• P${selectedUserForDetails.партнёрскийID}`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedUserForDetails && (
+            <div className="py-2">
+              {/* Быстрые действия */}
+              <div className="flex flex-wrap gap-2 mb-4 pb-4 border-b border-[#E6E9EE]">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    navigator.clipboard.writeText(selectedUserForDetails.рефКод || '');
+                    // Можно добавить toast уведомление
+                  }}
+                  className="flex items-center gap-1.5"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  Реф-код
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const refLink = `${window.location.origin}?ref=${selectedUserForDetails.рефКод}`;
+                    navigator.clipboard.writeText(refLink);
+                  }}
+                  className="flex items-center gap-1.5"
+                >
+                  <Link2 className="w-3.5 h-3.5" />
+                  Реф-ссылка
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => openEditDialog(selectedUserForDetails)}
+                  className="flex items-center gap-1.5"
+                >
+                  <Edit className="w-3.5 h-3.5" />
+                  Редактировать
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center gap-1.5"
+                  onClick={() => {
+                    setDetailsViewOpen(false);
+                    setTimeout(() => openNotificationDialog(selectedUserForDetails), 100);
+                  }}
+                >
+                  <Bell className="w-3.5 h-3.5" />
+                  Уведомление
+                </Button>
+              </div>
+
+              {/* Tabs */}
+              <Tabs defaultValue="general" className="w-full">
+                <TabsList className="grid w-full grid-cols-5 mb-4">
+                  <TabsTrigger value="general">Общее</TabsTrigger>
+                  <TabsTrigger value="team">Команда</TabsTrigger>
+                  <TabsTrigger value="sales">Продажи</TabsTrigger>
+                  <TabsTrigger value="finance">Финансы</TabsTrigger>
+                  <TabsTrigger value="activity">Активность</TabsTrigger>
+                </TabsList>
+
+                {/* Вкладка: Общее */}
+                <TabsContent value="general" className="space-y-4">
+                  {/* Основные метрики */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="bg-blue-50 p-3 rounded-lg">
+                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>РЕГИСТРАЦИЯ</p>
+                      <p className="text-[#1E1E1E]" style={{ fontSize: '13px', fontWeight: '600' }}>
+                        {selectedUserForDetails.зарегистрирован ? new Date(selectedUserForDetails.зарегистрирован).toLocaleDateString('ru-RU') : '-'}
+                      </p>
+                    </div>
+                    <div className="bg-purple-50 p-3 rounded-lg">
+                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>СПОНСОР</p>
+                      <p className="text-[#1E1E1E]" style={{ fontSize: '13px', fontWeight: '600' }}>
+                        {selectedUserForDetails.спонсорId ? `ID: ${selectedUserForDetails.спонсорId}` : 'Нет'}
+                      </p>
+                    </div>
+                    <div className="bg-teal-50 p-3 rounded-lg">
+                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>КОМАНДА</p>
+                      <p className="text-[#1E1E1E]" style={{ fontSize: '13px', fontWeight: '600' }}>
+                        {calculateTotalTeam(selectedUserForDetails.id)} чел
+                      </p>
+                    </div>
+                    <div className="bg-green-50 p-3 rounded-lg">
+                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>РЕФ КОД</p>
+                      <p className="text-[#1E1E1E] font-mono" style={{ fontSize: '12px', fontWeight: '600' }}>
+                        {selectedUserForDetails.рефКод || '-'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Контактная информация */}
+                  <div className="bg-[#F7FAFC] p-4 rounded-lg">
+                    <h3 className="text-[#1E1E1E] mb-4 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                      <Mail className="w-4 h-4 text-[#39B7FF]" />
+                      Контактная информация
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Email Card */}
+                      <div className="bg-white p-4 rounded-lg border border-gray-200 hover:border-[#39B7FF] transition-all flex flex-col">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                            <Mail className="w-4 h-4 text-[#39B7FF]" />
+                          </div>
+                          <span className="text-[#999]" style={{ fontSize: '11px', fontWeight: '600' }}>EMAIL</span>
+                        </div>
+                        <a 
+                          href={`mailto:${selectedUserForDetails.email}`}
+                          className="text-[#1E1E1E] hover:text-[#39B7FF] transition-colors block mb-3 flex-grow"
+                          style={{ fontSize: '13px', fontWeight: '600' }}
+                        >
+                          {selectedUserForDetails.email}
+                        </a>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full text-xs h-7"
+                          onClick={() => {
+                            navigator.clipboard.writeText(selectedUserForDetails.email);
+                            toast.success('Email скопирован');
+                          }}
+                        >
+                          <Copy className="w-3 h-3 mr-1" />
+                          Копировать
+                        </Button>
+                      </div>
+
+                      {/* Phone Card */}
+                      {selectedUserForDetails.телефон && (
+                        <div className="bg-white p-4 rounded-lg border border-gray-200 hover:border-[#12C9B6] transition-all flex flex-col">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-8 h-8 bg-teal-100 rounded-full flex items-center justify-center">
+                              <Phone className="w-4 h-4 text-[#12C9B6]" />
+                            </div>
+                            <span className="text-[#999]" style={{ fontSize: '11px', fontWeight: '600' }}>ТЕЛЕФОН</span>
+                          </div>
+                          <div className="text-[#1E1E1E] mb-3 flex-grow" style={{ fontSize: '13px', fontWeight: '600' }}>
+                            {selectedUserForDetails.телефон}
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1 text-xs h-7"
+                              onClick={() => window.open(`https://wa.me/${selectedUserForDetails.телефон.replace(/\D/g, '')}`, '_blank')}
+                            >
+                              <MessageCircle className="w-3 h-3 mr-1" />
+                              WhatsApp
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1 text-xs h-7"
+                              onClick={() => {
+                                const cleanPhone = selectedUserForDetails.телефон.replace(/\D/g, '');
+                                window.open(`tg://resolve?phone=${cleanPhone}`, '_blank');
+                              }}
+                            >
+                              <Send className="w-3 h-3 mr-1" />
+                              Telegram
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1 text-xs h-7"
+                              onClick={() => window.open(`tel:${selectedUserForDetails.телефон}`, '_blank')}
+                            >
+                              <PhoneCall className="w-3 h-3 mr-1" />
+                              Позвонить
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Социальные сети */}
+                  {(selectedUserForDetails.telegram || selectedUserForDetails.whatsapp || selectedUserForDetails.instagram || selectedUserForDetails.vk || selectedUserForDetails.socialMedia) && (
+                    <div>
+                      <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                        <MessageCircle className="w-4 h-4 text-[#39B7FF]" />
+                        Социальные сети
+                      </h3>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        {(selectedUserForDetails.telegram || selectedUserForDetails.socialMedia?.telegram) && (
+                          <a
+                            href={`https://t.me/${(selectedUserForDetails.telegram || selectedUserForDetails.socialMedia?.telegram).replace(/^@/, '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-blue-50 hover:bg-blue-100 p-3 rounded-lg transition-colors cursor-pointer block"
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              <Send className="w-4 h-4 text-blue-600" />
+                              <p className="text-[#999]" style={{ fontSize: '10px', fontWeight: '600' }}>TELEGRAM</p>
+                            </div>
+                            <p className="text-blue-700 truncate" style={{ fontSize: '13px', fontWeight: '600' }}>
+                              @{(selectedUserForDetails.telegram || selectedUserForDetails.socialMedia?.telegram).replace(/^@/, '')}
+                            </p>
+                          </a>
+                        )}
+                        {(selectedUserForDetails.whatsapp || selectedUserForDetails.socialMedia?.whatsapp) && (
+                          <a
+                            href={`https://wa.me/${(selectedUserForDetails.whatsapp || selectedUserForDetails.socialMedia?.whatsapp).replace(/[^0-9]/g, '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-green-50 hover:bg-green-100 p-3 rounded-lg transition-colors cursor-pointer block"
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              <Phone className="w-4 h-4 text-green-600" />
+                              <p className="text-[#999]" style={{ fontSize: '10px', fontWeight: '600' }}>WHATSAPP</p>
+                            </div>
+                            <p className="text-green-700 truncate" style={{ fontSize: '13px', fontWeight: '600' }}>
+                              {selectedUserForDetails.whatsapp || selectedUserForDetails.socialMedia?.whatsapp}
+                            </p>
+                          </a>
+                        )}
+                        {(selectedUserForDetails.instagram || selectedUserForDetails.socialMedia?.instagram) && (
+                          <a
+                            href={`https://instagram.com/${(selectedUserForDetails.instagram || selectedUserForDetails.socialMedia?.instagram).replace(/^@/, '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-pink-50 hover:bg-pink-100 p-3 rounded-lg transition-colors cursor-pointer block"
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              <Instagram className="w-4 h-4 text-pink-600" />
+                              <p className="text-[#999]" style={{ fontSize: '10px', fontWeight: '600' }}>INSTAGRAM</p>
+                            </div>
+                            <p className="text-pink-700 truncate" style={{ fontSize: '13px', fontWeight: '600' }}>
+                              @{(selectedUserForDetails.instagram || selectedUserForDetails.socialMedia?.instagram).replace(/^@/, '')}
+                            </p>
+                          </a>
+                        )}
+                        {(selectedUserForDetails.vk || selectedUserForDetails.socialMedia?.vk) && (
+                          <a
+                            href={`https://vk.com/${(selectedUserForDetails.vk || selectedUserForDetails.socialMedia?.vk).replace(/^@/, '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-indigo-50 hover:bg-indigo-100 p-3 rounded-lg transition-colors cursor-pointer block"
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              <Facebook className="w-4 h-4 text-indigo-600" />
+                              <p className="text-[#999]" style={{ fontSize: '10px', fontWeight: '600' }}>VK</p>
+                            </div>
+                            <p className="text-indigo-700 truncate" style={{ fontSize: '13px', fontWeight: '600' }}>
+                              {(selectedUserForDetails.vk || selectedUserForDetails.socialMedia?.vk).replace(/^@/, '')}
+                            </p>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </TabsContent>
+
+                {/* Вкладка: Команда */}
+                <TabsContent value="team" className="space-y-4">
+                  {/* Структура команды */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg">
+                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>1 ЛИНИЯ</p>
+                      <p className="text-[#1E1E1E] text-2xl font-bold">{selectedUserForDetails.команда?.length || 0}</p>
+                      <p className="text-xs text-[#666] mt-1">Прямые партнёры</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-lg">
+                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>2 ЛИНИЯ</p>
+                      <p className="text-[#1E1E1E] text-2xl font-bold">
+                        {selectedUserForDetails.команда?.reduce((sum: number, member: any) => sum + (member.команда?.length || 0), 0) || 0}
+                      </p>
+                      <p className="text-xs text-[#666] mt-1">Партнёры 2 уровня</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-teal-50 to-teal-100 p-4 rounded-lg">
+                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>ВСЕГО</p>
+                      <p className="text-[#1E1E1E] text-2xl font-bold">{calculateTotalTeam(selectedUserForDetails.id)}</p>
+                      <p className="text-xs text-[#666] mt-1">Вся структура</p>
+                    </div>
+                  </div>
+
+                  {/* Активные партнёры */}
+                  <div className="bg-[#F7FAFC] p-4 rounded-lg">
+                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                      <CheckCircle2 className="w-4 h-4 text-green-600" />
+                      Активность команды
+                    </h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm text-[#666]">Активные за месяц</span>
+                          <span className="text-sm font-bold text-green-600">85%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div className="bg-gradient-to-r from-green-400 to-green-600 h-2 rounded-full" style={{ width: '85%' }}></div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm text-[#666]">Неактивные</span>
+                          <span className="text-sm font-bold text-red-600">15%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div className="bg-gradient-to-r from-red-400 to-red-600 h-2 rounded-full" style={{ width: '15%' }}></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Последние регистрации */}
+                  <div className="bg-white border border-[#E6E9EE] p-4 rounded-lg">
+                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                      <UserPlus className="w-4 h-4 text-[#39B7FF]" />
+                      Последние регистрации
+                    </h3>
+                    <div className="space-y-2">
+                      {selectedUserForDetails.команда?.slice(0, 3).map((member: any, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between p-2 bg-[#F7FAFC] rounded-lg">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] flex items-center justify-center text-white text-xs font-bold">
+                              {member.имя?.[0]}{member.фамилия?.[0]}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-[#1E1E1E]">{member.имя} {member.фамилия}</p>
+                              <p className="text-xs text-[#999]">ID: {member.id}</p>
+                            </div>
+                          </div>
+                          <Badge className="bg-green-100 text-green-700">Уровень {member.уровень || 1}</Badge>
+                        </div>
+                      )) || <p className="text-sm text-[#999] text-center py-4">Нет партнёров</p>}
+                    </div>
+                  </div>
+                </TabsContent>
+
+                {/* Вкладка: Продажи */}
+                <TabsContent value="sales" className="space-y-4">
+                  {/* Статистика продаж */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <ShoppingBag className="w-5 h-5 text-green-600" />
+                        <ArrowUpRight className="w-4 h-4 text-green-600" />
+                      </div>
+                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>ЛИЧНЫЕ ПРОДАЖИ</p>
+                      <p className="text-[#1E1E1E] text-xl font-bold">₽0</p>
+                      <p className="text-xs text-green-600 mt-1">+0% за месяц</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <ShoppingBag className="w-5 h-5 text-blue-600" />
+                        <TrendingUp className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>ПРОДАЖИ КОМАНДЫ</p>
+                      <p className="text-[#1E1E1E] text-xl font-bold">₽0</p>
+                      <p className="text-xs text-blue-600 mt-1">+0% за месяц</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <Award className="w-5 h-5 text-purple-600" />
+                      </div>
+                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>ЗАКАЗОВ</p>
+                      <p className="text-[#1E1E1E] text-xl font-bold">0</p>
+                      <p className="text-xs text-[#666] mt-1">Всего заказов</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <BarChart3 className="w-5 h-5 text-orange-600" />
+                      </div>
+                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>СРЕДНИЙ ЧЕК</p>
+                      <p className="text-[#1E1E1E] text-xl font-bold">₽0</p>
+                      <p className="text-xs text-[#666] mt-1">За последний месяц</p>
+                    </div>
+                  </div>
+
+                  {/* График продаж (заглушка) */}
+                  <div className="bg-[#F7FAFC] p-4 rounded-lg">
+                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                      <TrendingUp className="w-4 h-4 text-[#39B7FF]" />
+                      Динамика продаж (30 дней)
+                    </h3>
+                    <div className="h-32 flex items-end gap-1">
+                      {[...Array(30)].map((_, i) => (
+                        <div
+                          key={i}
+                          className="flex-1 bg-gradient-to-t from-[#39B7FF] to-[#12C9B6] rounded-t opacity-30"
+                          style={{ height: `${Math.random() * 100}%` }}
+                        ></div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-[#999] text-center mt-2">График активности за последние 30 дней</p>
+                  </div>
+
+                  {/* Топ продуктов */}
+                  <div className="bg-white border border-[#E6E9EE] p-4 rounded-lg">
+                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                      <Award className="w-4 h-4 text-[#39B7FF]" />
+                      Топ продуктов
+                    </h3>
+                    <div className="text-sm text-[#999] text-center py-6">
+                      Данные о продажах пока отсутствуют
+                    </div>
+                  </div>
+                </TabsContent>
+
+                {/* Вкладка: Финансы */}
+                <TabsContent value="finance" className="space-y-4">
+                  {/* Балансы */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-gradient-to-br from-[#39B7FF]/20 to-[#12C9B6]/20 p-4 rounded-lg border border-[#39B7FF]/30">
+                      <p className="text-[#999] mb-2" style={{ fontSize: '10px', fontWeight: '600' }}>ОБЩИЙ БАЛАНС</p>
+                      <p className="text-[#1E1E1E] text-3xl font-bold">
+                        ₽{selectedUserForDetails.баланс?.toLocaleString() || 0}
+                      </p>
+                    </div>
+                    <div className="bg-gradient-to-br from-green-100 to-green-200 p-4 rounded-lg border border-green-300">
+                      <p className="text-[#999] mb-2" style={{ fontSize: '10px', fontWeight: '600' }}>ДОСТУПНЫЙ БАЛАНС</p>
+                      <p className="text-green-700 text-3xl font-bold">
+                        ₽{selectedUserForDetails.доступныйБаланс?.toLocaleString() || 0}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Доходы по линиям */}
+                  <div className="bg-white border border-[#E6E9EE] p-4 rounded-lg">
+                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                      <DollarSign className="w-4 h-4 text-[#39B7FF]" />
+                      Доходы по линиям (комиссии)
+                    </h3>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="bg-blue-50 p-3 rounded-lg text-center">
+                        <p className="text-blue-600 text-xs mb-1 font-semibold">D1 (1 линия)</p>
+                        <p className="text-[#1E1E1E] text-lg font-bold">₽0</p>
+                      </div>
+                      <div className="bg-purple-50 p-3 rounded-lg text-center">
+                        <p className="text-purple-600 text-xs mb-1 font-semibold">D2 (2 линия)</p>
+                        <p className="text-[#1E1E1E] text-lg font-bold">₽0</p>
+                      </div>
+                      <div className="bg-teal-50 p-3 rounded-lg text-center">
+                        <p className="text-teal-600 text-xs mb-1 font-semibold">D3 (3 линия)</p>
+                        <p className="text-[#1E1E1E] text-lg font-bold">₽0</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Прогресс к следующему уровню */}
+                  <div className="bg-gradient-to-br from-orange-50 to-yellow-50 p-4 rounded-lg border border-orange-200">
+                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                      <TrendingUp className="w-4 h-4 text-orange-600" />
+                      Прогресс к следующему уровню
+                    </h3>
+                    <div className="mb-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-[#666]">Уровень {selectedUserForDetails.уровень || 1} → Уровень {(selectedUserForDetails.уровень || 1) + 1}</span>
+                        <span className="text-sm font-bold text-orange-600">0%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-3">
+                        <div className="bg-gradient-to-r from-orange-400 to-yellow-500 h-3 rounded-full" style={{ width: '0%' }}></div>
+                      </div>
+                    </div>
+                    <p className="text-xs text-[#666]">
+                      Для перехода необходимо выполнить условия программы лояльности
+                    </p>
+                  </div>
+
+                  {/* История транзакций */}
+                  <div className="bg-white border border-[#E6E9EE] p-4 rounded-lg">
+                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                      <Wallet className="w-4 h-4 text-[#39B7FF]" />
+                      Последние транзакции
+                    </h3>
+                    <div className="text-sm text-[#999] text-center py-6">
+                      Транзакций пока нет
+                    </div>
+                  </div>
+                </TabsContent>
+
+                {/* Вкладка: Активность */}
+                <TabsContent value="activity" className="space-y-4">
+                  {/* Статус активности */}
+                  <div className="bg-[#F7FAFC] p-4 rounded-lg border-2 border-[#E6E9EE]">
+                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                      <Clock className="w-4 h-4 text-[#39B7FF]" />
+                      Текущий статус
+                    </h3>
+                    {(() => {
+                      const activityStatus = getActivityStatus(selectedUserForDetails.lastActivity);
+                      return (
+                        <div className="flex items-center gap-3 p-3 bg-white rounded-lg">
+                          <span className={`w-4 h-4 rounded-full ${activityStatus.color} animate-pulse`}></span>
+                          <div className="flex-1">
+                            <p className={`${activityStatus.textColor} font-semibold`}>{activityStatus.text}</p>
+                            <p className="text-xs text-[#999] mt-1">
+                              {selectedUserForDetails.lastActivity 
+                                ? `Последняя активность: ${new Date(selectedUserForDetails.lastActivity).toLocaleString('ru-RU')}`
+                                : 'Активность не отслеживается'}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Последние действия */}
+                  <div className="bg-white border border-[#E6E9EE] p-4 rounded-lg">
+                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                      <Activity className="w-4 h-4 text-[#39B7FF]" />
+                      Последние действия
+                    </h3>
+                    <div className="space-y-2">
+                      {/* Заглушка для истории */}
+                      <div className="flex items-start gap-3 p-3 bg-[#F7FAFC] rounded-lg">
+                        <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center shrink-0">
+                          <CheckCircle2 className="w-4 h-4 text-green-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-[#1E1E1E]">Регистрация в системе</p>
+                          <p className="text-xs text-[#999]">
+                            {selectedUserForDetails.зарегистрирован 
+                              ? new Date(selectedUserForDetails.зарегистрирован).toLocaleString('ru-RU')
+                              : 'Дата неизвестна'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-sm text-[#999] text-center py-4">
+                        История действий пока пуста
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Последние заказы */}
+                  <div className="bg-white border border-[#E6E9EE] p-4 rounded-lg">
+                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                      <ShoppingBag className="w-4 h-4 text-[#39B7FF]" />
+                      Последние заказы
+                    </h3>
+                    <div className="text-sm text-[#999] text-center py-6">
+                      Заказов пока нет
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

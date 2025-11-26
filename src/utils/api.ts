@@ -698,6 +698,16 @@ export async function deleteNotification(notificationId: string) {
   });
 }
 
+export async function sendNotificationToUser(userId: string, notificationData: {
+  тип: string;
+  заголовок: string;
+  сообщение: string;
+}) {
+  return apiCall('/admin/send-notification', {
+    method: 'POST',
+    body: JSON.stringify({ userId, ...notificationData }),
+  });
+}
 // ======================
 // ADMIN - MLM SETTINGS
 // ======================

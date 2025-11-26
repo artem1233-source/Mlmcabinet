@@ -5202,6 +5202,58 @@ app.delete("/make-server-05aa3c8a/notifications/:id", async (c) => {
   }
 });
 
+// Admin: Send notification to user
+app.post("/make-server-05aa3c8a/admin/send-notification", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    if (!currentUser.isAdmin) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    const body = await c.req.json();
+    const { userId, тип, заголовок, сообщение } = body;
+    
+    if (!userId || !тип || !заголовок || !сообщение) {
+      return c.json({ error: 'Missing required fields' }, 400);
+    }
+    
+    // Проверяем существование пользователя
+    const targetUser = await kv.get(`user:${userId}`);
+    if (!targetUser) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+    
+    // Генерируем ID для уведомления
+    const notificationId = `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Создаём уведомление
+    const notification = {
+      id: notificationId,
+      тип,
+      заголовок,
+      сообщение,
+      дата: new Date().toISOString(),
+      прочитано: false,
+      отправительId: currentUser.id, // Кто отправил
+      отправительИмя: `${currentUser.имя} ${currentUser.фамилия || ''}`.trim(),
+    };
+    
+    // Сохраняем уведомление
+    await kv.set(`notification:user:${userId}:${notificationId}`, notification);
+    
+    console.log(`📧 Notification sent to user ${userId} by admin ${currentUser.id}`);
+    
+    return c.json({ 
+      success: true,
+      notification
+    });
+  } catch (error) {
+    console.error('Send notification error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
 // ======================
 // ACHIEVEMENTS & GAMIFICATION
 // ======================
