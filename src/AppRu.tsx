@@ -77,7 +77,7 @@ export default function AppRu() {
           setAuthScreen={setAuthScreen}
         />
       </ErrorBoundary>
-      <Toaster position="top-right" richColors />
+      <Toaster position="bottom-right" richColors closeButton expand={true} />
     </>
   );
 }

@@ -150,7 +150,6 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
     фамилия: '',
     email: '',
     телефон: '',
-    уровень: 1,
     баланс: 0,
     доступныйБаланс: 0,
     telegram: '',
@@ -161,6 +160,19 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
   const [saving, setSaving] = useState(false);
   const [balanceConfirmOpen, setBalanceConfirmOpen] = useState(false);
   const [originalBalances, setOriginalBalances] = useState({ баланс: 0, доступныйБаланс: 0 });
+  
+  // 🆕 State для подтверждения изменения основных данных пользователя
+  const [dataConfirmOpen, setDataConfirmOpen] = useState(false);
+  const [originalUserData, setOriginalUserData] = useState({
+    имя: '',
+    фамилия: '',
+    email: '',
+    телефон: '',
+    telegram: '',
+    whatsapp: '',
+    instagram: '',
+    vk: '',
+  });
 
   // 🔔 State для отправки уведомлений
   const [notificationDialogOpen, setNotificationDialogOpen] = useState(false);
@@ -521,7 +533,6 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
       фамилия: user.фамилия || '',
       email: user.email || '',
       телефон: user.телефон || '',
-      уровень: user.уровень || 1,
       баланс: user.баланс || 0,
       доступныйБаланс: user.доступныйБаланс || 0,
       telegram: user.telegram || user.socialMedia?.telegram || '',
@@ -532,6 +543,17 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
     setOriginalBalances({ 
       баланс: user.баланс || 0, 
       доступныйБаланс: user.доступныйБаланс || 0 
+    });
+    // Сохраняем оригинальные данные пользователя
+    setOriginalUserData({
+      имя: user.имя || '',
+      фамилия: user.фамилия || '',
+      email: user.email || '',
+      телефон: user.телефон || '',
+      telegram: user.telegram || user.socialMedia?.telegram || '',
+      whatsapp: user.whatsapp || user.socialMedia?.whatsapp || '',
+      instagram: user.instagram || user.socialMedia?.instagram || '',
+      vk: user.vk || user.socialMedia?.vk || '',
     });
     setEditDialogOpen(true);
   };
@@ -544,14 +566,32 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
       editFormData.баланс !== originalBalances.баланс || 
       editFormData.доступныйБаланс !== originalBalances.доступныйБаланс;
 
-    // Если баланс изменился, показываем подтверждение
+    // Проверяем, изменились ли основные данные
+    const dataChanged = 
+      editFormData.имя !== originalUserData.имя ||
+      editFormData.фамилия !== originalUserData.фамилия ||
+      editFormData.email !== originalUserData.email ||
+      editFormData.телефон !== originalUserData.телефон ||
+      editFormData.telegram !== originalUserData.telegram ||
+      editFormData.whatsapp !== originalUserData.whatsapp ||
+      editFormData.instagram !== originalUserData.instagram ||
+      editFormData.vk !== originalUserData.vk;
+
+    // Если баланс изменился, показываем подтверждение баланса
     if (balanceChanged) {
       setBalanceConfirmOpen(true);
       return;
     }
 
-    // Если баланс не изменился, сохраняем сразу
-    await saveUserData();
+    // Если изменились основные данные, показываем подтверждение
+    if (dataChanged) {
+      setDataConfirmOpen(true);
+      return;
+    }
+
+    // Если ничего не изменилось, просто закрываем диалог
+    toast.info('Нет изменений для сохранения');
+    setEditDialogOpen(false);
   };
 
   const saveUserData = async () => {
@@ -583,6 +623,7 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
       toast.success('Пользователь обновлён!');
       setEditDialogOpen(false);
       setBalanceConfirmOpen(false);
+      setDataConfirmOpen(false);
       setEditingUser(null);
       loadUsers();
       if (onRefresh) onRefresh();
@@ -688,7 +729,7 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
           'Фамилия': user.фамилия || '-',
           'Email': user.email || '-',
           'Телефон': user.телефон || '-',
-          'Уровень': user.уровень || 1,
+          'Ранг': userRanks.get(user.id) ?? 0,
           'Баланс': user.баланс || 0,
           'Доступный баланс': user.доступныйБаланс || 0,
           'Холдинг': user.холдинг || 0,
@@ -817,8 +858,8 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
             <table style="all: initial; width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; display: table;">
               <tbody style="all: initial; display: table-row-group;">
               <tr style="all: initial; border-bottom: 1px solid #F0F0F0; display: table-row;">
-                <td style="all: initial; padding: 10px 0; color: #666666; font-size: 14px; width: 180px; font-family: Arial, sans-serif; display: table-cell;">Уровень:</td>
-                <td style="all: initial; padding: 10px 0; color: #1E1E1E; font-size: 14px; font-weight: 600; font-family: Arial, sans-serif; display: table-cell;">Уровень ${user.уровень || 1}</td>
+                <td style="all: initial; padding: 10px 0; color: #666666; font-size: 14px; width: 180px; font-family: Arial, sans-serif; display: table-cell;">Ранг:</td>
+                <td style="all: initial; padding: 10px 0; color: #1E1E1E; font-size: 14px; font-weight: 600; font-family: Arial, sans-serif; display: table-cell;">Ранг ${userRanks.get(user.id) ?? 0}</td>
               </tr>
               <tr style="all: initial; border-bottom: 1px solid #F0F0F0; display: table-row;">
                 <td style="all: initial; padding: 10px 0; color: #666666; font-size: 14px; font-family: Arial, sans-serif; display: table-cell;">Баланс:</td>
@@ -1303,38 +1344,6 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                 <Activity className="w-4 h-4 mr-2" />
                 Обновить
               </Button>
-              <Button
-                onClick={async () => {
-                  try {
-                    toast.loading('Запуск миграции lastActivity...');
-                    const response = await fetch(
-                      `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/migrate-activity`,
-                      {
-                        method: 'POST',
-                        headers: {
-                          'Content-Type': 'application/json',
-                          'Authorization': `Bearer ${publicAnonKey}`,
-                          'X-User-Id': currentUser?.id || '',
-                        },
-                      }
-                    );
-                    const data = await response.json();
-                    if (data.success) {
-                      toast.success(`Миграция завершена: обновлено ${data.migratedCount} из ${data.totalUsers} пользователей`);
-                      setTimeout(() => loadUsers(false), 500);
-                    } else {
-                      toast.error(`Ошибка миграции: ${data.error}`);
-                    }
-                  } catch (error) {
-                    console.error('Migration error:', error);
-                    toast.error('Ошибка при выполнении миграции');
-                  }
-                }}
-                variant="outline"
-                title="Запустить миграцию lastActivity для всех пользователей"
-              >
-                🔄 Миграция активности
-              </Button>
             </div>
           </div>
         </div>
@@ -1427,6 +1436,67 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                         <DropdownMenuItem onClick={handleSyncTeams}>
                           <Users className="w-4 h-4 mr-2 text-blue-600" />
                           <span>Синхронизировать</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={async () => {
+                          try {
+                            const toastId = toast.loading('🔄 Пересчет рангов...');
+                            const response = await fetch(
+                              `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/recalculate-ranks`,
+                              {
+                                method: 'POST',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                  'Authorization': `Bearer ${publicAnonKey}`,
+                                  'X-User-Id': currentUser?.id || '',
+                                },
+                              }
+                            );
+                            const data = await response.json();
+                            if (data.success) {
+                              toast.success(`✅ Пересчитано рангов: ${data.stats?.processed || 0}`, { id: toastId });
+                              setTimeout(() => {
+                                loadUsers(false);
+                                loadUserRanks();
+                              }, 500);
+                            } else {
+                              toast.error(`❌ Ошибка: ${data.error}`, { id: toastId });
+                            }
+                          } catch (error) {
+                            console.error('Rank recalculation error:', error);
+                            toast.error('Ошибка при пересчете рангов');
+                          }
+                        }}>
+                          <Award className="w-4 h-4 mr-2 text-purple-600" />
+                          <span>Пересчитать ранги</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={async () => {
+                          try {
+                            const toastId = toast.loading('Запуск миграции...');
+                            const response = await fetch(
+                              `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/migrate-activity`,
+                              {
+                                method: 'POST',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                  'Authorization': `Bearer ${publicAnonKey}`,
+                                  'X-User-Id': currentUser?.id || '',
+                                },
+                              }
+                            );
+                            const data = await response.json();
+                            if (data.success) {
+                              toast.success(`Миграция завершена: обновлено ${data.migratedCount} из ${data.totalUsers} пользователей`, { id: toastId });
+                              setTimeout(() => loadUsers(false), 500);
+                            } else {
+                              toast.error(`Ошибка миграции: ${data.error}`, { id: toastId });
+                            }
+                          } catch (error) {
+                            console.error('Migration error:', error);
+                            toast.error('Ошибка при выполнении миграции');
+                          }
+                        }}>
+                          <Activity className="w-4 h-4 mr-2 text-green-600" />
+                          <span>Миграция активности</span>
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -1847,26 +1917,9 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
               </div>
             </div>
 
-            {/* Partner Level - только для партнёров */}
+            {/* Balance - только для партнёров */}
             {!editingUser?.isAdmin && (
               <>
-                <div className="space-y-2">
-                  <Label htmlFor="уровень" className="flex items-center gap-2">
-                    <Award className="w-4 h-4" />
-                    Уровень партнёра
-                  </Label>
-                  <select
-                    id="уровень"
-                    value={editFormData.уровень}
-                    onChange={(e) => setEditFormData({ ...editFormData, уровень: Number(e.target.value) })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#39B7FF]"
-                  >
-                    <option value={1}>Уровень 1</option>
-                    <option value={2}>Уровень 2</option>
-                    <option value={3}>Уровень 3</option>
-                  </select>
-                </div>
-
                 {/* Balance */}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -2000,6 +2053,119 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
               onClick={saveUserData}
               disabled={saving}
               className="bg-yellow-600 hover:bg-yellow-700 text-white"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Сохранение...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  Подтверждаю изменение
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ℹ️ Подтверждение изменения данных пользователя */}
+      <Dialog open={dataConfirmOpen} onOpenChange={setDataConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                <AlertTriangle className="w-6 h-6 text-[#39B7FF]" />
+              </div>
+              <div>
+                <DialogTitle>Подтверждение изменения данных</DialogTitle>
+                <DialogDescription>
+                  Проверьте корректность изменений перед сохранением
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
+              <p className="text-sm text-blue-900 font-medium">
+                Вы собираетесь изменить данные пользователя:
+              </p>
+              
+              {originalUserData.имя !== editFormData.имя && (
+                <div className="flex items-start justify-between text-sm gap-3">
+                  <span className="text-gray-600 min-w-[80px]">Имя:</span>
+                  <div className="flex items-center gap-2 flex-1 justify-end">
+                    <span className="line-through text-gray-400">{originalUserData.имя}</span>
+                    <ArrowUpRight className="w-4 h-4 text-[#39B7FF] flex-shrink-0" />
+                    <span className="font-bold text-[#39B7FF]">{editFormData.имя}</span>
+                  </div>
+                </div>
+              )}
+              
+              {originalUserData.фамилия !== editFormData.фамилия && (
+                <div className="flex items-start justify-between text-sm gap-3">
+                  <span className="text-gray-600 min-w-[80px]">Фамилия:</span>
+                  <div className="flex items-center gap-2 flex-1 justify-end">
+                    <span className="line-through text-gray-400">{originalUserData.фамилия}</span>
+                    <ArrowUpRight className="w-4 h-4 text-[#39B7FF] flex-shrink-0" />
+                    <span className="font-bold text-[#39B7FF]">{editFormData.фамилия}</span>
+                  </div>
+                </div>
+              )}
+              
+              {originalUserData.email !== editFormData.email && (
+                <div className="flex items-start justify-between text-sm gap-3">
+                  <span className="text-gray-600 min-w-[80px]">Email:</span>
+                  <div className="flex items-center gap-2 flex-1 justify-end">
+                    <span className="line-through text-gray-400 truncate max-w-[120px]">{originalUserData.email}</span>
+                    <ArrowUpRight className="w-4 h-4 text-[#39B7FF] flex-shrink-0" />
+                    <span className="font-bold text-[#39B7FF] truncate max-w-[120px]">{editFormData.email}</span>
+                  </div>
+                </div>
+              )}
+              
+              {originalUserData.телефон !== editFormData.телефон && (
+                <div className="flex items-start justify-between text-sm gap-3">
+                  <span className="text-gray-600 min-w-[80px]">Телефон:</span>
+                  <div className="flex items-center gap-2 flex-1 justify-end">
+                    <span className="line-through text-gray-400">{originalUserData.телефон}</span>
+                    <ArrowUpRight className="w-4 h-4 text-[#39B7FF] flex-shrink-0" />
+                    <span className="font-bold text-[#39B7FF]">{editFormData.телефон}</span>
+                  </div>
+                </div>
+              )}
+              
+              {(originalUserData.telegram !== editFormData.telegram || 
+                originalUserData.whatsapp !== editFormData.whatsapp || 
+                originalUserData.instagram !== editFormData.instagram || 
+                originalUserData.vk !== editFormData.vk) && (
+                <div className="pt-2 border-t border-blue-200">
+                  <p className="text-xs text-blue-700">Также изменены контакты соц. сетей</p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+              <p className="text-xs text-orange-800">
+                ⚠️ Изменение данных пользователя может повлиять на его доступ и отображение в системе.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setDataConfirmOpen(false)}
+              disabled={saving}
+            >
+              Отмена
+            </Button>
+            <Button
+              onClick={saveUserData}
+              disabled={saving}
+              className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white"
             >
               {saving ? (
                 <>
@@ -2537,7 +2703,19 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                 {/* Вкладка: Общее */}
                 <TabsContent value="general" className="space-y-4">
                   {/* Основные метрики */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <div className="bg-orange-50 p-3 rounded-lg">
+                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>РАНГ</p>
+                      <p className="text-[#1E1E1E]" style={{ fontSize: '13px', fontWeight: '600' }}>
+                        {userRanks.get(selectedUserForDetails.id) ?? 0}
+                      </p>
+                    </div>
+                    <div className="bg-indigo-50 p-3 rounded-lg">
+                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>УРОВЕНЬ</p>
+                      <p className="text-[#1E1E1E]" style={{ fontSize: '13px', fontWeight: '600' }}>
+                        {selectedUserForDetails.уровень || 1}
+                      </p>
+                    </div>
                     <div className="bg-blue-50 p-3 rounded-lg">
                       <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>РЕГИСТРАЦИЯ</p>
                       <p className="text-[#1E1E1E]" style={{ fontSize: '13px', fontWeight: '600' }}>
@@ -2795,7 +2973,7 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                               <p className="text-xs text-[#999]">ID: {member.id}</p>
                             </div>
                           </div>
-                          <Badge className="bg-green-100 text-green-700">Уровень {member.уровень || 1}</Badge>
+                          <Badge className="bg-green-100 text-green-700">Ранг {userRanks.get(member.id) ?? 0}</Badge>
                         </div>
                       )) || <p className="text-sm text-[#999] text-center py-4">Нет партнёров</p>}
                     </div>
@@ -2916,11 +3094,11 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                   <div className="bg-gradient-to-br from-orange-50 to-yellow-50 p-4 rounded-lg border border-orange-200">
                     <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
                       <TrendingUp className="w-4 h-4 text-orange-600" />
-                      Прогресс к следующему уровню
+                      Прогресс к следующему рангу
                     </h3>
                     <div className="mb-3">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm text-[#666]">Уровень {selectedUserForDetails.уровень || 1} → Уровень {(selectedUserForDetails.уровень || 1) + 1}</span>
+                        <span className="text-sm text-[#666]">Ранг {userRanks.get(selectedUserForDetails.id) ?? 0} → Ранг {(userRanks.get(selectedUserForDetails.id) ?? 0) + 1}</span>
                         <span className="text-sm font-bold text-orange-600">0%</span>
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-3">

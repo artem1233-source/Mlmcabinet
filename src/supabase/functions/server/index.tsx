@@ -182,86 +182,90 @@ function isUserAdmin(user: any): boolean {
 // 🔄 ID Reuse Management
 // Get next available user ID (checks freed IDs first, then uses counter)
 async function getNextUserId(): Promise<string> {
-  // First check for freed IDs
-  const freedIdsKey = 'freed:user:ids';
-  let freedIds = await kv.get(freedIdsKey) || [];
+  console.log(`🔍 Getting next user ID...`);
   
-  // Get reserved IDs to exclude them
-  const reservedIds = await kv.get('reserved:user:ids') || [];
+  // 🆕 NEW LOGIC: Find truly free ID by checking occupied IDs (like the UI does)
+  // Get all existing users
+  const allUsersData = await kv.getByPrefix('user:id:');
+  const occupiedIds = allUsersData.map((user: any) => {
+    const numId = parseInt(user.id, 10);
+    return isNaN(numId) ? null : numId;
+  }).filter((id: number | null) => id !== null) as number[];
   
-  if (freedIds.length > 0) {
-    // Filter out reserved IDs
-    const availableFreedIds = freedIds.filter((id: number) => !reservedIds.includes(id));
+  console.log(`📋 Occupied IDs (${occupiedIds.length}):`, occupiedIds.sort((a, b) => a - b));
+  
+  // Get reserved IDs
+  let reservedIds = await kv.get('reserved:user:ids') || [];
+  reservedIds = reservedIds.map((id: any) => typeof id === 'string' ? parseInt(id, 10) : id).filter((id: number) => !isNaN(id));
+  
+  console.log(`🔒 Reserved IDs (${reservedIds.length}):`, reservedIds.sort((a, b) => a - b));
+  
+  // Find the smallest free ID (not occupied and not reserved)
+  let nextId = 1;
+  const maxCheck = 99999; // Check up to 99999
+  
+  while (nextId <= maxCheck) {
+    const isOccupied = occupiedIds.includes(nextId);
+    const isReserved = reservedIds.includes(nextId);
     
-    if (availableFreedIds.length > 0) {
-      // Sort and get the smallest ID
-      availableFreedIds.sort((a: number, b: number) => a - b);
-      const nextId = availableFreedIds[0];
-      
-      // Remove from freed list
-      freedIds = freedIds.filter((id: number) => id !== nextId);
-      await kv.set(freedIdsKey, freedIds);
-      
+    if (!isOccupied && !isReserved) {
+      // Found a free ID!
       const formattedId = nextId <= 999 ? String(nextId).padStart(3, '0') : String(nextId);
-      console.log('Reusing freed user ID:', nextId);
+      console.log(`✅ Found free ID: ${nextId} (formatted: ${formattedId})`);
+      console.log(`   - Not in occupied: ${!isOccupied}`);
+      console.log(`   - Not in reserved: ${!isReserved}`);
       return formattedId;
     }
+    
+    if (isOccupied) {
+      console.log(`   ${nextId}: occupied ⛔`);
+    }
+    if (isReserved) {
+      console.log(`   ${nextId}: reserved 🔒`);
+    }
+    
+    nextId++;
   }
   
-  // No freed IDs available, increment counter
-  const counterKey = 'counter:userId';
-  let counter = await kv.get(counterKey) || 0;
-  
-  // Skip reserved IDs
-  do {
-    counter++;
-  } while (reservedIds.includes(counter));
-  
-  await kv.set(counterKey, counter);
-  const formattedCounter = counter <= 999 ? String(counter).padStart(3, '0') : String(counter);
-  console.log('Generated new user ID:', counter);
-  return formattedCounter;
+  // Fallback - should never reach here
+  console.error(`❌ No free ID found up to ${maxCheck}!`);
+  throw new Error('No available user IDs');
 }
 
 // Get next available partner ID (checks freed IDs first, then uses counter)
 async function getNextPartnerId(): Promise<string> {
-  // First check for freed IDs
-  const freedIdsKey = 'freed:partner:ids';
-  let freedIds = await kv.get(freedIdsKey) || [];
+  console.log(`🔍 Getting next partner ID...`);
   
-  // Get reserved IDs to exclude them
-  const reservedIds = await kv.get('reserved:partner:ids') || [];
+  // 🆕 NEW LOGIC: Same as getNextUserId - find truly free partner ID
+  // Partner IDs are 3-digit numeric IDs (001-999)
+  const allUsersData = await kv.getByPrefix('user:id:');
+  const occupiedIds = allUsersData
+    .filter((user: any) => user.id.length === 3 && /^\d+$/.test(user.id))
+    .map((user: any) => parseInt(user.id, 10))
+    .filter((id: number) => !isNaN(id));
   
-  if (freedIds.length > 0) {
-    // Filter out reserved IDs
-    const availableFreedIds = freedIds.filter((id: number) => !reservedIds.includes(id));
+  console.log(`📋 Occupied partner IDs (${occupiedIds.length}):`, occupiedIds.sort((a, b) => a - b));
+  
+  // Get reserved partner IDs
+  let reservedIds = await kv.get('reserved:partner:ids') || [];
+  reservedIds = reservedIds.map((id: any) => typeof id === 'string' ? parseInt(id, 10) : id).filter((id: number) => !isNaN(id));
+  
+  console.log(`🔒 Reserved partner IDs (${reservedIds.length}):`, reservedIds.sort((a, b) => a - b));
+  
+  // Find the smallest free partner ID (1-999)
+  for (let nextId = 1; nextId <= 999; nextId++) {
+    const isOccupied = occupiedIds.includes(nextId);
+    const isReserved = reservedIds.includes(nextId);
     
-    if (availableFreedIds.length > 0) {
-      // Sort and get the smallest ID
-      availableFreedIds.sort((a: number, b: number) => a - b);
-      const nextId = availableFreedIds[0];
-      
-      // Remove from freed list
-      freedIds = freedIds.filter((id: number) => id !== nextId);
-      await kv.set(freedIdsKey, freedIds);
-      
-      console.log(`♻️ Reusing freed partner ID: ${nextId}`);
-      return String(nextId).padStart(3, '0');
+    if (!isOccupied && !isReserved) {
+      const formattedId = String(nextId).padStart(3, '0');
+      console.log(`✅ Found free partner ID: ${nextId} (formatted: ${formattedId})`);
+      return formattedId;
     }
   }
   
-  // No freed IDs available, increment counter
-  const counterKey = 'system:partnerCounter';
-  let counter = await kv.get(counterKey) || 0;
-  
-  // Skip reserved IDs
-  do {
-    counter++;
-  } while (reservedIds.includes(counter));
-  
-  await kv.set(counterKey, counter);
-  console.log(`🆕 Generated new partner ID: ${counter}`);
-  return String(counter).padStart(3, '0');
+  console.error(`❌ No free partner ID found (1-999 all occupied/reserved)!`);
+  throw new Error('No available partner IDs');
 }
 
 // Free user ID for reuse
@@ -739,8 +743,29 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
       await kv.set(`user:id:${sponsor.id}`, updatedSponsor);
       console.log(`Updated sponsor ${sponsor.id} team: added ${newUserId}`);
       
-      // 🆕 Инвалидируем кэш рангов для upline
-      await invalidateRankCache(newUserId);
+      // 🆕 Инвалидируем кэш рангов для спонсора и всей upline цепочки
+      console.log(`🔄 Invalidating rank cache starting from sponsor ${sponsor.id}...`);
+      await invalidateRankCache(sponsor.id);
+      
+      // 🆕 Автоматически пересчитываем ранги для спонсора и upline
+      console.log(`🏆 Auto-recalculating ranks for sponsor ${sponsor.id} and upline...`);
+      try {
+        // Пересчитываем ранг спонсора (это автоматически вычислит и закэширует)
+        await getUserRank(sponsor.id, false);
+        
+        // Пересчитываем ранги для upline
+        let currentSponsorId = sponsor.спонсорId;
+        while (currentSponsorId) {
+          await getUserRank(currentSponsorId, false);
+          const currentSponsor = await kv.get(`user:id:${currentSponsorId}`);
+          if (!currentSponsor) break;
+          currentSponsorId = currentSponsor.спонсорId;
+        }
+        
+        console.log(`✅ Ranks auto-recalculated for sponsor ${sponsor.id} and upline`);
+      } catch (error) {
+        console.error(`⚠️ Error auto-recalculating ranks:`, error);
+      }
       
       // 🆕 Создаём уведомление для спонсора о новом партнёре
       const notificationId = `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -6656,6 +6681,15 @@ app.post('/make-server-05aa3c8a/admin/change-user-id', async (c) => {
     
     // Delete old ID entry
     await kv.del(`user:id:${oldId}`);
+    
+    // 🆕 Free the old ID for reuse
+    if (oldId.length === 3 && /^\d+$/.test(oldId)) {
+      await freePartnerId(oldId);
+      console.log(`♻️ Freed old partner ID ${oldId} for reuse`);
+    } else {
+      await freeUserId(oldId);
+      console.log(`♻️ Freed old user ID ${oldId} for reuse`);
+    }
 
     console.log(`✅ User ID changed successfully: ${oldId} → ${newId}`);
     console.log(`📊 Updated ${updatedReferences} references in other users`);
@@ -6820,6 +6854,86 @@ app.post("/make-server-05aa3c8a/admin/migrate-activity", async (c) => {
   } catch (error) {
     console.error('❌ Migration error:', error);
     return c.json({ error: `Migration failed: ${error}` }, 500);
+  }
+});
+
+// Recalculate all ranks (admin only)
+app.post("/make-server-05aa3c8a/admin/recalculate-ranks", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    console.log('🔄 Starting full rank recalculation...');
+    
+    // Get all users
+    const allUsers = await kv.getByPrefix('user:id:');
+    const userArray = Array.isArray(allUsers) ? allUsers : [];
+    
+    // Filter out admins
+    const partners = userArray.filter((u: any) => 
+      u.__type !== 'admin' && 
+      u.isAdmin !== true && 
+      u.роль !== 'admin'
+    );
+    
+    console.log(`📊 Found ${partners.length} partners to recalculate`);
+    
+    // Clear all rank cache
+    console.log('🗑️ Clearing all rank cache...');
+    const rankKeys = await kv.getByPrefix('rank:user:');
+    for (const key of rankKeys) {
+      await kv.del(`rank:user:${key.userId || key.id || ''}`);
+    }
+    console.log(`✅ Cleared ${rankKeys.length} cached ranks`);
+    
+    // Recalculate ranks for all partners
+    const results: any[] = [];
+    let processed = 0;
+    
+    for (const partner of partners) {
+      try {
+        const rank = await getUserRank(partner.id, false); // Force recalculation
+        results.push({
+          userId: partner.id,
+          name: `${partner.имя} ${partner.фамилия}`,
+          rank,
+          teamSize: partner.команда?.length || 0
+        });
+        processed++;
+        
+        if (processed % 10 === 0) {
+          console.log(`📊 Processed ${processed}/${partners.length} partners...`);
+        }
+      } catch (error) {
+        console.error(`❌ Error calculating rank for user ${partner.id}:`, error);
+        results.push({
+          userId: partner.id,
+          name: `${partner.имя} ${partner.фамилия}`,
+          rank: 0,
+          error: String(error)
+        });
+      }
+    }
+    
+    console.log(`✅ Recalculation complete! Processed ${processed} partners`);
+    
+    return c.json({ 
+      success: true, 
+      message: `Recalculated ranks for ${processed} partners`,
+      results,
+      stats: {
+        total: partners.length,
+        processed,
+        withTeam: results.filter(r => r.teamSize > 0).length,
+        avgRank: results.reduce((sum, r) => sum + r.rank, 0) / results.length
+      }
+    });
+  } catch (error) {
+    console.error('❌ Rank recalculation error:', error);
+    return c.json({ 
+      success: false,
+      error: `${error}`
+    }, (error as any).message?.includes('Admin') ? 403 : 500);
   }
 });
 

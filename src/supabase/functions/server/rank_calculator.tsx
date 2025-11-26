@@ -25,8 +25,11 @@ async function calculateTreeDepth(userId: string, visitedIds: Set<string> = new 
   
   // Если нет команды - ранг 0
   if (!user.команда || user.команда.length === 0) {
+    console.log(`📊 User ${userId} (${user.имя}): команда пуста → ранг 0`);
     return 0;
   }
+  
+  console.log(`📊 User ${userId} (${user.имя}): команда = [${user.команда.join(', ')}]`);
   
   // Рекурсивно вычисляем глубину для каждого партнёра в команде
   const depths: number[] = [];
@@ -35,6 +38,7 @@ async function calculateTreeDepth(userId: string, visitedIds: Set<string> = new 
     try {
       const partnerDepth = await calculateTreeDepth(partnerId, new Set(visitedIds));
       depths.push(partnerDepth);
+      console.log(`   └─ Партнёр ${partnerId}: глубина = ${partnerDepth}`);
     } catch (error) {
       console.error(`Error calculating depth for partner ${partnerId}:`, error);
       depths.push(0);
@@ -43,7 +47,9 @@ async function calculateTreeDepth(userId: string, visitedIds: Set<string> = new 
   
   // Возвращаем максимальную глубину + 1
   const maxDepth = depths.length > 0 ? Math.max(...depths) : 0;
-  return maxDepth + 1;
+  const resultRank = maxDepth + 1;
+  console.log(`📊 User ${userId} (${user.имя}): max(${depths.join(', ')}) + 1 = ${resultRank}`);
+  return resultRank;
 }
 
 /**

@@ -199,3 +199,52 @@ input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+/* 🎨 Стили для Toast уведомлений (Sonner) */
+[data-sonner-toaster] {
+  z-index: 9999 !important;
+}
+
+[data-sonner-toast] {
+  border-radius: 12px !important;
+  padding: 16px !important;
+  gap: 12px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+  backdrop-filter: blur(8px) !important;
+}
+
+[data-sonner-toast][data-styled='true'] {
+  background: white !important;
+  border: 1px solid #E6E9EE !important;
+}
+
+/* Кнопка закрытия */
+[data-sonner-toast] [data-close-button] {
+  border: 1px solid #E6E9EE !important;
+  background: white !important;
+  color: #666 !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease !important;
+}
+
+[data-sonner-toast] [data-close-button]:hover {
+  background: #F7FAFC !important;
+  border-color: #39B7FF !important;
+}
+
+/* Иконки статусов */
+[data-sonner-toast][data-type='success'] [data-icon] {
+  color: #10B981 !important;
+}
+
+[data-sonner-toast][data-type='error'] [data-icon] {
+  color: #EF4444 !important;
+}
+
+[data-sonner-toast][data-type='info'] [data-icon] {
+  color: #39B7FF !important;
+}
+
+[data-sonner-toast][data-type='loading'] [data-icon] {
+  color: #F59E0B !important;
+}
