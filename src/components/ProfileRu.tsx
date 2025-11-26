@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { User, Mail, Calendar, Copy, Share2, Award, TrendingUp, Edit2, Save, X, Phone, MessageCircle, Instagram, Facebook, Eye, EyeOff, Lock, Globe } from 'lucide-react';
+import { User, Mail, Calendar, Copy, Share2, Award, TrendingUp, Edit2, Save, X, Phone, MessageCircle, Instagram, Facebook, Eye, EyeOff, Lock, Globe, LogOut } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -14,9 +14,10 @@ import { AvatarCropDialog } from './AvatarCropDialog';
 interface ProfileProps {
   currentUser: any;
   onUpdate?: () => void;
+  onLogout?: () => void;
 }
 
-export function ProfileRu({ currentUser, onUpdate }: ProfileProps) {
+export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
   console.log('🔵 ProfileRu: Rendering with currentUser:', currentUser);
   
   const [isEditing, setIsEditing] = useState(false);
@@ -922,6 +923,25 @@ export function ProfileRu({ currentUser, onUpdate }: ProfileProps) {
           </CardContent>
         </Card>
       </div>
+      
+      {/* 🚪 Кнопка выхода */}
+      {onLogout && (
+        <div className="mt-6">
+          <Card className="border-red-200 rounded-2xl shadow-sm bg-white">
+            <CardContent className="pt-6">
+              <Button 
+                onClick={onLogout}
+                variant="outline"
+                className="w-full border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700"
+                style={{ fontWeight: '600' }}
+              >
+                <LogOut size={16} className="mr-2" />
+                Выйти из аккаунта
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
       
       {/* Avatar Crop Dialog */}
       <AvatarCropDialog

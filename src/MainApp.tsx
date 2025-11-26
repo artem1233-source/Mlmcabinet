@@ -38,6 +38,18 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
     setRefreshTrigger(prev => prev + 1);
   };
 
+  // 🚪 Выход из системы
+  const handleLogout = () => {
+    console.log('🚪 Logging out...');
+    localStorage.removeItem('userId');
+    localStorage.removeItem('access_token');
+    api.clearAuthToken();
+    setUserId(null);
+    setCurrentUser(null);
+    setActiveSection('дашборд');
+    window.location.reload();
+  };
+
   // 🔄 Загружаем полные данные пользователя при изменении userId или refreshTrigger
   useEffect(() => {
     console.log('🔄 MainApp useEffect triggered. userId:', userId, 'refreshTrigger:', refreshTrigger);
@@ -207,10 +219,10 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
         return <NotificationsRu />;
       case 'профиль':
       case 'profile':
-        return <ProfileRu currentUser={currentUser} onUpdate={handleRefresh} />;
+        return <ProfileRu currentUser={currentUser} onUpdate={handleRefresh} onLogout={handleLogout} />;
       case 'настройки':
       case 'settings':
-        return <SettingsRu currentUser={currentUser} onUpdate={handleRefresh} />;
+        return <SettingsRu currentUser={currentUser} onUpdate={handleRefresh} onLogout={handleLogout} />;
       case 'админ':
       case 'admin':
         return <AdminRu currentUser={currentUser} />;
