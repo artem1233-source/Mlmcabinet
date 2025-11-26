@@ -592,7 +592,7 @@ app.post("/make-server-05aa3c8a/auth", async (c) => {
         имя: name.trim(),
         фамилия: isFirstUser ? 'Admin' : '',
         username: name.toLowerCase().replace(/\s+/g, '_'),
-        уровень: isFirstUser ? 3 : 1, // CEO gets level 3, others start at 1
+        уровень: isFirstUser ? 3 : 0, // ✅ CEO gets level 3, новые партнёры начинают с ранга 0
         рефКод: `REF${Date.now().toString().slice(-6)}`,
         спонсорId: null,
         баланс: 0,
@@ -782,7 +782,7 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
       имя: firstName.trim(),
       фамилия: lastName.trim(),
       username: email.split('@')[0],
-      уровень: 1, // Новые партнёры начинают с уровня 1
+      уровень: 0, // ✅ Новые партнёры начинают с ранга 0 (нет команды)
       рефКод: refCode, // Читаемый реф-код
       спонсорId: sponsor ? sponsor.id : null,
       upline: upline,
@@ -1162,7 +1162,7 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
       имя: firstName.trim(),
       фамилия: lastName.trim(),
       username: email.split('@')[0],
-      уровень: 1, // New partners start at level 1
+      уровень: 0, // ✅ Новые партнёры начинают с ранга 0 (нет команды)
       рефКод: refCode,
       спонсорId: sponsor ? sponsor.id : null,
       upline: upline,
@@ -1481,7 +1481,7 @@ app.post("/make-server-05aa3c8a/auth/oauth", async (c) => {
         email: sessionData.user.email?.trim() || '',
         имя: sessionData.user.user_metadata?.full_name || sessionData.user.user_metadata?.name || sessionData.user.email?.split('@')[0] || 'Пользователь',
         username: sessionData.user.email?.split('@')[0] || 'user',
-        уровень: 1, // Новые партнёры начинают с уровня 1
+        уровень: 0, // ✅ Новые партнёры начинают с ранга 0 (нет команды)
         рефКод: `REF${Date.now().toString().slice(-6)}`,
         спонсорId: null,
         баланс: 0,
@@ -1597,7 +1597,7 @@ app.post("/make-server-05aa3c8a/telegram-auth", async (c) => {
         имя: telegramData.first_name + (telegramData.last_name ? ` ${telegramData.last_name}` : ''),
         username: telegramData.username || '',
         photoUrl: telegramData.photo_url || '',
-        уровень: 1, // Новые партнёры начинают с уровня 1
+        уровень: 0, // ✅ Новые партнёры начинают с ранга 0 (нет команды)
         рефКод: `REF${telegramId.toString().slice(-6)}`,
         спонсорId: sponsorId,
         баланс: 0,
@@ -1977,7 +1977,7 @@ app.get("/make-server-05aa3c8a/user/:userId/profile", async (c) => {
       id: userData.id,
       имя: userData.имя || '',
       фамилия: userData.фамилия || '',
-      уровень: userData.уровень || 1,
+      уровень: userData.уровень ?? 0, // ✅ По умолчанию ранг 0
       рефКод: userData.рефКод || '',
       зарегистрирован: userData.зарегистрирован,
       команда: userData.команда || []
