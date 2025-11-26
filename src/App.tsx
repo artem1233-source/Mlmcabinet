@@ -18,6 +18,16 @@ export default function App() {
     window.addEventListener('error', handleError);
     window.addEventListener('unhandledrejection', handleUnhandledRejection);
     
+    // 🆕 Log localStorage access_token status on app mount
+    const accessToken = localStorage.getItem('access_token');
+    const userId = localStorage.getItem('userId');
+    console.log('🔐 App startup - Auth status:', {
+      hasAccessToken: !!accessToken,
+      accessTokenLength: accessToken?.length || 0,
+      hasUserId: !!userId,
+      userId: userId || 'N/A'
+    });
+    
     console.log('✅ App mounted, global error handlers installed');
     
     return () => {

@@ -3,21 +3,20 @@ import { LoginRu } from './components/LoginRu';
 import { RegistrationRu } from './components/RegistrationRu';
 import { SidebarRu } from './components/SidebarRu';
 import { DashboardRu } from './components/DashboardRu';
-import { StructureRu } from './components/StructureRu';
-import { UsersManagementRu } from './components/UsersManagementRu';
 import { OrdersRu } from './components/OrdersRu';
-import { EarningsRu } from './components/EarningsRu';
 import { BalanceRu } from './components/BalanceRu';
 import { CatalogRu } from './components/CatalogRu';
-import { MarketingToolsRu } from './components/MarketingToolsRu';
+import { UsersManagementRu } from './components/UsersManagementRuV2';
+import { OptimizedStructureRu } from './components/OptimizedStructureRu';
 import { TrainingRu } from './components/TrainingRu';
-import { AchievementsRu } from './components/AchievementsRu';
-import { NotificationsRu } from './components/NotificationsRu';
 import { ProfileRu } from './components/ProfileRu';
 import { SettingsRu } from './components/SettingsRu';
+import { NotificationsRu } from './components/NotificationsRu';
+import { AchievementsRu } from './components/AchievementsRu';
+import { MarketingToolsRu } from './components/MarketingToolsRu';
+import { EarningsRu } from './components/EarningsRu';
 import { AdminRu } from './components/AdminRu';
 import { AdminPanel } from './components/AdminPanel';
-import { AdminDebug } from './components/AdminDebug';
 import { Menu } from 'lucide-react';
 import { Button } from './components/ui/button';
 import * as api from './utils/api.ts';
@@ -103,6 +102,8 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
     
     if (token) {
       setUserId(token);
+      // Save userId to localStorage for AdminPanel and other components
+      localStorage.setItem('userId', token);
       console.log('✅ MainApp: User is authenticated, userId:', token);
     } else {
       console.log('❌ MainApp: No auth token, showing login');
@@ -113,6 +114,9 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
   const handleAuth = (newUserId: string) => {
     console.log('✅ MainApp: Authentication successful, userId:', newUserId);
     setUserId(newUserId);
+    // Save userId to localStorage for AdminPanel and other components
+    localStorage.setItem('userId', newUserId);
+    console.log('💾 Saved userId to localStorage:', newUserId);
   };
 
   if (loading) {
@@ -144,8 +148,8 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
             setAuthScreen('register');
           }}
           onLogin={(newUserId) => {
-            console.log('✅ MainApp: User logged in, setting userId:', newUserId);
-            setUserId(newUserId);
+            console.log('✅ MainApp: User logged in, calling handleAuth');
+            handleAuth(newUserId);
           }}
         />;
       }
@@ -172,7 +176,7 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
         return <DashboardRu currentUser={currentUser} onRefresh={handleRefresh} refreshTrigger={refreshTrigger} />;
       case 'структура':
       case 'structure':
-        return <StructureRu currentUser={currentUser} refreshTrigger={refreshTrigger} />;
+        return <OptimizedStructureRu currentUser={currentUser} refreshTrigger={refreshTrigger} />;
       case 'пользователи':
       case 'users':
         return <UsersManagementRu currentUser={currentUser} onRefresh={handleRefresh} />;
@@ -180,8 +184,9 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
       case 'orders':
         return <OrdersRu currentUser={currentUser} refreshTrigger={refreshTrigger} />;
       case 'доходы':
+      case 'incomes':
       case 'earnings':
-        return <EarningsRu currentUser={currentUser} onRefresh={handleRefresh} refreshTrigger={refreshTrigger} />;
+        return <EarningsRu currentUser={currentUser} refreshTrigger={refreshTrigger} />;
       case 'баланс':
       case 'balance':
         return <BalanceRu currentUser={currentUser} onRefresh={handleRefresh} refreshTrigger={refreshTrigger} />;
@@ -193,7 +198,7 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
         return <MarketingToolsRu currentUser={currentUser} />;
       case 'обучение':
       case 'training':
-        return <TrainingRu />;
+        return <TrainingRu currentUser={currentUser} />;
       case 'достижения':
       case 'achievements':
         return <AchievementsRu />;
@@ -202,43 +207,16 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
         return <NotificationsRu />;
       case 'профиль':
       case 'profile':
-        return <ProfileRu 
-          currentUser={currentUser} 
-          onUpdate={async () => {
-            // Перезагружаем данные пользователя
-            const response = await api.getUser(userId!);
-            if (response.success && response.user) {
-              setCurrentUser(response.user);
-            }
-          }} 
-        />; 
+        return <ProfileRu currentUser={currentUser} onUpdate={handleRefresh} />;
       case 'настройки':
       case 'settings':
-        return <SettingsRu 
-          currentUser={currentUser} 
-          onUpdate={async () => {
-            // Перезагружаем данные пользователя
-            const response = await api.getUser(userId!);
-            if (response.success && response.user) {
-              setCurrentUser(response.user);
-            }
-          }}
-          onLogout={() => {
-            setUserId(null);
-            setCurrentUser(null);
-            api.clearAuthToken();
-            setAuthScreen('login');
-          }}
-        />; 
+        return <SettingsRu currentUser={currentUser} onUpdate={handleRefresh} />;
       case 'админ':
       case 'admin':
         return <AdminRu currentUser={currentUser} />;
       case 'управление-админами':
-      case 'adminpanel':
+      case 'admin-management':
         return <AdminPanel currentUser={currentUser} />;
-      case 'админдебаг':
-      case 'admindebug':
-        return <AdminDebug currentUser={currentUser} />;
       default:
         return <DashboardRu currentUser={currentUser} onRefresh={handleRefresh} refreshTrigger={refreshTrigger} />;
     }

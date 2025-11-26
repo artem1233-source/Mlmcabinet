@@ -181,12 +181,22 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
 
       if (data.user && data.access_token) {
         console.log('✅ Login successful, saving auth token for user:', data.user.id);
+        console.log('🔑 Access token received:', data.access_token.substring(0, 20) + '...');
+        
+        // Сохраняем access_token для admin операций
+        localStorage.setItem('access_token', data.access_token);
+        console.log('💾 Access token saved to localStorage');
+        
+        // Verify it's saved
+        const savedToken = localStorage.getItem('access_token');
+        console.log('✔️ Verification - token in localStorage:', savedToken ? 'YES ✓' : 'NO ✗');
         
         // Используем api.setAuthToken для сохранения userId
         // (система использует userId как токен)
         api.setAuthToken(data.user.id);
         
-        onAuth(data.user);
+        // Pass только userId to MainApp's handleAuth
+        onAuth(data.user.id);
       } else {
         console.error('❌ Invalid server response:', data);
         setDebugInfo({ response: data, status: response.status, url });
@@ -388,7 +398,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
               type="button"
               onClick={(e) => {
                 console.log('🔄 Login button clicked, e.target:', e.target, 'e.currentTarget:', e.currentTarget);
-                console.log('🔄 Current mode BEFORE:', mode);
+                console.log(' Current mode BEFORE:', mode);
                 try {
                   setMode('login');
                   console.log('🔄 setMode("login") called successfully');
@@ -815,7 +825,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
               </svg>
             </div>
             <div>
-              <p className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '14px' }}>4 ровня пар��нёрства</p>
+              <p className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '14px' }}>4 ровня парнёрства</p>
               <p className="text-[#666]" style={{ fontSize: '13px' }}>От Уровня 0 до Уровня 3</p>
             </div>
           </div>

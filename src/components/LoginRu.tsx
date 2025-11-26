@@ -69,10 +69,30 @@ export function LoginRu({ onSwitchToRegister, onLogin }: LoginRuProps) {
 
       if (data.access_token && data.user) {
         console.log('✅ Login successful, user:', data.user);
+        console.log('🔑 Access token received:', data.access_token.substring(0, 20) + '...');
+        console.log('📋 User data:', {
+          id: data.user.id,
+          type: data.user.type,
+          role: data.user.role,
+          isAdmin: data.user.isAdmin
+        });
+        
+        // Сохраняем access_token для admin операций
+        localStorage.setItem('access_token', data.access_token);
+        console.log('💾 Access token saved to localStorage');
+        
+        // Verify it's saved immediately
+        const savedToken = localStorage.getItem('access_token');
+        console.log('✔️ Immediate verification - token in localStorage:', savedToken ? 'YES ✓' : 'NO ✗');
+        if (savedToken) {
+          console.log('✔️ Saved token length:', savedToken.length);
+          console.log('✔️ Saved token preview:', savedToken.substring(0, 20) + '...');
+        }
         
         // Используем api.setAuthToken для сохранения userId
         // (система использует userId как токен)
         api.setAuthToken(data.user.id);
+        console.log('💾 User ID saved via api.setAuthToken:', data.user.id);
         
         console.log('🚀 Calling onLogin callback with userId:', data.user.id);
         
@@ -81,6 +101,7 @@ export function LoginRu({ onSwitchToRegister, onLogin }: LoginRuProps) {
           onLogin(data.user.id);
         } else {
           // Fallback: если колбэк не передан, используем редирект
+          console.log('⚠️ No onLogin callback provided, using fallback redirect');
           window.location.href = '/';
         }
       }

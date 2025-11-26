@@ -1,8 +1,19 @@
 import { useState, useEffect } from 'react';
-import { Shield, Users, Plus, X, CheckCircle, AlertCircle, Trash2, UserX } from 'lucide-react';
+import { Shield, Users, Plus, X, CheckCircle, AlertCircle, Trash2, UserX, ArrowRight, AlertTriangle, Edit } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { getAccessToken } from '../utils/supabase/client';
 import { toast } from 'sonner';
 import * as api from '../utils/api';
+import { 
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from './ui/dialog';
+import { Input } from './ui/input';
+import { Alert, AlertDescription } from './ui/alert';
 
 interface AdminPanelProps {
   currentUser: any;
@@ -30,7 +41,7 @@ const roleLabels: { [key: string]: string } = {
 
 const roleDescriptions: { [key: string]: string } = {
   ceo: 'Полный доступ ко всем функциям системы',
-  finance: 'Управление финансами, выплатами, балансами',
+  finance: 'Управление финансами, выплатами, баансами',
   warehouse: 'Управление складом, товарами, поставками',
   manager: 'Управление пользователями, заказами',
   support: 'Просмотр данных без возможности редактирования'
@@ -44,6 +55,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'admins' | 'users'>('admins');
+  const [showReloginPrompt, setShowReloginPrompt] = useState(false);
 
   // Create admin form state
   const [newAdmin, setNewAdmin] = useState({
@@ -54,21 +66,93 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
     role: 'support'
   });
 
+  // Change ID dialog state
+  const [changeIdDialogOpen, setChangeIdDialogOpen] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<string>('');
+  const [newUserId, setNewUserId] = useState<string>('');
+  const [isChangingId, setIsChangingId] = useState(false);
+
+  // Change role dialog state
+  const [changeRoleDialogOpen, setChangeRoleDialogOpen] = useState(false);
+  const [selectedAdminForRole, setSelectedAdminForRole] = useState<Admin | null>(null);
+  const [newRole, setNewRole] = useState<string>('');
+  const [isChangingRole, setIsChangingRole] = useState(false);
+
   // Check if current user is CEO
   const isCEO = currentUser?.type === 'admin' && currentUser?.role === 'ceo';
 
   useEffect(() => {
     if (isCEO) {
-      loadAdmins();
-      loadAllUsers();
+      const initializeToken = async () => {
+        // ✅ Check if token exists in localStorage
+        let accessToken = localStorage.getItem('access_token');
+        const userId = localStorage.getItem('userId');
+        
+        console.log('🔑 AdminPanel: Token check:', {
+          exists: !!accessToken,
+          length: accessToken?.length || 0,
+          preview: accessToken ? `${accessToken.substring(0, 20)}...` : 'N/A',
+          currentUserId: currentUser?.id,
+          storedUserId: userId
+        });
+        
+        // 🆕 FALLBACK: If no access_token but user is logged in, try to get it from Supabase
+        if (!accessToken && userId) {
+          console.log('⚠️ No access_token found, but user is logged in. Trying to get session from Supabase...');
+          
+          try {
+            const token = await getAccessToken();
+            if (token) {
+              accessToken = token;
+              localStorage.setItem('access_token', token);
+              console.log('✅ Retrieved and saved access_token from Supabase session');
+            } else {
+              console.warn('❌ Could not retrieve access_token from Supabase');
+            }
+          } catch (error) {
+            console.error('Error getting access_token:', error);
+          }
+        }
+        
+        if (!accessToken) {
+          console.warn('⚠️ AdminPanel: Access token отсутствует. Пользователь должен войти заново.');
+          console.warn('💡 Debugging info:', {
+            isCEO,
+            currentUser,
+            localStorageKeys: Object.keys(localStorage)
+          });
+          setError('Требуется повторный вход в систему для доступа к управлению администраторами');
+          return;
+        }
+        
+        // Token exists, load admin data
+        console.log('✅ AdminPanel: Token found, loading admin data...');
+        loadAdmins();
+        loadAllUsers();
+      };
+      
+      initializeToken();
+    } else {
+      console.log('ℹ️ AdminPanel: User is not CEO, skipping initialization', {
+        currentUser,
+        isCEO
+      });
     }
-  }, [isCEO]);
+  }, [isCEO, currentUser?.id]);
 
   const loadAdmins = async () => {
     try {
       setLoading(true);
       const accessToken = localStorage.getItem('access_token');
 
+      // ✅ Check if user is authenticated
+      if (!accessToken) {
+        console.warn('⚠️ Access token не найден. Пользователь не авторизован.');
+        setError('Требуется повторный вход в систему');
+        return;
+      }
+
+      // 🆕 Use dedicated /admins endpoint instead of /admin/users
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admins`,
         {
@@ -83,10 +167,28 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
       const data = await response.json();
 
       if (!response.ok) {
+        // Handle specific auth errors
+        if (response.status === 401) {
+          console.error('❌ Токен невалиден или истек');
+          setError('Сессия истекла. Пожалуйста, войдите заново.');
+          // Clear invalid token
+          localStorage.removeItem('access_token');
+          return;
+        }
         throw new Error(data.error || 'Ошибка загрузки списка админов');
       }
 
-      setAdmins(data.admins || []);
+      // 🆕 Now we get only real admins from admin:id:* prefix
+      const adminsList = (data.admins || [])
+        .map((u: any) => ({
+          ...u,
+          permissions: u.permissions || [],  // Add default empty array if permissions is undefined
+          role: u.role || 'support',          // Add default role if missing
+        }));
+      
+      console.log('📋 Loaded admins from /admins endpoint:', adminsList.length);
+      setAdmins(adminsList);
+      setError(null); // Clear any previous errors
     } catch (err) {
       console.error('Load admins error:', err);
       setError(err instanceof Error ? err.message : 'Ошибка загрузки');
@@ -98,15 +200,16 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
   const loadAllUsers = async () => {
     try {
       setLoading(true);
-      const accessToken = localStorage.getItem('access_token');
+      const userId = localStorage.getItem('userId');
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/users`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/users`,
         {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${accessToken}`,
+            'Authorization': `Bearer ${publicAnonKey}`,
+            'X-User-Id': userId || '',
           },
         }
       );
@@ -214,7 +317,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Ошибка удаления админа');
+        throw new Error(data.error || 'Ошибка удаления адмна');
       }
 
       toast.success(`Администратор успешно удален!`);
@@ -225,6 +328,141 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
       toast.error(err instanceof Error ? err.message : 'Ошибка удаления');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleOpenChangeIdDialog = (userId: string) => {
+    setSelectedUserId(userId);
+    setNewUserId('');
+    setChangeIdDialogOpen(true);
+  };
+
+  const handleCloseChangeIdDialog = () => {
+    if (!isChangingId) {
+      setChangeIdDialogOpen(false);
+      setSelectedUserId('');
+      setNewUserId('');
+    }
+  };
+
+  const handleChangeUserId = async () => {
+    if (!selectedUserId || !newUserId.trim()) {
+      toast.error('Заполните все поля');
+      return;
+    }
+
+    // Валидация нового ID
+    const trimmedNewId = newUserId.trim();
+    
+    if (trimmedNewId.length < 2) {
+      toast.error('ID должен содержать минимум 2 символа');
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9_-]+$/.test(trimmedNewId)) {
+      toast.error('ID может содержать только латинские буквы, цифры, дефис и подчёркивание');
+      return;
+    }
+
+    const selectedUser = admins.find(u => u.id === selectedUserId);
+    if (!selectedUser) {
+      toast.error('Пользователь не найден');
+      return;
+    }
+
+    const confirmMsg = `Вы уверены, что хотите изменить ID администратора?\n\n${selectedUser.имя} ${selectedUser.фамилия}\n${selectedUserId} → ${trimmedNewId}\n\n⚠️ Это действие обновит все ссылки в системе.`;
+    
+    if (!confirm(confirmMsg)) {
+      return;
+    }
+
+    setIsChangingId(true);
+
+    try {
+      const response = await api.changeUserId(selectedUserId, trimmedNewId);
+      
+      if (response.success) {
+        toast.success(`ID успешно изменён: ${selectedUserId} → ${trimmedNewId}`);
+        
+        // Если изменили ID текущего пользователя, нужно обновить токен
+        if (selectedUserId === currentUser.id) {
+          api.setAuthToken(trimmedNewId);
+          toast.info('Ваш ID изменён. Перезагрузка...');
+          setTimeout(() => {
+            window.location.reload();
+          }, 1500);
+        } else {
+          handleCloseChangeIdDialog();
+          // Reload admins list
+          loadAdmins();
+          loadAllUsers();
+        }
+      } else {
+        toast.error(response.error || 'Ошибка при изменении ID');
+      }
+    } catch (error: any) {
+      console.error('Error changing ID:', error);
+      toast.error(error.message || 'Ошибка при изменении ID');
+    } finally {
+      setIsChangingId(false);
+    }
+  };
+
+  const handleOpenChangeRoleDialog = (admin: Admin) => {
+    setSelectedAdminForRole(admin);
+    setNewRole(admin.role);
+    setChangeRoleDialogOpen(true);
+  };
+
+  const handleCloseChangeRoleDialog = () => {
+    if (!isChangingRole) {
+      setChangeRoleDialogOpen(false);
+      setSelectedAdminForRole(null);
+      setNewRole('');
+    }
+  };
+
+  const handleChangeRole = async () => {
+    if (!selectedAdminForRole || !newRole) {
+      toast.error('Заполните все поля');
+      return;
+    }
+
+    const confirmMsg = `Вы уверены, что хотите изменить роль администратора?\n\n${selectedAdminForRole.имя} ${selectedAdminForRole.фамилия}\n${selectedAdminForRole.role} → ${newRole}\n\n⚠️ Это действие может повлиять на права доступа.`;
+    
+    if (!confirm(confirmMsg)) {
+      return;
+    }
+
+    setIsChangingRole(true);
+
+    try {
+      const accessToken = localStorage.getItem('access_token');
+      
+      if (!accessToken) {
+        toast.error('Токен доступа не найден. Пожалуйста, выйдите и войдите снова.');
+        return;
+      }
+      
+      const response = await api.changeUserRole(selectedAdminForRole.id, newRole);
+      
+      if (response.success) {
+        toast.success(`Роль успешно изменена: ${selectedAdminForRole.role} → ${newRole}`);
+        
+        // Close dialog
+        handleCloseChangeRoleDialog();
+        
+        // Reload admins list
+        loadAdmins();
+        loadAllUsers();
+      } else {
+        toast.error(response.error || 'Ошибка при изменении роли');
+      }
+    } catch (error: any) {
+      console.error('Error changing role:', error);
+      toast.error(error.message || 'Ошибка при изменении роли');
+    } finally {
+      setIsChangingRole(false);
     }
   };
 
@@ -256,22 +494,63 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
           </div>
         </div>
 
-        <button
-          onClick={() => setShowCreateForm(!showCreateForm)}
-          className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
-        >
-          {showCreateForm ? (
-            <>
-              <X className="w-5 h-5" />
-              <span>Отмена</span>
-            </>
-          ) : (
-            <>
-              <Plus className="w-5 h-5" />
-              <span>Создать админа</span>
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={async () => {
+              if (confirm('Очистить дубликаты администраторов? Это удалит копии админов из user:id: и оставит только в admin:id:')) {
+                try {
+                  setLoading(true);
+                  const result = await api.cleanDuplicateAdmins();
+                  
+                  // Показываем детальный результат
+                  if (result.migratedAdmins > 0 || result.deletedDuplicates > 0) {
+                    toast.success(
+                      `✅ ${result.message}\n` +
+                      `Мигрировано: ${result.migratedAdmins}\n` +
+                      `Удалено дубликатов: ${result.deletedDuplicates}`,
+                      { duration: 5000 }
+                    );
+                  } else {
+                    toast.info('ℹ️ Дубликаты не найдены. Все администраторы находятся в правильных префиксах.', { duration: 4000 });
+                  }
+                  
+                  // Показываем лог если есть
+                  if (result.log && result.log.length > 0) {
+                    console.log('📋 Лог очистки дубликатов:', result.log);
+                  }
+                  
+                  loadAdmins();
+                } catch (error: any) {
+                  console.error('❌ Ошибка очистки дубликатов:', error);
+                  toast.error(error.message || 'Ошибка очистки');
+                } finally {
+                  setLoading(false);
+                }
+              }
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors"
+            disabled={loading}
+          >
+            <AlertTriangle className="w-5 h-5" />
+            <span>Очистить дубликаты</span>
+          </button>
+          <button
+            onClick={() => setShowCreateForm(!showCreateForm)}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+          >
+            {showCreateForm ? (
+              <>
+                <X className="w-5 h-5" />
+                <span>Отмена</span>
+              </>
+            ) : (
+              <>
+                <Plus className="w-5 h-5" />
+                <span>Создать админа</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Success Message */}
@@ -287,11 +566,56 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
 
       {/* Error Message */}
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-red-700 font-semibold">Ошибка</p>
-            <p className="text-red-600 text-sm">{error}</p>
+        <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
+          <div className="flex items-start gap-3 mb-3">
+            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-red-700 font-semibold">Ошибка</p>
+              <p className="text-red-600 text-sm">{error}</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                // Check token again
+                const accessToken = localStorage.getItem('access_token');
+                const userId = localStorage.getItem('userId');
+                console.log('🔍 Повторная проверка токена:', {
+                  hasAccessToken: !!accessToken,
+                  accessTokenLength: accessToken?.length || 0,
+                  hasUserId: !!userId,
+                  userId: userId || 'N/A',
+                  preview: accessToken ? `${accessToken.substring(0, 30)}...` : 'N/A'
+                });
+                
+                if (accessToken) {
+                  alert(`✅ Токен найден!\n\nДлина: ${accessToken.length}\nПревью: ${accessToken.substring(0, 40)}...\n\nПопробуйте перезагрузить страницу.`);
+                  // Try to reload data
+                  setError(null);
+                  loadAdmins();
+                  loadAllUsers();
+                } else {
+                  alert('❌ Токен не найден в localStorage.\n\nВам нужно войти заново.');
+                }
+              }}
+              className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors"
+            >
+              🔍 Проверить токен
+            </button>
+            {(error.includes('истекла') || error.includes('Требуется')) && (
+              <button
+                onClick={() => {
+                  // Clear old token
+                  localStorage.removeItem('access_token');
+                  localStorage.removeItem('userId');
+                  // Reload page to go back to login
+                  window.location.reload();
+                }}
+                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold transition-colors"
+              >
+                Войти заново
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -474,10 +798,24 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
 
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => handleDeleteAdmin(admin.id)}
-                      className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                      onClick={() => handleOpenChangeIdDialog(admin.id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm hover:shadow-md"
                     >
-                      <Trash2 className="w-5 h-5" />
+                      <ArrowRight className="w-4 h-4" />
+                      <span>Изменить ID</span>
+                    </button>
+                    <button
+                      onClick={() => handleOpenChangeRoleDialog(admin)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm hover:shadow-md"
+                    >
+                      <ArrowRight className="w-4 h-4" />
+                      <span>Изменить роль</span>
+                    </button>
+                    <button
+                      onClick={() => handleDeleteAdmin(admin.id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors shadow-sm hover:shadow-md"
+                    >
+                      <Trash2 className="w-4 h-4" />
                       <span>Удалить</span>
                     </button>
                   </div>
@@ -485,7 +823,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
 
                 {/* Permissions */}
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {admin.permissions.map((permission) => (
+                  {(admin.permissions || []).map((permission) => (
                     <span 
                       key={permission}
                       className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded"
@@ -499,6 +837,171 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
           </div>
         )}
       </div>
+
+      {/* Change User ID Dialog */}
+      <Dialog open={changeIdDialogOpen} onOpenChange={handleCloseChangeIdDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Изменить ID администратора</DialogTitle>
+            <DialogDescription>
+              {(() => {
+                const user = admins.find(u => u.id === selectedUserId);
+                return user ? `${user.имя} ${user.фамилия} (${user.email})` : 'Выберите пользователя';
+              })()}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <Alert className="bg-blue-50 border-blue-200">
+              <AlertTriangle className="w-4 h-4 text-blue-600" />
+              <AlertDescription className="text-blue-800">
+                <strong>Важно:</strong> При изменении ID все ссылки в системе (спонсоры, команды, заказы) будут автоматически обновлены.
+              </AlertDescription>
+            </Alert>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-900">
+                Текущий ID
+              </label>
+              <Input
+                value={selectedUserId}
+                disabled
+                className="bg-gray-50 font-mono"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-900">
+                Новый ID <span className="text-red-500">*</span>
+              </label>
+              <Input
+                value={newUserId}
+                onChange={(e) => setNewUserId(e.target.value)}
+                placeholder="Введите новый ID (например: CEO, admin, director)"
+                className="font-mono"
+                disabled={isChangingId}
+              />
+              <p className="text-xs text-gray-600">
+                Только латинские буквы, цифры, дефис и подчёркивание. Минимум 2 символа.
+              </p>
+            </div>
+
+            {selectedUserId === currentUser?.id && (
+              <Alert className="bg-yellow-50 border-yellow-200">
+                <AlertTriangle className="w-4 h-4 text-yellow-600" />
+                <AlertDescription className="text-yellow-800">
+                  ⚠️ Вы изменяете свой собственный ID. После изменения страница перезагрузится, и вам нужно будет войти с новым ID.
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+
+          <DialogFooter>
+            <button
+              type="button"
+              className="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto"
+              onClick={handleCloseChangeIdDialog}
+              disabled={isChangingId}
+            >
+              Отмена
+            </button>
+            <button
+              type="button"
+              className="inline-flex w-full justify-center rounded-md bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:from-blue-700 hover:to-blue-800 sm:ml-3 sm:w-auto disabled:opacity-50"
+              onClick={handleChangeUserId}
+              disabled={!newUserId.trim() || isChangingId}
+            >
+              {isChangingId ? 'Изменение...' : 'Изменить ID'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Change User Role Dialog */}
+      <Dialog open={changeRoleDialogOpen} onOpenChange={handleCloseChangeRoleDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Изменить роль администратора</DialogTitle>
+            <DialogDescription>
+              {(() => {
+                const user = selectedAdminForRole;
+                return user ? `${user.имя} ${user.фамилия} (${user.email})` : 'Выберите пользователя';
+              })()}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <Alert className="bg-blue-50 border-blue-200">
+              <AlertTriangle className="w-4 h-4 text-blue-600" />
+              <AlertDescription className="text-blue-800">
+                <strong>Важно:</strong> При изменении роли администратора права доступа будут автоматически обновлены.
+              </AlertDescription>
+            </Alert>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-900">
+                Текущая роль
+              </label>
+              <Input
+                value={selectedAdminForRole?.role || ''}
+                disabled
+                className="bg-gray-50 font-mono"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-900">
+                Новая роль <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={newRole}
+                onChange={(e) => setNewRole(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                disabled={isChangingRole}
+              >
+                {Object.entries(roleLabels).map(([role, label]) => (
+                  role !== 'ceo' && (
+                    <option key={role} value={role}>
+                      {label}
+                    </option>
+                  )
+                ))}
+              </select>
+              <p className="mt-2 text-sm text-gray-600">
+                {roleDescriptions[newRole]}
+              </p>
+            </div>
+
+            {selectedAdminForRole?.id === currentUser?.id && (
+              <Alert className="bg-yellow-50 border-yellow-200">
+                <AlertTriangle className="w-4 h-4 text-yellow-600" />
+                <AlertDescription className="text-yellow-800">
+                  ⚠️ Вы изменяете свою собственную роль. После изменения права доступа будут обновлены.
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+
+          <DialogFooter>
+            <button
+              type="button"
+              className="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto"
+              onClick={handleCloseChangeRoleDialog}
+              disabled={isChangingRole}
+            >
+              Отмена
+            </button>
+            <button
+              type="button"
+              className="inline-flex w-full justify-center rounded-md bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:from-blue-700 hover:to-blue-800 sm:ml-3 sm:w-auto disabled:opacity-50"
+              onClick={handleChangeRole}
+              disabled={!newRole || isChangingRole}
+            >
+              {isChangingRole ? 'Изменение...' : 'Изменить роль'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { Label } from './ui/label';
 import { Switch } from './ui/switch';
 import { toast } from 'sonner';
 import * as api from '../utils/api';
+import { AvatarCropDialog } from './AvatarCropDialog';
 
 interface ProfileProps {
   currentUser: any;
@@ -21,6 +22,14 @@ export function ProfileRu({ currentUser, onUpdate }: ProfileProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // 🆕 Состояние для обрезки аватарки
+  const [cropDialogOpen, setCropDialogOpen] = useState(false);
+  const [imageToCrop, setImageToCrop] = useState<string>('');
+  
+  // 🆕 Состояние для ранга
+  const [userRank, setUserRank] = useState<number | null>(null);
+  const [rankLoading, setRankLoading] = useState(true);
   
   // Редактируемые поля
   const [formData, setFormData] = useState({
@@ -69,6 +78,30 @@ export function ProfileRu({ currentUser, onUpdate }: ProfileProps) {
       });
     }
   }, [currentUser]);
+  
+  // 🆕 Загружаем ранг при монтировании
+  useEffect(() => {
+    const loadRank = async () => {
+      if (!currentUser?.id || currentUser.isAdmin) {
+        setRankLoading(false);
+        return;
+      }
+      
+      try {
+        setRankLoading(true);
+        const response = await api.getUserRank(currentUser.id, true);
+        if (response.success) {
+          setUserRank(response.rank);
+        }
+      } catch (error) {
+        console.error('Failed to load user rank:', error);
+      } finally {
+        setRankLoading(false);
+      }
+    };
+    
+    loadRank();
+  }, [currentUser?.id]);
   
   // Guard clause
   if (!currentUser || !currentUser.имя) {
@@ -159,12 +192,37 @@ export function ProfileRu({ currentUser, onUpdate }: ProfileProps) {
       return;
     }
     
-    // Конвертируем в Base64
+    // Конвертируем в data URL для предпросмотра
     const reader = new FileReader();
     reader.onloadend = () => {
-      setFormData(prev => ({ ...prev, аватарка: reader.result as string }));
+      setImageToCrop(reader.result as string);
+      setCropDialogOpen(true);
     };
     reader.readAsDataURL(file);
+  };
+
+  const uploadAvatar = async (file: File | Blob) => {
+    try {
+      const formData = new FormData();
+      formData.append('avatar', file);
+      
+      const response = await api.uploadAvatar(formData);
+      
+      if (response.success) {
+        setFormData(prev => ({ ...prev, аватарка: response.avatarUrl }));
+        toast.success('Аватарка загружена!');
+        
+        // Обновляем данные в родительском компоненте
+        if (onUpdate) {
+          await onUpdate();
+        }
+      } else {
+        throw new Error(response.error || 'Failed to upload');
+      }
+    } catch (error) {
+      console.error('Avatar upload error:', error);
+      toast.error('Ошибка загрузки аватарки');
+    }
   };
 
   // Цвета для уровней 1, 2, 3 (индекс 0 не используется)
@@ -374,6 +432,20 @@ export function ProfileRu({ currentUser, onUpdate }: ProfileProps) {
                           </div>
                         </div>
                       </div>
+                      
+                      {/* 🆕 Ранг партнёра */}
+                      {!currentUser.isAdmin && (
+                        <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl min-w-0 border border-orange-200">
+                          <Award size={20} className="text-orange-600 flex-shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[#666]" style={{ fontSize: '12px' }}>Ранг партнёра</div>
+                            <div className="text-orange-600 flex items-center gap-2" style={{ fontWeight: '700', fontSize: '16px' }}>
+                              {rankLoading ? '...' : userRank ?? 0}
+                              <span className="text-xs text-[#999] font-normal">уровней глубины</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                     
                     <div className="pt-2">
@@ -850,6 +922,22 @@ export function ProfileRu({ currentUser, onUpdate }: ProfileProps) {
           </CardContent>
         </Card>
       </div>
+      
+      {/* Avatar Crop Dialog */}
+      <AvatarCropDialog
+        open={cropDialogOpen}
+        onClose={() => {
+          setCropDialogOpen(false);
+          // Сбрасываем файл инпут
+          if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+          }
+        }}
+        imageSrc={imageToCrop}
+        onCropComplete={async (croppedBlob) => {
+          uploadAvatar(croppedBlob);
+        }}
+      />
     </div>
   );
 }

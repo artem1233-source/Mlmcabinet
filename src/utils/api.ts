@@ -34,6 +34,7 @@ export function getAuthToken(): string | null {
 export function clearAuthToken() {
   authToken = null;
   localStorage.removeItem('auth_token');
+  localStorage.removeItem('access_token');
 }
 
 // Helper for API calls
@@ -129,6 +130,27 @@ export async function updateProfile(profileData: any) {
   });
 }
 
+export async function uploadAvatar(formData: FormData) {
+  const userId = localStorage.getItem('userId');
+  const token = localStorage.getItem('authToken');
+  
+  const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/user/avatar`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${publicAnonKey}`,
+      'X-User-Id': userId || '',
+    },
+    body: formData, // Не добавляем Content-Type, браузер сам установит multipart/form-data
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to upload avatar');
+  }
+  
+  return response.json();
+}
+
 export function logout() {
   clearAuthToken();
 }
@@ -143,6 +165,10 @@ export async function getUser(userId: string) {
 
 export async function getUserTeam(userId: string) {
   return apiCall(`/user/${userId}/team`);
+}
+
+export async function getUserRank(userId: string, useCache = true) {
+  return apiCall(`/user/${userId}/rank?cache=${useCache}`);
 }
 
 export async function getUserProfile(userId: string) {
@@ -336,6 +362,91 @@ export async function cleanBrokenRefs() {
   });
 }
 
+export async function cleanDuplicateAdmins() {
+  const accessToken = localStorage.getItem('access_token');
+  
+  console.log('🧹 cleanDuplicateAdmins called');
+  console.log('  accessToken:', accessToken ? 'Present ✓' : 'MISSING ✗');
+  
+  if (!accessToken) {
+    throw new Error('Access token not found. Please log in again.');
+  }
+  
+  const userId = getAuthToken();
+  
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${accessToken}`,
+  };
+  
+  if (userId) {
+    headers['X-User-Id'] = userId;
+  }
+  
+  const url = `${API_BASE}/admin/clean-duplicate-admins`;
+  console.log('🌐 Calling:', url);
+  
+  // Create AbortController for timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+  
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    
+    console.log('📡 Response status:', response.status);
+    console.log('📡 Response ok:', response.ok);
+    
+    const responseText = await response.text();
+    console.log('📡 Response text:', responseText);
+    
+    if (!response.ok) {
+      console.error('❌ Error response:', responseText);
+      let error;
+      try {
+        error = JSON.parse(responseText);
+      } catch (e) {
+        error = { error: responseText || 'Network error' };
+      }
+      throw new Error(error.error || `API error: ${response.status}`);
+    }
+    
+    let result;
+    try {
+      result = JSON.parse(responseText);
+    } catch (e) {
+      console.error('❌ Failed to parse response:', e);
+      throw new Error('Invalid JSON response from server');
+    }
+    
+    console.log('✅ Success:', result);
+    return result;
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    
+    if (error.name === 'AbortError') {
+      console.error('❌ Request timeout after 30 seconds');
+      throw new Error('Запрос превысил время ожидания (30 сек). Попробуйте снова.');
+    }
+    
+    console.error('❌ Request error:', error);
+    throw error;
+  }
+}
+
+export async function cleanDuplicateProducts() {
+  console.log('🧹 Cleaning duplicate products');
+  
+  return apiCall('/admin/products/clean-duplicates', {
+    method: 'POST',
+  });
+}
+
 export async function syncTeams() {
   return apiCall('/admin/sync-teams', {
     method: 'POST',
@@ -346,6 +457,19 @@ export async function changeUserId(oldId: string, newId: string) {
   return apiCall('/admin/change-user-id', {
     method: 'POST',
     body: JSON.stringify({ oldId, newId }),
+  });
+}
+
+export async function changeUserRole(adminId: string, newRole: string) {
+  const accessToken = localStorage.getItem('access_token');
+  
+  if (!accessToken) {
+    throw new Error('Access token not found. Please log in again.');
+  }
+  
+  return apiCall('/auth/update-admin-role', {
+    method: 'POST',
+    body: JSON.stringify({ adminId, newRole, creatorToken: accessToken }),
   });
 }
 
@@ -504,15 +628,6 @@ export async function archiveProduct(productId: string, archive: boolean = true)
   return apiCall(`/admin/products/${productId}/archive`, {
     method: 'POST',
     body: JSON.stringify({ archive }),
-  });
-}
-
-// Clean duplicate products
-export async function cleanDuplicateProducts() {
-  console.log('🧹 Cleaning duplicate products');
-  
-  return apiCall('/admin/products/clean-duplicates', {
-    method: 'POST',
   });
 }
 

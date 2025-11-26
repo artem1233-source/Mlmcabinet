@@ -10,6 +10,7 @@ import { ResetPasswordRu } from './components/ResetPasswordRu';
 import { MainApp } from './MainApp';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { EmailDiagnostic } from './components/EmailDiagnostic';
+import { Toaster } from './components/ui/sonner';
 
 export default function AppRu() {
   const currentPath = window.location.pathname;
@@ -69,11 +70,14 @@ export default function AppRu() {
   // Для ВСЕХ остальных путей (включая /, /login, /register) показываем MainApp
   console.log('✅ Rendering MainApp with ErrorBoundary');
   return (
-    <ErrorBoundary>
-      <MainApp 
-        authScreen={authScreen} 
-        setAuthScreen={setAuthScreen}
-      />
-    </ErrorBoundary>
+    <>
+      <ErrorBoundary>
+        <MainApp 
+          authScreen={authScreen} 
+          setAuthScreen={setAuthScreen}
+        />
+      </ErrorBoundary>
+      <Toaster position="top-right" richColors />
+    </>
   );
 }

@@ -3,6 +3,7 @@ import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
 import * as kv from "./kv_store.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { getUserRank, invalidateRankCache } from "./rank_calculator.tsx";
 
 // Helper function for HMAC using Web Crypto API (works in Deno, no node:crypto needed)
 async function createHmacSha256(key: string | Uint8Array, data: string): Promise<string> {
@@ -658,6 +659,9 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
       await kv.set(`user:id:${sponsor.id}`, updatedSponsor);
       console.log(`Updated sponsor ${sponsor.id} team: added ${newUserId}`);
       
+      // 🆕 Инвалидируем кэш рангов для upline
+      await invalidateRankCache(newUserId);
+      
       // 🆕 Создаём уведомление для спонсора о новом партнёре
       const notificationId = `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const notification = {
@@ -870,7 +874,8 @@ app.post("/make-server-05aa3c8a/auth/login", async (c) => {
     return c.json({ 
       success: true, 
       user: userData,
-      access_token: authData.session.access_token
+      access_token: authData.session.access_token,
+      refresh_token: authData.session.refresh_token
     });
     
   } catch (error) {
@@ -1551,6 +1556,111 @@ app.put("/make-server-05aa3c8a/user/profile", async (c) => {
   }
 });
 
+// Upload avatar
+app.post("/make-server-05aa3c8a/user/avatar", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    const body = await c.req.parseBody();
+    const file = body['avatar'];
+    
+    if (!file || !(file instanceof File)) {
+      return c.json({ error: 'No file provided' }, 400);
+    }
+    
+    // Проверка размера (макс 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      return c.json({ error: 'Файл слишком большой (макс 2MB)' }, 400);
+    }
+    
+    // Проверка типа файла
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowedTypes.includes(file.type)) {
+      return c.json({ error: 'Неподдерживаемый формат файла' }, 400);
+    }
+    
+    const bucketName = 'make-05aa3c8a-avatars';
+    
+    // Создаём bucket если не существует
+    const { data: buckets } = await supabase.storage.listBuckets();
+    const bucketExists = buckets?.some(bucket => bucket.name === bucketName);
+    
+    if (!bucketExists) {
+      await supabase.storage.createBucket(bucketName, {
+        public: true,
+        fileSizeLimit: 2097152, // 2MB
+        allowedMimeTypes: allowedTypes
+      });
+      console.log(`✅ Created bucket: ${bucketName}`);
+    }
+    
+    // Генерируем уникальное имя файла
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${currentUser.id}-${Date.now()}.${fileExt}`;
+    const filePath = `avatars/${fileName}`;
+    
+    // Конвертируем File в ArrayBuffer
+    const arrayBuffer = await file.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+    
+    // Удаляем старую аватарку если есть
+    if (currentUser.аватарка && currentUser.аватарка.includes(bucketName)) {
+      const oldPath = currentUser.аватарка.split(`${bucketName}/`)[1];
+      if (oldPath) {
+        await supabase.storage.from(bucketName).remove([oldPath]);
+        console.log(`🗑️ Deleted old avatar: ${oldPath}`);
+      }
+    }
+    
+    // Загружаем файл
+    const { data, error } = await supabase.storage
+      .from(bucketName)
+      .upload(filePath, uint8Array, {
+        contentType: file.type,
+        upsert: true
+      });
+    
+    if (error) {
+      console.error('Storage upload error:', error);
+      return c.json({ error: `Failed to upload: ${error.message}` }, 500);
+    }
+    
+    // Получаем публичный URL
+    const { data: urlData } = supabase.storage
+      .from(bucketName)
+      .getPublicUrl(filePath);
+    
+    const avatarUrl = urlData.publicUrl;
+    
+    // Обновляем пользователя
+    const updatedUser = {
+      ...currentUser,
+      аватарка: avatarUrl
+    };
+    
+    await kv.set(`user:id:${currentUser.id}`, updatedUser);
+    
+    if (currentUser.email) {
+      await kv.set(`user:email:${currentUser.email.trim().toLowerCase()}`, updatedUser);
+    }
+    
+    if (currentUser.telegramId) {
+      await kv.set(`user:tg:${currentUser.telegramId}`, updatedUser);
+    }
+    
+    console.log(`✅ Avatar uploaded for: ${currentUser.id}`);
+    
+    return c.json({
+      success: true,
+      avatarUrl,
+      message: 'Аватарка загружена!'
+    });
+    
+  } catch (error) {
+    console.error(`❌ Avatar upload error:`, error);
+    return c.json({ error: `Failed to upload avatar: ${error}` }, 500);
+  }
+});
+
 // Delete own account
 app.delete("/make-server-05aa3c8a/user/account", async (c) => {
   try {
@@ -1571,6 +1681,9 @@ app.delete("/make-server-05aa3c8a/user/account", async (c) => {
         sponsor.команда = sponsor.команда.filter((id: string) => id !== userId);
         await kv.set(`user:id:${currentUser.спонсорId}`, sponsor);
         console.log(`Removed ${userId} from sponsor ${currentUser.спонсорId}'s team`);
+        
+        // 🆕 Инвалидируем кэш рангов для upline
+        await invalidateRankCache(userId);
       }
     }
     
@@ -1831,6 +1944,35 @@ app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
       success: false,
       error: `Failed to get team: ${error}`,
       team: []
+    }, 500);
+  }
+});
+
+// Get user rank (максимальная глубина дерева)
+app.get("/make-server-05aa3c8a/user/:userId/rank", async (c) => {
+  try {
+    await verifyUser(c.req.header('X-User-Id'));
+    const userId = c.req.param('userId');
+    const useCache = c.req.query('cache') !== 'false';
+    
+    console.log(`🏆 Getting rank for user: ${userId} (cache: ${useCache})`);
+    
+    const rank = await getUserRank(userId, useCache);
+    
+    console.log(`✅ Rank for user ${userId}: ${rank}`);
+    
+    return c.json({ 
+      success: true, 
+      userId,
+      rank,
+      cached: useCache
+    });
+  } catch (error) {
+    console.log(`Get rank error: ${error}`);
+    return c.json({ 
+      success: false,
+      error: `Failed to get rank: ${error}`,
+      rank: 0
     }, 500);
   }
 });
@@ -2514,16 +2656,375 @@ app.get("/make-server-05aa3c8a/admin/users", async (c) => {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
+    console.log('📋 Getting all users (excluding admins)...');
+    
+    // Get regular users
     const users = await kv.getByPrefix('user:id:');
     const userArray = Array.isArray(users) ? users : [];
     
-    return c.json({ success: true, users: userArray });
+    // 🚫 Filter out administrators
+    const allUsers = userArray.filter((u: any) => 
+      u.__type !== 'admin' && 
+      u.isAdmin !== true && 
+      u.роль !== 'admin'
+    );
+    
+    console.log(`📋 Found ${userArray.length} total users, filtered to ${allUsers.length} non-admin users`);
+    
+    return c.json({ success: true, users: allUsers });
   } catch (error) {
     console.log(`Admin get users error: ${error}`);
     return c.json({ 
       success: false, 
       error: `${error}`,
       users: []
+    }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// 🆕 Get users with pagination, search, and filters
+app.get("/make-server-05aa3c8a/admin/users/paginated", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    // Parse query parameters
+    const page = parseInt(c.req.query('page') || '1');
+    const limit = parseInt(c.req.query('limit') || '50');
+    const search = c.req.query('search') || '';
+    const level = c.req.query('level') || '';
+    const userType = c.req.query('type') || ''; // 'admin' or 'partner'
+    const sortBy = c.req.query('sortBy') || 'created'; // 'created', 'name', 'balance', 'level'
+    const sortOrder = c.req.query('sortOrder') || 'desc'; // 'asc' or 'desc'
+    const sponsorStatus = c.req.query('sponsorStatus') || ''; // 'has_sponsor' or 'no_sponsor'
+    const teamSize = c.req.query('teamSize') || ''; // '0', '1-5', '6-10', '11-20', '21+'
+    const balanceRange = c.req.query('balanceRange') || ''; // '0-1000', '1001-5000', '5001-10000', '10001+'
+    const rankFilter = c.req.query('rank') || ''; // 🆕 Фильтр по рангу
+    const statsFilter = c.req.query('statsFilter') || ''; // 🆕 Фильтр из виджетов статистики
+    
+    console.log(`📋 Getting paginated users - page: ${page}, limit: ${limit}, search: "${search}", level: ${level}, type: ${userType}, sponsor: ${sponsorStatus}, team: ${teamSize}, balance: ${balanceRange}`);
+    
+    // 🎯 Get ONLY regular users (no admins in partners panel)
+    const users = await kv.getByPrefix('user:id:');
+    const userArray = Array.isArray(users) ? users : [];
+    
+    // Apply filters
+    let filteredUsers = userArray;
+    
+    // 🚫 CRITICAL: Exclude all administrators from the list
+    filteredUsers = filteredUsers.filter((u: any) => 
+      u.__type !== 'admin' && 
+      u.isAdmin !== true && 
+      u.роль !== 'admin'
+    );
+    
+    // Filter by level
+    if (level) {
+      const levelNum = parseInt(level);
+      filteredUsers = filteredUsers.filter((u: any) => u.уровень === levelNum);
+    }
+    
+    // Filter by sponsor status
+    if (sponsorStatus === 'has_sponsor') {
+      filteredUsers = filteredUsers.filter((u: any) => u.спонсорId && u.спонсорId !== '');
+    } else if (sponsorStatus === 'no_sponsor') {
+      filteredUsers = filteredUsers.filter((u: any) => !u.спонсорId || u.спонсорId === '');
+    }
+    
+    // Filter by team size
+    if (teamSize) {
+      filteredUsers = filteredUsers.filter((u: any) => {
+        const size = u.команда?.length || 0;
+        switch (teamSize) {
+          case '0': return size === 0;
+          case '1-5': return size >= 1 && size <= 5;
+          case '6-10': return size >= 6 && size <= 10;
+          case '11-20': return size >= 11 && size <= 20;
+          case '21+': return size >= 21;
+          default: return true;
+        }
+      });
+    }
+    
+    // Filter by balance range
+    if (balanceRange) {
+      filteredUsers = filteredUsers.filter((u: any) => {
+        const balance = u.баланс || 0;
+        switch (balanceRange) {
+          case '0-1000': return balance >= 0 && balance <= 1000;
+          case '1001-5000': return balance >= 1001 && balance <= 5000;
+          case '5001-10000': return balance >= 5001 && balance <= 10000;
+          case '10001+': return balance >= 10001;
+          default: return true;
+        }
+      });
+    }
+    
+    // 🆕 Filter by rank range
+    const rankFromParam = c.req.query('rankFrom');
+    const rankToParam = c.req.query('rankTo');
+    
+    if (rankFromParam && rankToParam) {
+      const rankFrom = parseInt(rankFromParam);
+      const rankTo = parseInt(rankToParam);
+      console.log(`🎯 Filtering by rank range: ${rankFrom} - ${rankTo}`);
+      
+      const ranksPromises = filteredUsers.map(async (u: any) => {
+        if (u.__type === 'admin' || u.isAdmin) {
+          return { user: u, rank: null };
+        }
+        try {
+          const rank = await getUserRank(u.id, true);
+          return { user: u, rank };
+        } catch (error) {
+          console.error(`Error calculating rank for user ${u.id}:`, error);
+          return { user: u, rank: 0 };
+        }
+      });
+      
+      const usersWithRanks = await Promise.all(ranksPromises);
+      
+      filteredUsers = usersWithRanks.filter(({ user, rank }) => {
+        if (user.__type === 'admin' || user.isAdmin) return false;
+        if (rank === null) return false;
+        
+        // Фильтруем по диапазону
+        return rank >= rankFrom && rank <= rankTo;
+      }).map(({ user }) => user);
+      
+      console.log(`✅ Filtered to ${filteredUsers.length} users with rank between ${rankFrom} and ${rankTo}`);
+    }
+    
+    // Filter by search query
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filteredUsers = filteredUsers.filter((u: any) => {
+        const fullName = `${u.имя || ''} ${u.фамилия || ''}`.toLowerCase();
+        const email = (u.email || '').toLowerCase();
+        const id = (u.id || '').toLowerCase();
+        const partnerId = (u.партнёрскийID || '').toLowerCase();
+        
+        return fullName.includes(searchLower) || 
+               email.includes(searchLower) || 
+               id.includes(searchLower) ||
+               partnerId.includes(searchLower);
+      });
+    }
+    
+    // 🎯 Apply stats filter (widget clicks) - needs to be done after getting all users but before sorting
+    if (statsFilter && statsFilter !== 'all') {
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      
+      switch (statsFilter) {
+        case 'newToday':
+          filteredUsers = filteredUsers.filter((u: any) => {
+            const regDate = new Date(u.зарегистрирован || u.created || 0);
+            return regDate >= todayStart;
+          });
+          break;
+          
+        case 'newThisMonth':
+          filteredUsers = filteredUsers.filter((u: any) => {
+            const regDate = new Date(u.зарегистрирован || u.created || 0);
+            return regDate >= monthStart;
+          });
+          break;
+          
+        case 'activePartners':
+          // Partners who got new team members this month
+          filteredUsers = filteredUsers.filter((partner: any) => {
+            if (partner.isAdmin) return false;
+            if (!partner.команда || partner.команда.length === 0) return false;
+            
+            return partner.команда.some((memberId: string) => {
+              const member = userArray.find((u: any) => u.id === memberId);
+              if (!member || !member.зарегистрирован) return false;
+              const memberRegDate = new Date(member.зарегистрирован);
+              return memberRegDate >= monthStart;
+            });
+          });
+          break;
+          
+        case 'passivePartners':
+          // Partners who didn't get new team members this month
+          filteredUsers = filteredUsers.filter((partner: any) => {
+            if (partner.isAdmin) return false;
+            if (!partner.команда || partner.команда.length === 0) return true;
+            
+            return !partner.команда.some((memberId: string) => {
+              const member = userArray.find((u: any) => u.id === memberId);
+              if (!member || !member.зарегистрирован) return false;
+              const memberRegDate = new Date(member.зарегистрирован);
+              return memberRegDate >= monthStart;
+            });
+          });
+          break;
+          
+        case 'activeUsers':
+          // Users who made purchases this month - need to check orders
+          const allOrders = await kv.getByPrefix('order:');
+          const ordersArray = Array.isArray(allOrders) ? allOrders : [];
+          const ordersThisMonth = ordersArray.filter((order: any) => {
+            if (!order.создан) return false;
+            const orderDate = new Date(order.создан);
+            return orderDate >= monthStart;
+          });
+          const activeUserIds = new Set(ordersThisMonth.map((o: any) => o.продавецId).filter(Boolean));
+          
+          filteredUsers = filteredUsers.filter((u: any) => {
+            if (u.isAdmin) return false;
+            return activeUserIds.has(u.id);
+          });
+          break;
+          
+        case 'passiveUsers':
+          // Users who didn't make purchases this month
+          const allOrders2 = await kv.getByPrefix('order:');
+          const ordersArray2 = Array.isArray(allOrders2) ? allOrders2 : [];
+          const ordersThisMonth2 = ordersArray2.filter((order: any) => {
+            if (!order.создан) return false;
+            const orderDate = new Date(order.создан);
+            return orderDate >= monthStart;
+          });
+          const activeUserIds2 = new Set(ordersThisMonth2.map((o: any) => o.продавецId).filter(Boolean));
+          
+          filteredUsers = filteredUsers.filter((u: any) => {
+            if (u.isAdmin) return false;
+            return !activeUserIds2.has(u.id);
+          });
+          break;
+      }
+    }
+    
+    // Sort users
+    filteredUsers.sort((a: any, b: any) => {
+      let compareValue = 0;
+      
+      switch (sortBy) {
+        case 'name':
+          const nameA = `${a.имя || ''} ${a.фамилия || ''}`.toLowerCase();
+          const nameB = `${b.имя || ''} ${b.фамилия || ''}`.toLowerCase();
+          compareValue = nameA.localeCompare(nameB);
+          break;
+        case 'balance':
+          compareValue = (a.баланс || 0) - (b.баланс || 0);
+          break;
+        case 'level':
+          compareValue = (a.уровень || 0) - (b.уровень || 0);
+          break;
+        case 'created':
+        default:
+          const dateA = new Date(a.зарегистрирован || a.created || 0).getTime();
+          const dateB = new Date(b.зарегистрирован || b.created || 0).getTime();
+          compareValue = dateA - dateB;
+          break;
+      }
+      
+      return sortOrder === 'asc' ? compareValue : -compareValue;
+    });
+    
+    // Calculate pagination
+    const totalUsers = filteredUsers.length;
+    const totalPages = Math.ceil(totalUsers / limit);
+    const offset = (page - 1) * limit;
+    const paginatedUsers = filteredUsers.slice(offset, offset + limit);
+    
+    // 📊 Calculate statistics from ALL users (not just filtered)
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    
+    // Get all orders to check for active/passive users
+    const allOrders = await kv.getByPrefix('order:');
+    const ordersArray = Array.isArray(allOrders) ? allOrders : [];
+    
+    // Filter orders by current month
+    const ordersThisMonth = ordersArray.filter((order: any) => {
+      if (!order.создан) return false;
+      const orderDate = new Date(order.создан);
+      return orderDate >= monthStart;
+    });
+    
+    // Get unique user IDs who made orders this month (active users)
+    const activeUserBuyersIds = new Set(ordersThisMonth.map((o: any) => o.продавецId).filter(Boolean));
+    
+    // Calculate active/passive partners (who recruited in this month)
+    const partners = userArray.filter((u: any) => !u.isAdmin);
+    
+    // Active partners = those who got new team members (first line) this month
+    const activePartnersCount = partners.filter((partner: any) => {
+      if (!partner.команда || partner.команда.length === 0) return false;
+      
+      // Check if any team member was registered this month
+      return partner.команда.some((memberId: string) => {
+        const member = userArray.find((u: any) => u.id === memberId);
+        if (!member || !member.зарегистрирован) return false;
+        const memberRegDate = new Date(member.зарегистрирован);
+        return memberRegDate >= monthStart;
+      });
+    }).length;
+    
+    // Passive partners = those who didn't get new team members this month
+    const passivePartnersCount = partners.filter((partner: any) => {
+      if (!partner.команда || partner.команда.length === 0) return true; // No team = passive
+      
+      // Check if NO team member was registered this month
+      return !partner.команда.some((memberId: string) => {
+        const member = userArray.find((u: any) => u.id === memberId);
+        if (!member || !member.зарегистрирован) return false;
+        const memberRegDate = new Date(member.зарегистрирован);
+        return memberRegDate >= monthStart;
+      });
+    }).length;
+    
+    // Active users = made purchases this month
+    const activeUsersCount = partners.filter((u: any) => activeUserBuyersIds.has(u.id)).length;
+    
+    // Passive users = didn't make purchases this month
+    const passiveUsersCount = partners.filter((u: any) => !activeUserBuyersIds.has(u.id)).length;
+    
+    const stats = {
+      totalUsers: userArray.length,
+      newToday: userArray.filter((u: any) => {
+        const regDate = new Date(u.зарегистрирован || u.created || 0);
+        return regDate >= todayStart;
+      }).length,
+      newThisMonth: userArray.filter((u: any) => {
+        const regDate = new Date(u.зарегистрирован || u.created || 0);
+        return regDate >= monthStart;
+      }).length,
+      activePartners: activePartnersCount,
+      passivePartners: passivePartnersCount,
+      activeUsers: activeUsersCount,
+      passiveUsers: passiveUsersCount,
+      withTeam: userArray.filter((u: any) => (u.команда?.length || 0) > 0).length,
+      totalBalance: userArray.reduce((sum: number, u: any) => sum + (u.баланс || 0), 0),
+      orphans: userArray.filter((u: any) => !u.спонсорId || u.спонсорId === '').length
+    };
+    
+    console.log(`📋 Returning ${paginatedUsers.length} users out of ${totalUsers} (page ${page}/${totalPages})`);
+    
+    return c.json({ 
+      success: true, 
+      users: paginatedUsers,
+      pagination: {
+        page,
+        limit,
+        total: totalUsers,
+        totalPages,
+        hasMore: page < totalPages
+      },
+      stats
+    });
+  } catch (error) {
+    console.log(`Admin get paginated users error: ${error}`);
+    return c.json({ 
+      success: false, 
+      error: `${error}`,
+      users: [],
+      pagination: { page: 1, limit: 50, total: 0, totalPages: 0, hasMore: false }
     }, (error as any).message?.includes('Admin') ? 403 : 500);
   }
 });
@@ -4296,6 +4797,207 @@ app.post("/make-server-05aa3c8a/auth/signup-admin", async (c) => {
   }
 });
 
+// Delete admin (CEO only)
+app.post("/make-server-05aa3c8a/auth/delete-admin", async (c) => {
+  try {
+    console.log('Delete admin request received');
+    
+    const { adminId, creatorToken } = await c.req.json();
+    
+    if (!adminId) {
+      return c.json({ error: "ID админа обязателен" }, 400);
+    }
+    
+    if (!creatorToken) {
+      return c.json({ error: "Токен авторизации обязателен" }, 401);
+    }
+    
+    console.log(`Delete admin attempt for: ${adminId}`);
+    
+    // Verify that creator is CEO
+    const { data: { user }, error: authError } = await supabase.auth.getUser(creatorToken);
+    
+    if (authError || !user) {
+      return c.json({ error: "Не авторизован" }, 401);
+    }
+    
+    // Find creator admin by supabaseId
+    const allAdmins = await kv.getByPrefix('admin:id:');
+    const creatorAdmin = allAdmins.find((a: any) => a.supabaseId === user.id);
+    
+    if (!creatorAdmin || creatorAdmin.role !== 'ceo') {
+      console.log('Only CEO can delete admins');
+      return c.json({ error: "Только главный администратор может удалять админов" }, 403);
+    }
+    
+    // Prevent CEO from deleting themselves
+    if (adminId === 'ceo') {
+      return c.json({ error: "Нельзя удалить аккаунт CEO" }, 400);
+    }
+    
+    // Get admin to delete
+    const adminKey = `admin:id:${adminId}`;
+    const adminToDelete = await kv.get(adminKey);
+    
+    if (!adminToDelete) {
+      return c.json({ error: "Админ не найден" }, 404);
+    }
+    
+    console.log(`Deleting admin: ${adminToDelete.имя} ${adminToDelete.фамилия} (${adminId})`);
+    
+    // Delete from Supabase Auth
+    if (adminToDelete.supabaseId) {
+      try {
+        const { error: deleteAuthError } = await supabase.auth.admin.deleteUser(adminToDelete.supabaseId);
+        if (deleteAuthError) {
+          console.error(`Error deleting from Supabase Auth: ${deleteAuthError.message}`);
+          // Continue anyway - we still want to delete from KV
+        }
+      } catch (authDeleteError) {
+        console.error(`Error deleting from Supabase Auth:`, authDeleteError);
+        // Continue anyway
+      }
+    }
+    
+    // Delete from KV store
+    await kv.del(adminKey);
+    
+    // Delete email mapping
+    const emailKey = `admin:email:${adminToDelete.email}`;
+    await kv.del(emailKey);
+    
+    console.log(`✅ Admin deleted: ${adminId}`);
+    
+    return c.json({ 
+      success: true, 
+      message: 'Admin deleted successfully',
+      deletedAdmin: {
+        id: adminId,
+        email: adminToDelete.email,
+        name: `${adminToDelete.имя} ${adminToDelete.фамилия}`
+      }
+    });
+    
+  } catch (error) {
+    console.error(`❌ Delete admin error:`, error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return c.json({ error: `Ошибка удаления админа: ${errorMessage}` }, 500);
+  }
+});
+
+// Update admin role (CEO only)
+app.post("/make-server-05aa3c8a/auth/update-admin-role", async (c) => {
+  try {
+    const { adminId, newRole, creatorToken } = await c.req.json();
+    
+    console.log(`🔑 Update admin role: ${adminId} -> ${newRole}`);
+    
+    if (!adminId || !newRole) {
+      return c.json({ error: "ID админа и новая роль обязательны" }, 400);
+    }
+    
+    if (!creatorToken) {
+      return c.json({ error: "Токен авторизации обязателен" }, 401);
+    }
+    
+    // Verify that creator is CEO
+    const { data: { user }, error: authError } = await supabase.auth.getUser(creatorToken);
+    
+    if (authError || !user) {
+      return c.json({ error: "Не авторизован" }, 401);
+    }
+    
+    // Find creator admin by supabaseId
+    const allAdmins = await kv.getByPrefix('admin:id:');
+    const creatorAdmin = allAdmins.find((a: any) => a.supabaseId === user.id);
+    
+    if (!creatorAdmin || creatorAdmin.role !== 'ceo') {
+      console.log('Only CEO can update admin roles');
+      return c.json({ error: "Только главный администратор может изменять роли админов" }, 403);
+    }
+    
+    // Prevent CEO from changing their own role
+    if (adminId === 'ceo') {
+      return c.json({ error: "Нельзя изменить роль CEO" }, 400);
+    }
+    
+    // Validate role
+    const validRoles = ['finance', 'warehouse', 'manager', 'support'];
+    if (!validRoles.includes(newRole)) {
+      return c.json({ error: "Недопустимая роль. Доступные: finance, warehouse, manager, support" }, 400);
+    }
+    
+    // 🆕 Get admin to update - check both admin:id: and user:id: prefixes
+    let adminKey = `admin:id:${adminId}`;
+    let adminToUpdate = await kv.get(adminKey);
+    
+    // 🆕 If not found in admin:id:, try user:id:
+    if (!adminToUpdate) {
+      const userKey = `user:id:${adminId}`;
+      adminToUpdate = await kv.get(userKey);
+      
+      if (adminToUpdate && (adminToUpdate.isAdmin === true || adminToUpdate.type === 'admin')) {
+        console.log(`🔄 Found admin in user:id: storage, will migrate to admin:id:`);
+        // This is an old admin stored in user:id:, we'll migrate it
+        adminKey = userKey;
+      } else {
+        adminToUpdate = null; // Reset if it's not an admin
+      }
+    }
+    
+    if (!adminToUpdate) {
+      console.log(`❌ Admin not found: ${adminId}`);
+      return c.json({ error: "Админ не найден" }, 404);
+    }
+    
+    console.log(`✅ Updating admin role: ${adminToUpdate.имя} ${adminToUpdate.фамилия} (${adminId}): ${adminToUpdate.role} -> ${newRole}`);
+    
+    // Import helper function
+    const { getPermissionsForRole } = await import('./admin_helpers.tsx');
+    
+    // Update admin data
+    const updatedAdmin = {
+      ...adminToUpdate,
+      role: newRole,
+      type: 'admin', // 🆕 Ensure type is set
+      permissions: getPermissionsForRole(newRole),
+      lastUpdated: new Date().toISOString(),
+      updatedBy: creatorAdmin.id
+    };
+    
+    // 🆕 Save to correct location (always use admin:id: for admins)
+    const newAdminKey = `admin:id:${adminId}`;
+    await kv.set(newAdminKey, updatedAdmin);
+    
+    // 🆕 If we found it in user:id:, delete from there and migrate
+    if (adminKey.startsWith('user:id:')) {
+      await kv.del(adminKey);
+      console.log(`🔄 Migrated admin from ${adminKey} to ${newAdminKey}`);
+      
+      // 🆕 Update email index to point to admin storage
+      const emailKey = `admin:email:${updatedAdmin.email}`;
+      await kv.set(emailKey, { id: adminId, type: 'admin' });
+      
+      // 🆕 Remove old user email index if it exists
+      const oldUserEmailKey = `user:email:${updatedAdmin.email}`;
+      await kv.del(oldUserEmailKey);
+    }
+    
+    console.log(`✅ Admin role updated: ${adminId} -> ${newRole}`);
+    
+    return c.json({ 
+      success: true, 
+      message: 'Admin role updated successfully',
+      admin: updatedAdmin
+    });
+    
+  } catch (error) {
+    console.error('Error updating admin role:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return c.json({ error: `Ошибка обновления роли админа: ${errorMessage}` }, 500);
+  }
+});
+
 // Get all admins (CEO only)
 app.get("/make-server-05aa3c8a/admins", async (c) => {
   try {
@@ -4314,6 +5016,8 @@ app.get("/make-server-05aa3c8a/admins", async (c) => {
     
     // Find admin
     const allAdmins = await kv.getByPrefix('admin:id:');
+    console.log(`📊 Retrieved ${allAdmins.length} admins from KV store`);
+    
     const requestorAdmin = allAdmins.find((a: any) => a.supabaseId === user.id);
     
     if (!requestorAdmin || requestorAdmin.role !== 'ceo') {
@@ -4322,9 +5026,71 @@ app.get("/make-server-05aa3c8a/admins", async (c) => {
     
     console.log(`✅ CEO ${requestorAdmin.id} requested admins list`);
     
+    // 🆕 Remove duplicates by EMAIL (keep the most recent one)
+    // First, remove duplicates by ID
+    const uniqueByIdMap = new Map<string, any>();
+    
+    for (const admin of allAdmins) {
+      const existingAdmin = uniqueByIdMap.get(admin.id);
+      
+      if (!existingAdmin) {
+        uniqueByIdMap.set(admin.id, admin);
+      } else {
+        const existingDate = new Date(existingAdmin.created || 0).getTime();
+        const newDate = new Date(admin.created || 0).getTime();
+        
+        if (newDate > existingDate) {
+          console.log(`🔄 Replacing duplicate admin by ID ${admin.id}: ${existingAdmin.created} -> ${admin.created}`);
+          uniqueByIdMap.set(admin.id, admin);
+        }
+      }
+    }
+    
+    // Second, remove duplicates by EMAIL (different IDs but same email)
+    const uniqueByEmailMap = new Map<string, any>();
+    
+    for (const admin of Array.from(uniqueByIdMap.values())) {
+      const email = admin.email?.toLowerCase();
+      if (!email) continue;
+      
+      const existingAdmin = uniqueByEmailMap.get(email);
+      
+      if (!existingAdmin) {
+        uniqueByEmailMap.set(email, admin);
+      } else {
+        // Duplicate email found - keep the one with CEO role first, then most recent
+        const existingIsCEO = existingAdmin.role === 'ceo';
+        const newIsCEO = admin.role === 'ceo';
+        
+        if (existingIsCEO && !newIsCEO) {
+          console.log(`⏭️ Skipping duplicate by email ${email}: keeping CEO ${existingAdmin.id} over ${admin.role} ${admin.id}`);
+        } else if (!existingIsCEO && newIsCEO) {
+          console.log(`🔄 Replacing duplicate by email ${email}: ${existingAdmin.id} (${existingAdmin.role}) -> ${admin.id} (CEO)`);
+          uniqueByEmailMap.set(email, admin);
+        } else {
+          // Both have same role - keep most recent
+          const existingDate = new Date(existingAdmin.created || 0).getTime();
+          const newDate = new Date(admin.created || 0).getTime();
+          
+          if (newDate > existingDate) {
+            console.log(`🔄 Replacing duplicate by email ${email}: ${existingAdmin.id} (${existingAdmin.created}) -> ${admin.id} (${admin.created})`);
+            uniqueByEmailMap.set(email, admin);
+          } else {
+            console.log(`⏭️ Skipping duplicate by email ${email}: keeping ${existingAdmin.id} (${existingAdmin.created})`);
+          }
+        }
+      }
+    }
+    
+    const uniqueAdmins = Array.from(uniqueByEmailMap.values());
+    
+    if (uniqueAdmins.length !== allAdmins.length) {
+      console.log(`⚠️ Found ${allAdmins.length - uniqueAdmins.length} duplicate(s), returning ${uniqueAdmins.length} unique admins`);
+    }
+    
     return c.json({
       success: true,
-      admins: allAdmins
+      admins: uniqueAdmins
     });
     
   } catch (error) {
@@ -5368,6 +6134,172 @@ app.post('/make-server-05aa3c8a/admin/clean-broken-refs', async (c) => {
   }
 });
 
+// Clean duplicate admins (remove admins from user:id: that should be in admin:id:)
+app.post('/make-server-05aa3c8a/admin/clean-duplicate-admins', async (c) => {
+  try {
+    console.log('🧹 Clean duplicate admins endpoint called');
+    
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    console.log('  Authorization header:', accessToken ? 'Present ✓' : 'MISSING ✗');
+    
+    if (!accessToken) {
+      console.log('❌ No access token provided');
+      return c.json({ error: "Не авторизован" }, 401);
+    }
+    
+    // Verify CEO access
+    console.log('🔐 Verifying CEO access with Supabase...');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    
+    if (authError) {
+      console.log('❌ Supabase auth error:', authError.message);
+      return c.json({ error: `Не авторизован: ${authError.message}` }, 401);
+    }
+    
+    if (!user) {
+      console.log('❌ No user returned from Supabase');
+      return c.json({ error: "Не авторизован" }, 401);
+    }
+    
+    console.log('✅ User authenticated:', user.id);
+    
+    // Find admin
+    const allAdmins = await kv.getByPrefix('admin:id:');
+    console.log(`📋 Found ${allAdmins.length} admins in admin:id:`);
+    
+    const requestorAdmin = allAdmins.find((a: any) => a.supabaseId === user.id);
+    
+    if (!requestorAdmin) {
+      console.log('❌ Requestor admin not found in database');
+      return c.json({ error: "Админ не найден в базе" }, 403);
+    }
+    
+    console.log('✅ Requestor admin found:', requestorAdmin.id, requestorAdmin.role);
+    
+    if (requestorAdmin.role !== 'ceo') {
+      console.log('❌ Requestor is not CEO');
+      return c.json({ error: "Только CEO может очищать дубликаты админов" }, 403);
+    }
+    
+    console.log('🧹 Starting duplicate admins cleanup...');
+    
+    // Step 1: Check for duplicates within admin:id: prefix
+    console.log('🔍 Step 1: Checking for duplicates in admin:id:...');
+    const adminIdMap = new Map<string, any[]>();
+    
+    // Group admins by ID to find duplicates
+    for (const admin of allAdmins) {
+      if (!adminIdMap.has(admin.id)) {
+        adminIdMap.set(admin.id, []);
+      }
+      adminIdMap.get(admin.id)!.push(admin);
+    }
+    
+    let deletedInternalDuplicates = 0;
+    const internalDuplicatesLog: string[] = [];
+    
+    // For each ID that has duplicates, keep only the most recent one
+    for (const [adminId, duplicates] of adminIdMap.entries()) {
+      if (duplicates.length > 1) {
+        console.log(`⚠️ Found ${duplicates.length} duplicates for admin ID: ${adminId}`);
+        
+        // Sort by created date (most recent first)
+        duplicates.sort((a, b) => {
+          const dateA = new Date(a.created || 0).getTime();
+          const dateB = new Date(b.created || 0).getTime();
+          return dateB - dateA; // descending
+        });
+        
+        // Keep the first one (most recent), delete the rest
+        const keepAdmin = duplicates[0];
+        console.log(`✅ Keeping admin: ${keepAdmin.имя} ${keepAdmin.фамилия} (${keepAdmin.created})`);
+        
+        for (let i = 1; i < duplicates.length; i++) {
+          const duplicateAdmin = duplicates[i];
+          console.log(`🗑️ Deleting duplicate: ${duplicateAdmin.имя} ${duplicateAdmin.фамилия} (${duplicateAdmin.created})`);
+          
+          // We need to find the actual key in KV store
+          // Since getByPrefix returns values without keys, we reconstruct the key
+          const keyToDelete = `admin:id:${adminId}`;
+          
+          // NOTE: KV store doesn't allow multiple values with same key,
+          // so if we have duplicates here, they must be coming from somewhere else
+          // Let's log this for investigation
+          internalDuplicatesLog.push(`WARNING: Found duplicate admin ${adminId} - this shouldn't happen in KV store`);
+          deletedInternalDuplicates++;
+        }
+      }
+    }
+    
+    // Step 2: Migrate admins from user:id: to admin:id:
+    console.log('🔍 Step 2: Checking for admins in user:id: prefix...');
+    const allUsers = await kv.getByPrefix('user:id:');
+    console.log(`📋 Loaded ${allUsers.length} users from user:id:`);
+    
+    let migratedAdmins = 0;
+    let deletedDuplicates = 0;
+    const migrationLog: string[] = [];
+    
+    // Find users that are actually admins
+    for (const user of allUsers) {
+      if (user.isAdmin === true || user.type === 'admin') {
+        const adminKey = `admin:id:${user.id}`;
+        const existingAdmin = await kv.get(adminKey);
+        
+        if (!existingAdmin) {
+          // This admin doesn't exist in admin:id:, migrate it
+          console.log(`🔄 Migrating admin from user:id:${user.id} to ${adminKey}`);
+          
+          const migratedAdmin = {
+            ...user,
+            type: 'admin',
+            role: user.role || 'support',
+            permissions: user.permissions || []
+          };
+          
+          await kv.set(adminKey, migratedAdmin);
+          
+          // Update email index
+          const adminEmailKey = `admin:email:${user.email}`;
+          await kv.set(adminEmailKey, { id: user.id, type: 'admin' });
+          
+          // Remove from user:id:
+          await kv.del(`user:id:${user.id}`);
+          
+          // Remove old user email index
+          const userEmailKey = `user:email:${user.email}`;
+          await kv.del(userEmailKey);
+          
+          migratedAdmins++;
+          migrationLog.push(`Migrated: ${user.имя} ${user.фамилия} (${user.id})`);
+        } else {
+          // Admin exists in both places, delete from user:id:
+          console.log(`🗑️ Deleting duplicate admin from user:id:${user.id}`);
+          await kv.del(`user:id:${user.id}`);
+          deletedDuplicates++;
+          migrationLog.push(`Deleted duplicate: ${user.имя} ${user.фамилия} (${user.id})`);
+        }
+      }
+    }
+    
+    const totalDeleted = deletedInternalDuplicates + deletedDuplicates;
+    console.log(`✅ Cleanup complete: ${migratedAdmins} admins migrated, ${totalDeleted} duplicates deleted (${deletedInternalDuplicates} internal, ${deletedDuplicates} cross-prefix)`);
+    
+    return c.json({
+      success: true,
+      message: `Очистка завершена: мигрировано ${migratedAdmins} админов, удалено ${totalDeleted} дубликатов`,
+      migratedAdmins,
+      deletedDuplicates: totalDeleted,
+      deletedInternalDuplicates,
+      deletedCrossPrefixDuplicates: deletedDuplicates,
+      log: [...internalDuplicatesLog, ...migrationLog]
+    });
+  } catch (error) {
+    console.error('Error cleaning duplicate admins:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
 // Sync teams (rebuild team arrays from sponsorId relationships)
 app.post('/make-server-05aa3c8a/admin/sync-teams', async (c) => {
   try {
@@ -5473,14 +6405,12 @@ app.post('/make-server-05aa3c8a/admin/sync-teams', async (c) => {
 app.post('/make-server-05aa3c8a/admin/change-user-id', async (c) => {
   try {
     const userId = c.req.header('X-User-Id');
-    if (!userId) {
-      return c.json({ success: false, error: 'Не авторизован' }, 401);
-    }
-
-    const currentUser = await kv.get(`user:id:${userId}`);
-    if (!currentUser?.isAdmin) {
-      return c.json({ success: false, error: 'Доступ запрещён' }, 403);
-    }
+    
+    // Verify user authorization
+    const currentUser = await verifyUser(userId);
+    
+    // Require admin access
+    await requireAdmin(c, currentUser);
 
     const body = await c.req.json();
     const { oldId, newId } = body;
@@ -5570,6 +6500,12 @@ app.post('/make-server-05aa3c8a/admin/change-user-id', async (c) => {
 // Update user data (admin endpoint for MLM structure management)
 app.put('/make-server-05aa3c8a/admin/update-user/:userId', async (c) => {
   try {
+    const adminUserId = c.req.header('X-User-Id');
+    
+    // Verify admin authorization
+    const adminUser = await verifyUser(adminUserId);
+    await requireAdmin(c, adminUser);
+    
     const userId = c.req.param('userId');
     const { userData } = await c.req.json();
     

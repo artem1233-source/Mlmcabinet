@@ -1,30 +1,24 @@
 import { useState, useEffect } from 'react';
-import { 
-  Shield, Users, ShoppingBag, Wallet, TrendingUp, 
-  Loader2, CheckCircle2, XCircle, Clock, Award,
-  DollarSign, ArrowUpRight, ArrowDownRight, Edit2, Trash2,
-  Plus, X, Save, BookOpen, Tag, Settings, FileText,
-  BarChart3, Package, Video, Gift, ExternalLink, Trophy
-} from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Badge } from './ui/badge';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Textarea } from './ui/textarea';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from './ui/dialog';
-import { toast } from 'sonner';
-import * as api from '../utils/api';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
-import { CommissionEditor } from './CommissionEditor';
-import type { ProductCommission } from '../utils/types/commission';
-import { DEFAULT_COMMISSIONS } from '../utils/types/commission';
 import { AchievementsAdminRu } from './AchievementsAdminRu';
 import { UsersTreeView } from './admin/UsersTreeView';
 import { IdManager } from './admin/IdManager';
 import { ServerTest } from './ServerTest';
 import * as localCounter from '../utils/localCounter';
+import { OptimizedUsersList } from './admin/OptimizedUsersList';
+import { OptimizedTreeView } from './admin/OptimizedTreeView';
+import { CommissionEditor } from './CommissionEditor';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Textarea } from './ui/textarea';
+import { Badge } from './ui/badge';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Shield, Users, ShoppingBag, Wallet, Clock, TrendingUp, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+import * as api from '../utils/api';
 
 interface AdminRuProps {
   currentUser: any;
