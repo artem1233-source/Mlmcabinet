@@ -3,7 +3,7 @@ import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
 import * as kv from "./kv_store.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { getUserRank, invalidateRankCache, updateUplineRanks } from "./rank_calculator.tsx";
+import { getUserRank, invalidateRankCache, updateUplineRanks, updateUserRank } from "./rank_calculator.tsx";
 
 // Helper function for HMAC using Web Crypto API (works in Deno, no node:crypto needed)
 async function createHmacSha256(key: string | Uint8Array, data: string): Promise<string> {
@@ -2498,6 +2498,16 @@ app.post("/make-server-05aa3c8a/orders/:orderId/confirm", async (c) => {
       }
     }
     
+    // ✨ АВТОМАТИЧЕСКИЙ ПЕРЕСЧЁТ РАНГОВ после оплаты заказа
+    console.log(`🏆 [/orders/${orderId}/confirm] Auto-updating ranks for buyer and upline...`);
+    try {
+      await updateUplineRanks(order.покупательId);
+      console.log(`✅ Ranks updated successfully after order payment`);
+    } catch (rankError) {
+      console.error(`⚠️ Failed to update ranks after order payment:`, rankError);
+      // Не падаем, просто логируем ошибку
+    }
+    
     console.log(`Order ${orderId} confirmed and paid`);
     
     return c.json({ success: true, order });
@@ -2684,6 +2694,16 @@ app.post("/make-server-05aa3c8a/payment/create", async (c) => {
                 }
               }
             }
+            
+            // ✨ АВТОМАТИЧЕСКИЙ ПЕРЕСЧЁТ РАНГОВ после демо-оплаты
+            console.log(`🏆 [demo-payment] Auto-updating ranks for buyer and upline...`);
+            try {
+              await updateUplineRanks(confirmOrder.покупательId);
+              console.log(`✅ Ranks updated successfully after demo payment`);
+            } catch (rankError) {
+              console.error(`⚠️ Failed to update ranks after demo payment:`, rankError);
+            }
+            
             console.log(`Demo payment auto-confirmed for ${orderId}`);
           }
         } catch (err) {
@@ -6971,14 +6991,41 @@ app.post("/make-server-05aa3c8a/admin/recalculate-ranks", async (c) => {
     
     console.log(`📊 Found ${partners.length} partners to recalculate`);
     
-    // ✨ ПРОСТО обновляем ранг в объекте каждого пользователя
+    // ✨ ПРАВИЛЬНЫЙ АЛГОРИТМ: Сортируем партнёров по глубине (снизу вверх)
+    // Сначала находим глубину каждого партнёра в дереве
+    const partnerDepths = new Map<string, number>();
+    
+    function calculateDepth(userId: string, visited = new Set<string>()): number {
+      if (visited.has(userId)) return 0;
+      visited.add(userId);
+      
+      const user = partners.find(p => p.id === userId);
+      if (!user || !user.спонсорId) return 0;
+      
+      return 1 + calculateDepth(user.спонсорId, visited);
+    }
+    
+    for (const partner of partners) {
+      partnerDepths.set(partner.id, calculateDepth(partner.id));
+    }
+    
+    // Сортируем от самых глубоких к корням (снизу вверх)
+    const sortedPartners = partners.sort((a, b) => {
+      const depthA = partnerDepths.get(a.id) || 0;
+      const depthB = partnerDepths.get(b.id) || 0;
+      return depthB - depthA; // От большей глубины к меньшей
+    });
+    
+    console.log(`📊 Sorted partners by depth (deepest first)`);
+    
+    // Обновляем ранги СНИЗУ ВВЕРХ - каждого партнёра ОДИН РАЗ
     const results: any[] = [];
     let processed = 0;
     
-    for (const partner of partners) {
+    for (const partner of sortedPartners) {
       try {
-        // Используем ПРОСТУЮ функцию обновления ранга
-        await updateUplineRanks(partner.id);
+        // Обновляем ТОЛЬКО этого партнёра (НЕ upline!)
+        await updateUserRank(partner.id);
         
         // Читаем обновлённый ранг
         const updatedUser = await kv.get(`user:id:${partner.id}`);
