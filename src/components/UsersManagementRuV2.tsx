@@ -201,7 +201,10 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
   const [userTransactions, setUserTransactions] = useState<any[]>([]);
 
   // 🆕 Функция для определения статуса активности
-  const getActivityStatus = (lastActivity?: string) => {
+  const getActivityStatus = (user: any) => {
+    // Проверяем различные возможные поля для последней активности
+    const lastActivity = user?.lastActivity || user?.lastLogin || user?.последняяАктивность || user?.последнийВход;
+    
     if (!lastActivity) return { status: 'inactive', color: 'bg-gray-400', text: 'Никогда не заходил', textColor: 'text-gray-600' };
     
     const now = new Date().getTime();
@@ -212,7 +215,7 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
     const hours = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);
     
-    if (minutes < 5) {
+    if (minutes < 3) {
       return { status: 'online', color: 'bg-green-500', text: 'Онлайн', textColor: 'text-green-600' };
     } else if (hours < 24) {
       return { status: 'today', color: 'bg-yellow-500', text: `${hours}ч назад`, textColor: 'text-yellow-600' };
@@ -274,6 +277,18 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
       loadUserRanks();
     }
   }, [users]);
+
+  // 💓 Автообновление списка каждые 60 секунд для актуализации статусов активности
+  useEffect(() => {
+    if (viewMode !== 'list') return; // Только для режима списка
+
+    const interval = setInterval(() => {
+      console.log('🔄 Auto-refreshing users list for activity status');
+      loadUsers(false); // Тихое обновление без изменения loading state
+    }, 60000); // 60 секунд
+
+    return () => clearInterval(interval);
+  }, [viewMode]); // Убрали лишние зависимости, чтобы не пересоздавать интервал
 
   const loadUserRanks = async () => {
     try {
@@ -599,6 +614,8 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
 
     try {
       setSendingNotification(true);
+      console.log('🔔 Sending notification to user:', notificationTargetUser);
+      console.log('🔔 User ID:', notificationTargetUser.id);
       await api.sendNotificationToUser(notificationTargetUser.id, notificationData);
       toast.success('Уведомление отправлено!');
       setNotificationDialogOpen(false);
@@ -656,6 +673,236 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
       console.error('Failed to load user details:', error);
     } finally {
       setQuickViewLoading(false);
+    }
+  };
+
+  // 📊 Экспорт всех пользователей в Google Sheets
+  const handleExportToGoogleSheets = async () => {
+    try {
+      const exportData = users.map((user, index) => {
+        const activityStatus = getActivityStatus(user);
+        return {
+          '№': index + 1,
+          'ID': user.id || '-',
+          'Имя': user.имя || '-',
+          'Фамилия': user.фамилия || '-',
+          'Email': user.email || '-',
+          'Телефон': user.телефон || '-',
+          'Уровень': user.уровень || 1,
+          'Баланс': user.баланс || 0,
+          'Доступный баланс': user.доступныйБаланс || 0,
+          'Холдинг': user.холдинг || 0,
+          'Реферальный код': user.реферальныйКод || '-',
+          'Спонсор ID': user.спонсорID || '-',
+          'Команда (1 линия)': user.команда?.length || 0,
+          'Всего в структуре': calculateTotalTeam(user.id),
+          'Дата регистрации': user.зарегистрирован ? new Date(user.зарегистрирован).toLocaleDateString('ru-RU') : '-',
+          'Последняя активность': activityStatus.text,
+          'Город': user.город || '-',
+          'Страна': user.страна || '-'
+        };
+      });
+
+      const headers = Object.keys(exportData[0] || {});
+      const csvContent = [
+        headers.join('\t'),
+        ...exportData.map(row => headers.map(h => row[h]).join('\t'))
+      ].join('\n');
+
+      // Используем альтернативный метод копирования для обхода ограничений Clipboard API
+      const textArea = document.createElement('textarea');
+      textArea.value = csvContent;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-9999px';
+      textArea.style.top = '0';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      
+      try {
+        const successful = document.execCommand('copy');
+        if (successful) {
+          toast.success(
+            'Данные скопированы! Откройте Google Sheets и вставьте (Ctrl+V)',
+            { duration: 5000 }
+          );
+        } else {
+          throw new Error('execCommand failed');
+        }
+      } catch (execError) {
+        // Если execCommand не сработал, пробуем современный API
+        try {
+          await navigator.clipboard.writeText(csvContent);
+          toast.success(
+            'Данные скопированы! Откройте Google Sheets и вставьте (Ctrl+V)',
+            { duration: 5000 }
+          );
+        } catch (clipboardError) {
+          toast.error('Не удалось скопировать данные. Попробуйте вручную скопировать из консоли.');
+          console.log('CSV Data for manual copy:', csvContent);
+        }
+      } finally {
+        document.body.removeChild(textArea);
+      }
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Ошибка экспорта данных');
+    }
+  };
+
+  // 📄 Индивидуальный экспорт пользователя в PDF
+  const handleExportUserToPDF = async (user: any) => {
+    try {
+      const html2canvas = (await import('html2canvas')).default;
+      const jsPDF = (await import('jspdf')).default;
+      
+      // Создаём временный контейнер с карточкой пользователя
+      const tempContainer = document.createElement('div');
+      tempContainer.style.cssText = `
+        position: absolute;
+        left: -9999px;
+        top: 0;
+        width: 800px;
+        padding: 40px;
+        background-color: #ffffff;
+        font-family: Arial, sans-serif;
+        color: #000000;
+      `;
+      
+      tempContainer.innerHTML = `
+        <div style="all: initial; font-family: Arial, sans-serif; background: #ffffff; color: #000000; box-sizing: border-box; display: block; padding: 40px; width: 800px;">
+          <div style="border-bottom: 3px solid #39B7FF; padding-bottom: 20px; margin-bottom: 30px; background: transparent;">
+            <h1 style="all: initial; font-family: Arial, sans-serif; color: #39B7FF; margin: 0; padding: 0; font-size: 32px; font-weight: bold; display: block;">Карточка пользователя</h1>
+            <p style="all: initial; font-family: Arial, sans-serif; color: #999999; margin: 10px 0 0 0; padding: 0; font-size: 14px; display: block;">Дата создания: ${new Date().toLocaleDateString('ru-RU')} ${new Date().toLocaleTimeString('ru-RU')}</p>
+          </div>
+          
+          <div style="margin-bottom: 30px; background: transparent;">
+            <h2 style="all: initial; font-family: Arial, sans-serif; color: #1E1E1E; font-size: 20px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #F0F0F0; padding-bottom: 8px; display: block;">Основная информация</h2>
+            <table style="all: initial; width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; display: table;">
+              <tbody style="all: initial; display: table-row-group;">
+              <tr style="all: initial; border-bottom: 1px solid #F0F0F0; display: table-row;">
+                <td style="all: initial; padding: 10px 0; color: #666666; font-size: 14px; width: 180px; font-family: Arial, sans-serif; display: table-cell;">ФИО:</td>
+                <td style="all: initial; padding: 10px 0; color: #1E1E1E; font-size: 14px; font-weight: 600; font-family: Arial, sans-serif; display: table-cell;">${user.имя || ''} ${user.фамилия || ''}</td>
+              </tr>
+              <tr style="all: initial; border-bottom: 1px solid #F0F0F0; display: table-row;">
+                <td style="all: initial; padding: 10px 0; color: #666666; font-size: 14px; font-family: Arial, sans-serif; display: table-cell;">ID:</td>
+                <td style="all: initial; padding: 10px 0; color: #1E1E1E; font-size: 14px; font-weight: 600; font-family: Arial, sans-serif; display: table-cell;">${user.id || '-'}</td>
+              </tr>
+              <tr style="all: initial; border-bottom: 1px solid #F0F0F0; display: table-row;">
+                <td style="all: initial; padding: 10px 0; color: #666666; font-size: 14px; font-family: Arial, sans-serif; display: table-cell;">Email:</td>
+                <td style="all: initial; padding: 10px 0; color: #1E1E1E; font-size: 14px; font-weight: 600; font-family: Arial, sans-serif; display: table-cell;">${user.email || '-'}</td>
+              </tr>
+              <tr style="all: initial; border-bottom: 1px solid #F0F0F0; display: table-row;">
+                <td style="all: initial; padding: 10px 0; color: #666666; font-size: 14px; font-family: Arial, sans-serif; display: table-cell;">Телефон:</td>
+                <td style="all: initial; padding: 10px 0; color: #1E1E1E; font-size: 14px; font-weight: 600; font-family: Arial, sans-serif; display: table-cell;">${user.телефон || '-'}</td>
+              </tr>
+              <tr style="all: initial; border-bottom: 1px solid #F0F0F0; display: table-row;">
+                <td style="all: initial; padding: 10px 0; color: #666666; font-size: 14px; font-family: Arial, sans-serif; display: table-cell;">Реферальный код:</td>
+                <td style="all: initial; padding: 10px 0; color: #1E1E1E; font-size: 14px; font-weight: 600; font-family: Arial, sans-serif; display: table-cell;">${user.рефКод || '-'}</td>
+              </tr>
+              <tr style="all: initial; border-bottom: 1px solid #F0F0F0; display: table-row;">
+                <td style="all: initial; padding: 10px 0; color: #666666; font-size: 14px; font-family: Arial, sans-serif; display: table-cell;">Спонсор ID:</td>
+                <td style="all: initial; padding: 10px 0; color: #1E1E1E; font-size: 14px; font-weight: 600; font-family: Arial, sans-serif; display: table-cell;">${user.спонсорId || '-'}</td>
+              </tr>
+              <tr style="all: initial; display: table-row;">
+                <td style="all: initial; padding: 10px 0; color: #666666; font-size: 14px; font-family: Arial, sans-serif; display: table-cell;">Дата регистрации:</td>
+                <td style="all: initial; padding: 10px 0; color: #1E1E1E; font-size: 14px; font-weight: 600; font-family: Arial, sans-serif; display: table-cell;">${user.зарегистрирован ? new Date(user.зарегистрирован).toLocaleDateString('ru-RU') : '-'}</td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+          
+          <div style="margin-bottom: 30px; background: transparent;">
+            <h2 style="all: initial; font-family: Arial, sans-serif; color: #1E1E1E; font-size: 20px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #F0F0F0; padding-bottom: 8px; display: block;">Финансовая информация</h2>
+            <table style="all: initial; width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; display: table;">
+              <tbody style="all: initial; display: table-row-group;">
+              <tr style="all: initial; border-bottom: 1px solid #F0F0F0; display: table-row;">
+                <td style="all: initial; padding: 10px 0; color: #666666; font-size: 14px; width: 180px; font-family: Arial, sans-serif; display: table-cell;">Уровень:</td>
+                <td style="all: initial; padding: 10px 0; color: #1E1E1E; font-size: 14px; font-weight: 600; font-family: Arial, sans-serif; display: table-cell;">Уровень ${user.уровень || 1}</td>
+              </tr>
+              <tr style="all: initial; border-bottom: 1px solid #F0F0F0; display: table-row;">
+                <td style="all: initial; padding: 10px 0; color: #666666; font-size: 14px; font-family: Arial, sans-serif; display: table-cell;">Баланс:</td>
+                <td style="all: initial; padding: 10px 0; color: #12C9B6; font-size: 16px; font-weight: 700; font-family: Arial, sans-serif; display: table-cell;">${(user.баланс || 0).toLocaleString('ru-RU')} ₽</td>
+              </tr>
+              <tr style="all: initial; border-bottom: 1px solid #F0F0F0; display: table-row;">
+                <td style="all: initial; padding: 10px 0; color: #666666; font-size: 14px; font-family: Arial, sans-serif; display: table-cell;">Доступный баланс:</td>
+                <td style="all: initial; padding: 10px 0; color: #39B7FF; font-size: 16px; font-weight: 700; font-family: Arial, sans-serif; display: table-cell;">${(user.доступныйБаланс || 0).toLocaleString('ru-RU')} ₽</td>
+              </tr>
+              <tr style="all: initial; display: table-row;">
+                <td style="all: initial; padding: 10px 0; color: #666666; font-size: 14px; font-family: Arial, sans-serif; display: table-cell;">Холдинг:</td>
+                <td style="all: initial; padding: 10px 0; color: #FF9500; font-size: 16px; font-weight: 700; font-family: Arial, sans-serif; display: table-cell;">${(user.холдинг || 0).toLocaleString('ru-RU')} ₽</td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+          
+          <div style="background: transparent;">
+            <h2 style="all: initial; font-family: Arial, sans-serif; color: #1E1E1E; font-size: 20px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #F0F0F0; padding-bottom: 8px; display: block;">Структура команды</h2>
+            <table style="all: initial; width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; display: table;">
+              <tbody style="all: initial; display: table-row-group;">
+              <tr style="all: initial; border-bottom: 1px solid #F0F0F0; display: table-row;">
+                <td style="all: initial; padding: 10px 0; color: #666666; font-size: 14px; width: 180px; font-family: Arial, sans-serif; display: table-cell;">Команда (1 линия):</td>
+                <td style="all: initial; padding: 10px 0; color: #1E1E1E; font-size: 14px; font-weight: 600; font-family: Arial, sans-serif; display: table-cell;">${user.команда?.length || 0} чел</td>
+              </tr>
+              <tr style="all: initial; display: table-row;">
+                <td style="all: initial; padding: 10px 0; color: #666666; font-size: 14px; font-family: Arial, sans-serif; display: table-cell;">Всего в структуре:</td>
+                <td style="all: initial; padding: 10px 0; color: #1E1E1E; font-size: 14px; font-weight: 600; font-family: Arial, sans-serif; display: table-cell;">${calculateTotalTeam(user.id)} чел</td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+      
+      document.body.appendChild(tempContainer);
+      
+      // Конвертируем в canvas с полной изоляцией от глобальных стилей
+      const canvas = await html2canvas(tempContainer, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        logging: false,
+        useCORS: true,
+        allowTaint: true,
+        foreignObjectRendering: false
+      });
+      
+      // Удаляем временный контейнер
+      document.body.removeChild(tempContainer);
+      
+      // Создаём PDF
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+      
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pdfWidth - 20; // отступы 10мм с каждой стороны
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      
+      let heightLeft = imgHeight;
+      let position = 10;
+      
+      pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
+      heightLeft -= (pdfHeight - 20);
+      
+      // Если контент не помещается на одну страницу
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight + 10;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
+        heightLeft -= (pdfHeight - 20);
+      }
+      
+      const fileName = `user_${user.id}_${new Date().toISOString().split('T')[0]}.pdf`;
+      pdf.save(fileName);
+      
+      toast.success('Карточка пользователя экспортирована в PDF!');
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Ошибка экспорта в PDF');
     }
   };
 
@@ -732,7 +979,7 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                 <div className="flex items-center gap-3 text-[#666] flex-wrap" style={{ fontSize: '12px' }}>
                   {/* 🎨 Activity Status Indicator */}
                   {(() => {
-                    const activityStatus = getActivityStatus(user.lastActivity);
+                    const activityStatus = getActivityStatus(user);
                     return (
                       <span className="flex items-center gap-1.5 shrink-0">
                         <span className={`w-2 h-2 rounded-full ${activityStatus.color} animate-pulse`}></span>
@@ -1030,17 +1277,64 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-4"> {/* Было mb-8 */}
-          <div className="flex items-center gap-4 mb-2">
-            <div className="w-16 h-16 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-2xl flex items-center justify-center shadow-lg">
-              <Users className="w-8 h-8 text-white" />
+          <div className="flex items-center justify-between gap-4 mb-2">
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-2xl flex items-center justify-center shadow-lg">
+                <Users className="w-8 h-8 text-white" />
+              </div>
+              <div>
+                <h1 className="text-[#1E1E1E]" style={{ fontSize: '32px', fontWeight: '700' }}>
+                  Управление пользователями
+                </h1>
+                <p className="text-[#666]" style={{ fontSize: '15px' }}>
+                  Полный контроль над пользователями и их данными
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-[#1E1E1E]" style={{ fontSize: '32px', fontWeight: '700' }}>
-                Управление пользователями
-              </h1>
-              <p className="text-[#666]" style={{ fontSize: '15px' }}>
-                Полный контроль над пользователями и их данными
-              </p>
+            <div className="flex gap-2">
+              <Button
+                onClick={() => {
+                  console.log('🔄 Manual refresh triggered');
+                  loadUsers(false);
+                }}
+                className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white hover:opacity-90 transition-opacity"
+                title="Обновить список пользователей"
+              >
+                <Activity className="w-4 h-4 mr-2" />
+                Обновить
+              </Button>
+              <Button
+                onClick={async () => {
+                  try {
+                    toast.loading('Запуск миграции lastActivity...');
+                    const response = await fetch(
+                      `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/migrate-activity`,
+                      {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${publicAnonKey}`,
+                          'X-User-Id': currentUser?.id || '',
+                        },
+                      }
+                    );
+                    const data = await response.json();
+                    if (data.success) {
+                      toast.success(`Миграция завершена: обновлено ${data.migratedCount} из ${data.totalUsers} пользователей`);
+                      setTimeout(() => loadUsers(false), 500);
+                    } else {
+                      toast.error(`Ошибка миграции: ${data.error}`);
+                    }
+                  } catch (error) {
+                    console.error('Migration error:', error);
+                    toast.error('Ошибка при выполнении миграции');
+                  }
+                }}
+                variant="outline"
+                title="Запустить миграцию lastActivity для всех пользователей"
+              >
+                🔄 Миграция активности
+              </Button>
             </div>
           </div>
         </div>
@@ -1076,11 +1370,11 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
             <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
               <CardHeader className="border-b border-[#E6E9EE]">
                 <div className="flex items-center justify-between flex-wrap gap-4">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 flex-wrap">
                     <CardTitle className="text-[#1E1E1E]">
                       {viewMode === 'list' ? 'Список пользователей' : 'Дреовидная структура'}
                     </CardTitle>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center">
                       <Button
                         variant={viewMode === 'list' ? 'default' : 'outline'}
                         size="sm"
@@ -1098,6 +1392,16 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                       >
                         <Network className="w-4 h-4 mr-2" />
                         Дерево
+                      </Button>
+                      <div className="w-px h-6 bg-[#E6E9EE] mx-1"></div>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={handleExportToGoogleSheets}
+                        className="border-green-200 hover:bg-green-50 text-green-700 hover:border-green-300"
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        Экспорт в Google Sheets
                       </Button>
                     </div>
                   </div>
@@ -2203,12 +2507,20 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                   size="sm"
                   className="flex items-center gap-1.5"
                   onClick={() => {
-                    setDetailsViewOpen(false);
-                    setTimeout(() => openNotificationDialog(selectedUserForDetails), 100);
+                    openNotificationDialog(selectedUserForDetails);
                   }}
                 >
                   <Bell className="w-3.5 h-3.5" />
                   Уведомление
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center gap-1.5 border-red-200 hover:bg-red-50 text-red-700"
+                  onClick={() => handleExportUserToPDF(selectedUserForDetails)}
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Экспорт в PDF
                 </Button>
               </div>
 
@@ -2641,16 +2953,19 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                       Текущий статус
                     </h3>
                     {(() => {
-                      const activityStatus = getActivityStatus(selectedUserForDetails.lastActivity);
+                      const activityStatus = getActivityStatus(selectedUserForDetails);
                       return (
                         <div className="flex items-center gap-3 p-3 bg-white rounded-lg">
                           <span className={`w-4 h-4 rounded-full ${activityStatus.color} animate-pulse`}></span>
                           <div className="flex-1">
                             <p className={`${activityStatus.textColor} font-semibold`}>{activityStatus.text}</p>
                             <p className="text-xs text-[#999] mt-1">
-                              {selectedUserForDetails.lastActivity 
-                                ? `Последняя активность: ${new Date(selectedUserForDetails.lastActivity).toLocaleString('ru-RU')}`
-                                : 'Активность не отслеживается'}
+                              {(() => {
+                                const lastActivity = selectedUserForDetails.lastActivity || selectedUserForDetails.lastLogin || selectedUserForDetails.последняяАктивность || selectedUserForDetails.последнийВход;
+                                return lastActivity 
+                                  ? `Последняя активность: ${new Date(lastActivity).toLocaleString('ru-RU')}`
+                                  : 'Активность не отслеживается';
+                              })()}
                             </p>
                           </div>
                         </div>

@@ -81,6 +81,47 @@ app.use(
 // Enable logger
 app.use('*', logger(console.log));
 
+// 💓 Activity Tracking Middleware (как в ВК)
+// Автоматически обновляет lastActivity при ЛЮБОМ запросе
+app.use('*', async (c, next) => {
+  // Получаем userId из заголовка
+  const userIdHeader = c.req.header('X-User-Id');
+  
+  // Пропускаем публичные эндпоинты и сам heartbeat
+  const path = c.req.path;
+  const skipPaths = [
+    '/make-server-05aa3c8a/login',
+    '/make-server-05aa3c8a/register',
+    '/make-server-05aa3c8a/user/activity', // Пропускаем сам heartbeat
+    '/make-server-05aa3c8a/health',
+  ];
+  
+  const shouldSkip = skipPaths.some(skipPath => path.includes(skipPath));
+  
+  if (userIdHeader && !shouldSkip) {
+    // Асинхронно обновляем lastActivity (не блокируем запрос)
+    (async () => {
+      try {
+        const userKey = `user:id:${userIdHeader}`;
+        const user = await kv.get(userKey);
+        
+        if (user) {
+          const now = new Date().toISOString();
+          user.lastActivity = now;
+          user.lastLogin = now; // Также обновляем lastLogin для совместимости
+          await kv.set(userKey, user);
+          // console.log(`💓 Middleware: Updated activity for ${user.имя || userIdHeader}`);
+        }
+      } catch (error) {
+        console.error('⚠️ Middleware activity update error:', error);
+        // Не бросаем ошибку - продолжаем обработку запроса
+      }
+    })();
+  }
+  
+  await next();
+});
+
 // ======================
 // HELPER FUNCTIONS
 // ======================
@@ -477,6 +518,7 @@ app.post("/make-server-05aa3c8a/auth", async (c) => {
         баланс: 0,
         зарегистрирован: new Date().toISOString(),
         lastLogin: new Date().toISOString(),
+        lastActivity: new Date().toISOString(),
         isAdmin: isFirstUser, // CEO is admin
         type: isFirstUser ? 'admin' : 'user',
         role: isFirstUser ? 'ceo' : null
@@ -485,8 +527,10 @@ app.post("/make-server-05aa3c8a/auth", async (c) => {
       await kv.set(userKey, user);
       console.log(`New user registered: ${user.имя} (admin: ${isFirstUser})`);
     } else {
-      // Update last login
-      user.lastLogin = new Date().toISOString();
+      // Update last login and activity
+      const now = new Date().toISOString();
+      user.lastLogin = now;
+      user.lastActivity = now;
       await kv.set(userKey, user);
       console.log(`User logged in: ${user.имя}`);
     }
@@ -500,6 +544,42 @@ app.post("/make-server-05aa3c8a/auth", async (c) => {
   } catch (error) {
     console.log(`Auth error: ${error}`);
     return c.json({ error: `Authentication failed: ${error}` }, 500);
+  }
+});
+
+// 💓 Update user activity (heartbeat)
+app.post("/make-server-05aa3c8a/user/activity", async (c) => {
+  try {
+    const { userId } = await c.req.json();
+    
+    console.log('💓 Heartbeat received for userId:', userId);
+    
+    if (!userId) {
+      return c.json({ error: "userId is required" }, 400);
+    }
+
+    const userKey = `user:id:${userId}`;
+    const user = await kv.get(userKey);
+    
+    if (!user) {
+      console.log('❌ User not found for heartbeat:', userId);
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    const oldLastLogin = user.lastLogin;
+    const newLastLogin = new Date().toISOString();
+    
+    // Обновляем и lastLogin, и lastActivity для правильного отслеживания
+    user.lastLogin = newLastLogin;
+    user.lastActivity = newLastLogin;
+    await kv.set(userKey, user);
+
+    console.log(`✅ Activity updated for ${user.имя || userId}: ${oldLastLogin} → ${newLastLogin}`);
+    
+    return c.json({ success: true, lastLogin: user.lastLogin, userId: user.id });
+  } catch (error) {
+    console.error('❌ Activity update error:', error);
+    return c.json({ error: 'Failed to update activity' }, 500);
   }
 });
 
@@ -5214,13 +5294,56 @@ app.post("/make-server-05aa3c8a/admin/send-notification", async (c) => {
     const body = await c.req.json();
     const { userId, тип, заголовок, сообщение } = body;
     
+    console.log('📧 Admin sending notification:', { userId, тип, заголовок });
+    
     if (!userId || !тип || !заголовок || !сообщение) {
       return c.json({ error: 'Missing required fields' }, 400);
     }
     
     // Проверяем существование пользователя
-    const targetUser = await kv.get(`user:${userId}`);
+    const userKey = `user:id:${userId}`;
+    console.log('🔍 Looking for user with key:', userKey);
+    const targetUser = await kv.get(userKey);
+    console.log('🔍 User found:', targetUser ? 'YES' : 'NO');
+    
     if (!targetUser) {
+      // Попробуем найти пользователя по другим ключам
+      console.log('🔍 Trying alternative keys...');
+      const allUsers = await kv.getByPrefix('user:');
+      console.log('📊 Total users in DB:', allUsers.length);
+      
+      // Ищем пользователя с таким ID в любом формате
+      const foundUser = allUsers.find((u: any) => {
+        return u.id === userId || u.userId === userId || u.partnerId === userId;
+      });
+      
+      if (foundUser) {
+        console.log('✅ Found user by search:', foundUser);
+        // Используем найденного пользователя
+        const notificationId = `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const notification = {
+          id: notificationId,
+          тип,
+          заголовок,
+          сообщение,
+          дата: new Date().toISOString(),
+          прочитано: false,
+          отправительId: currentUser.id,
+          отправительИмя: `${currentUser.имя} ${currentUser.фамилия || ''}`.trim(),
+        };
+        
+        // Используем правильный ID для ключа
+        const correctId = foundUser.id || foundUser.userId || foundUser.partnerId;
+        await kv.set(`notification:user:${correctId}:${notificationId}`, notification);
+        
+        console.log(`📧 Notification sent to user ${correctId} by admin ${currentUser.id}`);
+        
+        return c.json({ 
+          success: true,
+          notification
+        });
+      }
+      
       return c.json({ error: 'User not found' }, 404);
     }
     
@@ -6660,6 +6783,43 @@ app.get('/make-server-05aa3c8a/diagnostic/check-email/:email', async (c) => {
   } catch (error) {
     console.error('Diagnostic error:', error);
     return c.json({ error: String(error) }, 500);
+  }
+});
+
+// 🔄 One-time migration: Add lastActivity to all users who don't have it
+app.post("/make-server-05aa3c8a/admin/migrate-activity", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    console.log('🔄 Starting lastActivity migration...');
+    
+    const allUsers = await kv.getByPrefix('user:id:');
+    const userArray = Array.isArray(allUsers) ? allUsers : [];
+    
+    let migratedCount = 0;
+    
+    for (const user of userArray) {
+      if (!user.lastActivity && user.lastLogin) {
+        // Set lastActivity = lastLogin for users who don't have it
+        user.lastActivity = user.lastLogin;
+        await kv.set(`user:id:${user.id}`, user);
+        migratedCount++;
+        console.log(`✅ Migrated user ${user.id} (${user.имя}): lastActivity = ${user.lastActivity}`);
+      }
+    }
+    
+    console.log(`🎉 Migration complete: ${migratedCount} users updated`);
+    
+    return c.json({ 
+      success: true, 
+      message: `Migration complete: ${migratedCount} users updated`,
+      totalUsers: userArray.length,
+      migratedCount
+    });
+  } catch (error) {
+    console.error('❌ Migration error:', error);
+    return c.json({ error: `Migration failed: ${error}` }, 500);
   }
 });
 

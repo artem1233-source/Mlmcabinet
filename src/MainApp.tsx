@@ -88,6 +88,41 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
     loadUserData();
   }, [userId, refreshTrigger]); // 🆕 Добавили refreshTrigger в зависимости
 
+  // 💓 Heartbeat для обновления активности пользователя
+  useEffect(() => {
+    if (!userId || !currentUser) return;
+
+    // Функция для обновления lastLogin
+    const updateActivity = async () => {
+      try {
+        const { projectId, publicAnonKey } = await import('./utils/supabase/info');
+        const response = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/user/activity`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${publicAnonKey}`,
+            },
+            body: JSON.stringify({ userId }),
+          }
+        );
+        const data = await response.json();
+        // console.log('💓 Activity updated:', data);
+      } catch (error) {
+        console.error('❌ Failed to update activity:', error);
+      }
+    };
+
+    // Обновляем активность сразу при монтировании
+    updateActivity();
+
+    // Устанавливаем интервал для периодического обновления (каждую минуту как резервный механизм)
+    const interval = setInterval(updateActivity, 60 * 1000); // 60 секунд
+
+    return () => clearInterval(interval);
+  }, [userId, currentUser]);
+
   // Проверяем URL и устанавливаем правильный экран при загрузке
   useEffect(() => {
     const path = window.location.pathname;
