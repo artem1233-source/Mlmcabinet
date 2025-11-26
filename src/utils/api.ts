@@ -349,6 +349,12 @@ export async function unreserveId(id: string) {
   });
 }
 
+export async function syncReservedIds() {
+  return apiCall('/admin/sync-reserved-ids', {
+    method: 'POST',
+  });
+}
+
 export async function assignReservedId(newId: string, userId: string) {
   return apiCall('/admin/assign-reserved-id', {
     method: 'POST',

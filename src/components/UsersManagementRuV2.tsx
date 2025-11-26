@@ -1523,6 +1523,25 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                   </div>
                 ) : (
                   <div className="space-y-3"> {/* Было space-y-6 */}
+                    {/* Auto-Rank Info Panel */}
+                    <div className="bg-gradient-to-r from-purple-50 to-indigo-50 p-4 rounded-xl border-2 border-purple-200 shadow-sm">
+                      <div className="flex items-start gap-3">
+                        <div className="text-2xl">🏆</div>
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-purple-900 mb-2 flex items-center gap-2">
+                            <Award className="w-4 h-4" />
+                            Автоматический пересчет рангов
+                          </h4>
+                          <div className="text-sm text-purple-800 space-y-1">
+                            <p>✅ <strong>Ранги пересчитываются автоматически</strong> при регистрации каждого нового партнёра</p>
+                            <p className="ml-5">→ Пересчёт для спонсора и всей upline цепочки</p>
+                            <p className="ml-5">→ Инвалидация кэша и перерасчёт максимальной глубины дерева</p>
+                            <p className="mt-2">💡 Используйте кнопку <strong>"Утилиты → Пересчитать ранги"</strong> только если заметили расхождения (например, после ручного изменения структуры)</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    
                     {/* Filters & Sort Bar */}
                     <div className="bg-white p-4 rounded-xl border border-[#E6E9EE] shadow-sm">
                       {/* Верхний ряд - Фильтры */}

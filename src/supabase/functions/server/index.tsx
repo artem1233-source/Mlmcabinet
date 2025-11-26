@@ -195,10 +195,15 @@ async function getNextUserId(): Promise<string> {
   console.log(`📋 Occupied IDs (${occupiedIds.length}):`, occupiedIds.sort((a, b) => a - b));
   
   // Get reserved IDs
-  let reservedIds = await kv.get('reserved:user:ids') || [];
-  reservedIds = reservedIds.map((id: any) => typeof id === 'string' ? parseInt(id, 10) : id).filter((id: number) => !isNaN(id));
+  const rawReservedIds = await kv.get('reserved:user:ids') || [];
+  console.log(`🔒 RAW Reserved IDs from DB:`, rawReservedIds, `(type: ${typeof rawReservedIds}, isArray: ${Array.isArray(rawReservedIds)})`);
   
-  console.log(`🔒 Reserved IDs (${reservedIds.length}):`, reservedIds.sort((a, b) => a - b));
+  let reservedIds = rawReservedIds.map((id: any) => {
+    console.log(`   Converting reserved ID: ${id} (type: ${typeof id}) → ${parseInt(id, 10)}`);
+    return typeof id === 'string' ? parseInt(id, 10) : id;
+  }).filter((id: number) => !isNaN(id));
+  
+  console.log(`🔒 Reserved IDs after conversion (${reservedIds.length}):`, reservedIds.sort((a, b) => a - b));
   
   // Find the smallest free ID (not occupied and not reserved)
   let nextId = 1;
@@ -208,20 +213,24 @@ async function getNextUserId(): Promise<string> {
     const isOccupied = occupiedIds.includes(nextId);
     const isReserved = reservedIds.includes(nextId);
     
+    console.log(`🔍 Checking ID ${nextId}: occupied=${isOccupied}, reserved=${isReserved}`);
+    console.log(`   occupiedIds.includes(${nextId}) = ${occupiedIds.includes(nextId)}`);
+    console.log(`   reservedIds.includes(${nextId}) = ${reservedIds.includes(nextId)}`);
+    
     if (!isOccupied && !isReserved) {
       // Found a free ID!
       const formattedId = nextId <= 999 ? String(nextId).padStart(3, '0') : String(nextId);
-      console.log(`✅ Found free ID: ${nextId} (formatted: ${formattedId})`);
+      console.log(`✅✅✅ Found free ID: ${nextId} (formatted: ${formattedId})`);
       console.log(`   - Not in occupied: ${!isOccupied}`);
       console.log(`   - Not in reserved: ${!isReserved}`);
       return formattedId;
     }
     
     if (isOccupied) {
-      console.log(`   ${nextId}: occupied ⛔`);
+      console.log(`   ⛔ ${nextId}: occupied`);
     }
     if (isReserved) {
-      console.log(`   ${nextId}: reserved 🔒`);
+      console.log(`   🔒 ${nextId}: reserved`);
     }
     
     nextId++;
@@ -246,21 +255,39 @@ async function getNextPartnerId(): Promise<string> {
   
   console.log(`📋 Occupied partner IDs (${occupiedIds.length}):`, occupiedIds.sort((a, b) => a - b));
   
-  // Get reserved partner IDs
-  let reservedIds = await kv.get('reserved:partner:ids') || [];
-  reservedIds = reservedIds.map((id: any) => typeof id === 'string' ? parseInt(id, 10) : id).filter((id: number) => !isNaN(id));
+  // Get reserved IDs - IMPORTANT: Use reserved:user:ids because partner ID = user ID!
+  const rawReservedIds = await kv.get('reserved:user:ids') || [];
+  console.log(`🔒 RAW Reserved IDs from DB:`, rawReservedIds, `(type: ${typeof rawReservedIds}, isArray: ${Array.isArray(rawReservedIds)})`);
   
-  console.log(`🔒 Reserved partner IDs (${reservedIds.length}):`, reservedIds.sort((a, b) => a - b));
+  let reservedIds = rawReservedIds.map((id: any) => {
+    console.log(`   Converting reserved ID: ${id} (type: ${typeof id}) → ${parseInt(id, 10)}`);
+    return typeof id === 'string' ? parseInt(id, 10) : id;
+  }).filter((id: number) => !isNaN(id));
+  
+  console.log(`🔒 Reserved partner IDs after conversion (${reservedIds.length}):`, reservedIds.sort((a, b) => a - b));
   
   // Find the smallest free partner ID (1-999)
   for (let nextId = 1; nextId <= 999; nextId++) {
     const isOccupied = occupiedIds.includes(nextId);
     const isReserved = reservedIds.includes(nextId);
     
+    console.log(`🔍 Checking partner ID ${nextId}: occupied=${isOccupied}, reserved=${isReserved}`);
+    console.log(`   occupiedIds.includes(${nextId}) = ${occupiedIds.includes(nextId)}`);
+    console.log(`   reservedIds.includes(${nextId}) = ${reservedIds.includes(nextId)}`);
+    
     if (!isOccupied && !isReserved) {
       const formattedId = String(nextId).padStart(3, '0');
-      console.log(`✅ Found free partner ID: ${nextId} (formatted: ${formattedId})`);
+      console.log(`✅✅✅ Found free partner ID: ${nextId} (formatted: ${formattedId})`);
+      console.log(`   - Not in occupied: ${!isOccupied}`);
+      console.log(`   - Not in reserved: ${!isReserved}`);
       return formattedId;
+    }
+    
+    if (isOccupied) {
+      console.log(`   ⛔ ${nextId}: occupied`);
+    }
+    if (isReserved) {
+      console.log(`   🔒 ${nextId}: reserved`);
     }
   }
   
@@ -296,6 +323,55 @@ async function freePartnerId(partnerId: string) {
     await kv.set(freedIdsKey, freedIds);
     console.log(`♻️ Freed partner ID for reuse: ${partnerId}`);
   }
+}
+
+// 🔄 Sync reserved IDs - remove IDs that are already occupied by users
+async function syncReservedIds(): Promise<{
+  before: number[],
+  after: number[],
+  removed: number[],
+  message: string
+}> {
+  console.log('🔄 Starting reserved IDs synchronization...');
+  
+  // Get all occupied IDs from users
+  const allUsersData = await kv.getByPrefix('user:id:');
+  const occupiedIds = allUsersData.map((user: any) => {
+    const numId = parseInt(user.id, 10);
+    return isNaN(numId) ? null : numId;
+  }).filter((id: number | null) => id !== null) as number[];
+  
+  console.log(`📋 Occupied IDs (${occupiedIds.length}):`, occupiedIds.sort((a, b) => a - b));
+  
+  // Get reserved IDs
+  const rawReservedIds = await kv.get('reserved:user:ids') || [];
+  const reservedIds = rawReservedIds.map((id: any) => 
+    typeof id === 'string' ? parseInt(id, 10) : id
+  ).filter((id: number) => !isNaN(id));
+  
+  console.log(`🔒 Reserved IDs before sync (${reservedIds.length}):`, reservedIds.sort((a, b) => a - b));
+  
+  // Find IDs that are both occupied and reserved (duplicates to remove)
+  const duplicates = reservedIds.filter((id: number) => occupiedIds.includes(id));
+  
+  console.log(`⚠️ Duplicate IDs (occupied + reserved) (${duplicates.length}):`, duplicates.sort((a, b) => a - b));
+  
+  // Remove duplicates from reserved
+  const cleanedReservedIds = reservedIds.filter((id: number) => !occupiedIds.includes(id));
+  
+  console.log(`✅ Cleaned reserved IDs (${cleanedReservedIds.length}):`, cleanedReservedIds.sort((a, b) => a - b));
+  
+  // Save cleaned list back to DB
+  await kv.set('reserved:user:ids', cleanedReservedIds);
+  
+  console.log(`✅ Reserved IDs synchronized! Removed ${duplicates.length} duplicates.`);
+  
+  return {
+    before: reservedIds.sort((a, b) => a - b),
+    after: cleanedReservedIds.sort((a, b) => a - b),
+    removed: duplicates.sort((a, b) => a - b),
+    message: `Удалено ${duplicates.length} дублирующихся номеров (уже заняты пользователями)`
+  };
 }
 
 // Calculate MLM payouts
@@ -789,6 +865,16 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
       console.log(`✅ Created notification for sponsor ${sponsor.id} about new partner ${newUserId}`);
     }
     
+    // 🆕 Вычисляем и кэшируем ранг для нового партнёра (обычно 0, но на всякий случай)
+    if (!isFirstUser && !isAdminEmail) {
+      try {
+        await getUserRank(newUserId, false);
+        console.log(`✅ Rank calculated for new user ${newUserId}`);
+      } catch (error) {
+        console.error(`⚠️ Error calculating rank for new user ${newUserId}:`, error);
+      }
+    }
+    
     console.log(`✅ New user registered: ${newUser.имя} ${newUser.фамилия} (ID: ${newUserId}, RefCode: ${refCode})${(isFirstUser || isAdminEmail) ? ' [ADMIN]' : ''}${sponsor ? ` sponsored by ${sponsor.id}` : ''}`);
     
     return c.json({ 
@@ -1142,6 +1228,30 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
       await kv.set(`user:id:${sponsor.id}`, updatedSponsor);
       console.log(`Updated sponsor ${sponsor.id} team: added ${partnerId}`);
       
+      // 🆕 Инвалидируем кэш рангов для спонсора и всей upline цепочки
+      console.log(`🔄 Invalidating rank cache starting from sponsor ${sponsor.id}...`);
+      await invalidateRankCache(sponsor.id);
+      
+      // 🆕 Автоматически пересчитываем ранги для спонсора и upline
+      console.log(`🏆 Auto-recalculating ranks for sponsor ${sponsor.id} and upline...`);
+      try {
+        // Пересчитываем ранг спонсора (это автоматически вычислит и закэширует)
+        await getUserRank(sponsor.id, false);
+        
+        // Пересчитываем ранги для upline
+        let currentSponsorId = sponsor.спонсорId;
+        while (currentSponsorId) {
+          await getUserRank(currentSponsorId, false);
+          const currentSponsor = await kv.get(`user:id:${currentSponsorId}`);
+          if (!currentSponsor) break;
+          currentSponsorId = currentSponsor.спонсорId;
+        }
+        
+        console.log(`✅ Ranks auto-recalculated for sponsor ${sponsor.id} and upline`);
+      } catch (error) {
+        console.error(`⚠️ Error auto-recalculating ranks:`, error);
+      }
+      
       // 🆕 Создаём уведомление для спонсора о новом партнёре
       const notificationId = `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const notification = {
@@ -1162,6 +1272,14 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
       
       await kv.set(`notification:user:${sponsor.id}:${notificationId}`, notification);
       console.log(`✅ Created notification for sponsor ${sponsor.id} about new partner ${partnerId}`);
+    }
+    
+    // 🆕 Вычисляем и кэшируем ранг для нового партнёра (обычно 0, но на всякий случай)
+    try {
+      await getUserRank(partnerId, false);
+      console.log(`✅ Rank calculated for new partner ${partnerId}`);
+    } catch (error) {
+      console.error(`⚠️ Error calculating rank for new partner ${partnerId}:`, error);
     }
     
     console.log(`✅ New partner registered: ${newUser.имя} ${newUser.фамилия} (ID: ${partnerId}, RefCode: ${refCode})${sponsor ? ` sponsored by ${sponsor.id}` : ''}`);
@@ -6020,16 +6138,27 @@ app.post('/make-server-05aa3c8a/admin/reserve-ids', async (c) => {
     }
 
     // Convert string IDs to numeric for proper storage
-    const numericIds = ids.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+    console.log('🔄 Converting IDs to numeric...');
+    const numericIds = ids.map(id => {
+      const parsed = parseInt(id, 10);
+      console.log(`   "${id}" → ${parsed} (type: ${typeof parsed})`);
+      return parsed;
+    }).filter(id => !isNaN(id));
+    console.log('✅ Numeric IDs to add:', numericIds);
     
     const reserved = await kv.get('reserved:user:ids') || [];
-    console.log('📋 Current reserved:', reserved);
+    console.log('📋 Current reserved:', reserved, `(type: ${typeof reserved}, isArray: ${Array.isArray(reserved)})`);
     
     const newReserved = [...new Set([...reserved, ...numericIds])].sort((a, b) => a - b);
-    console.log('📋 New reserved:', newReserved);
+    console.log('📋 New reserved array:', newReserved);
+    console.log('📋 Types in new reserved:', newReserved.map(id => typeof id));
     
     await kv.set('reserved:user:ids', newReserved);
-    console.log('✅ Reserved IDs saved');
+    console.log('✅ Reserved IDs saved to DB');
+    
+    // Verify it was saved correctly
+    const verification = await kv.get('reserved:user:ids');
+    console.log('✅ Verification read from DB:', verification);
     
     return c.json({
       success: true,
@@ -6067,6 +6196,27 @@ app.post('/make-server-05aa3c8a/admin/unreserve-id', async (c) => {
     });
   } catch (error) {
     console.error('Error unreserving ID:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// 🔄 Sync reserved IDs - remove duplicates that are already occupied
+app.post('/make-server-05aa3c8a/admin/sync-reserved-ids', async (c) => {
+  try {
+    console.log('🔄 Sync reserved IDs request received');
+    
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    // Call the sync function
+    const result = await syncReservedIds();
+    
+    return c.json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    console.error('❌ Error syncing reserved IDs:', error);
     return c.json({ success: false, error: String(error) }, 500);
   }
 });

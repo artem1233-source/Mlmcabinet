@@ -48,6 +48,7 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
   const [loading, setLoading] = useState(true);
   const [selectedFreeIds, setSelectedFreeIds] = useState<string[]>([]);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [selectedReservedId, setSelectedReservedId] = useState<string>('');
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -92,6 +93,9 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
   });
   const freeIds = allIds.filter(id => !occupiedIds.includes(id) && !reservedIdsFormatted.includes(id));
   
+  // Calculate duplicates (IDs that are both occupied and reserved)
+  const duplicateIds = reservedIdsFormatted.filter(id => occupiedIds.includes(id)).sort((a, b) => a.localeCompare(b));
+  
   // Next ID to assign (first free)
   const nextId = freeIds[0] || 'N/A';
 
@@ -134,6 +138,27 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
     } catch (error) {
       console.error('Error unreserving ID:', error);
       toast.error('Ошибка отмены резервирования');
+    }
+  };
+
+  const handleSyncReservedIds = async () => {
+    try {
+      setLoading(true);
+      const response = await api.syncReservedIds();
+      if (response.success) {
+        const { removed, message } = response;
+        if (removed && removed.length > 0) {
+          toast.success(`${message}\nУдалены: ${removed.join(', ')}`);
+        } else {
+          toast.success('Все зарезервированные номера актуальны');
+        }
+        loadData();
+      }
+    } catch (error) {
+      console.error('Error syncing reserved IDs:', error);
+      toast.error('Ошибка синхронизации');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -201,9 +226,20 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
                 </div>
                 <span className="text-base sm:text-lg">Управление ID номерами (001-99999)</span>
               </CardTitle>
-              <Button variant="outline" size="sm" onClick={loadData}>
-                Обновить
-              </Button>
+              <div className="flex gap-2">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleSyncReservedIds}
+                  disabled={loading}
+                  className="bg-purple-50 border-purple-300 text-purple-700 hover:bg-purple-100"
+                >
+                  🔄 Синхронизировать
+                </Button>
+                <Button variant="outline" size="sm" onClick={loadData}>
+                  Обновить
+                </Button>
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-3 sm:gap-4 mt-4 text-xs sm:text-sm">
               <div className="flex items-center gap-2">
@@ -226,6 +262,38 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
             </div>
           </CardHeader>
           <CardContent>
+            {/* Warning about duplicates */}
+            {duplicateIds.length > 0 && (
+              <div className="mb-4 p-4 bg-red-50 border-2 border-red-200 rounded-xl">
+                <div className="flex items-start gap-3">
+                  <div className="text-2xl">⚠️</div>
+                  <div className="flex-1">
+                    <h4 className="font-semibold text-red-800 mb-2">
+                      Обнаружены дублирующиеся номера! ({duplicateIds.length})
+                    </h4>
+                    <p className="text-sm text-red-700 mb-3">
+                      Следующие номера одновременно заняты пользователями И находятся в зарезервированных:
+                    </p>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {duplicateIds.map(id => (
+                        <code key={id} className="bg-red-100 px-2 py-1 rounded text-red-800 font-semibold">
+                          {id}
+                        </code>
+                      ))}
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={handleSyncReservedIds}
+                      disabled={loading}
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                    >
+                      🔄 Синхронизировать сейчас
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+            
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
               {/* Column 1: Occupied IDs */}
               <div className="space-y-3">
