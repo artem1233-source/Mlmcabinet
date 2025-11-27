@@ -177,6 +177,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
     баланс: 0,
     доступныйБаланс: 0,
     telegram: '',
+    whatsapp: '',
     facebook: '',
     instagram: '',
     vk: '',
@@ -460,6 +461,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       баланс: user.баланс || 0,
       доступныйБаланс: user.доступныйБаланс || 0,
       telegram: user.telegram || user.socialMedia?.telegram || '',
+      whatsapp: user.whatsapp || user.socialMedia?.whatsapp || '',
       facebook: user.facebook || user.socialMedia?.facebook || '',
       instagram: user.instagram || user.socialMedia?.instagram || '',
       vk: user.vk || user.socialMedia?.vk || '',
@@ -474,6 +476,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       email: user.email || '',
       телефон: user.телефон || '',
       telegram: user.telegram || user.socialMedia?.telegram || '',
+      whatsapp: user.whatsapp || user.socialMedia?.whatsapp || '',
       facebook: user.facebook || user.socialMedia?.facebook || '',
       instagram: user.instagram || user.socialMedia?.instagram || '',
       vk: user.vk || user.socialMedia?.vk || '',
@@ -1038,6 +1041,26 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                       </div>
                       <p className="text-[#3B82F6] truncate" style={{ fontSize: '12px', fontWeight: '600' }}>
                         {user.telegram}
+                      </p>
+                    </a>
+                  )}
+                  {user.whatsapp && (
+                    <a 
+                      href={`https://wa.me/${user.whatsapp.replace(/[^0-9]/g, '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2.5 py-2 rounded-lg block hover:opacity-80 transition-opacity cursor-pointer"
+                      style={{ backgroundColor: '#DCFCE7' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Phone className="w-3 h-3 text-[#10B981]" />
+                        <p className="text-[#10B981]" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase' }}>
+                          WhatsApp
+                        </p>
+                      </div>
+                      <p className="text-[#10B981] truncate" style={{ fontSize: '12px', fontWeight: '600' }}>
+                        {user.whatsapp}
                       </p>
                     </a>
                   )}
@@ -1965,7 +1988,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   </div>
 
                   {/* Социальные сети */}
-                  {(selectedUserForDetails.telegram || selectedUserForDetails.facebook || selectedUserForDetails.instagram || selectedUserForDetails.vk || selectedUserForDetails.socialMedia) && (
+                  {(selectedUserForDetails.telegram || selectedUserForDetails.whatsapp || selectedUserForDetails.facebook || selectedUserForDetails.instagram || selectedUserForDetails.vk || selectedUserForDetails.socialMedia) && (
                     <div>
                       <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
                         <MessageCircle className="w-4 h-4 text-[#39B7FF]" />
@@ -1985,6 +2008,22 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                             </div>
                             <p className="text-blue-700 truncate" style={{ fontSize: '13px', fontWeight: '600' }}>
                               @{(selectedUserForDetails.telegram || selectedUserForDetails.socialMedia?.telegram).replace(/^@/, '')}
+                            </p>
+                          </a>
+                        )}
+                        {(selectedUserForDetails.whatsapp || selectedUserForDetails.socialMedia?.whatsapp) && (
+                          <a
+                            href={`https://wa.me/${(selectedUserForDetails.whatsapp || selectedUserForDetails.socialMedia?.whatsapp).replace(/[^0-9]/g, '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-green-50 hover:bg-green-100 p-3 rounded-lg transition-colors cursor-pointer block"
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              <Phone className="w-4 h-4 text-green-600" />
+                              <p className="text-[#999]" style={{ fontSize: '10px', fontWeight: '600' }}>WHATSAPP</p>
+                            </div>
+                            <p className="text-green-700 truncate" style={{ fontSize: '13px', fontWeight: '600' }}>
+                              {selectedUserForDetails.whatsapp || selectedUserForDetails.socialMedia?.whatsapp}
                             </p>
                           </a>
                         )}

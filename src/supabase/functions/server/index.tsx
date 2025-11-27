@@ -1676,7 +1676,7 @@ app.put("/make-server-05aa3c8a/user/profile", async (c) => {
     console.log(`Updating profile for user: ${currentUser.id}`);
     
     // Разрешённые поля для обновления
-    const allowedFields = ['имя', 'телефон', 'telegram', 'instagram', 'vk', 'facebook', 'аватарка'];
+    const allowedFields = ['имя', 'телефон', 'telegram', 'whatsapp', 'instagram', 'vk', 'facebook', 'аватарка'];
     
     // Обновляем только разрешённые поля
     const updates: any = {};
@@ -1702,9 +1702,10 @@ app.put("/make-server-05aa3c8a/user/profile", async (c) => {
     console.log('👤 Updated user object:', updatedUser);
     console.log('📋 Social media fields:', {
       telegram: updatedUser.telegram,
+      whatsapp: updatedUser.whatsapp,
+      facebook: updatedUser.facebook,
       instagram: updatedUser.instagram,
-      vk: updatedUser.vk,
-      facebook: updatedUser.facebook
+      vk: updatedUser.vk
     });
     
     // Сохраняем обновлённого пользователя
@@ -2028,6 +2029,10 @@ app.get("/make-server-05aa3c8a/user/:userId/profile", async (c) => {
     
     if (isOwnProfile || privacySettings.showTelegram !== false) {
       socialMedia.telegram = userData.telegram || '';
+    }
+    
+    if (isOwnProfile || privacySettings.showWhatsapp !== false) {
+      socialMedia.whatsapp = userData.whatsapp || '';
     }
     
     if (isOwnProfile || privacySettings.showFacebook !== false) {

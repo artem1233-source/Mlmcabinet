@@ -178,6 +178,7 @@ export function UserProfileView({ userId, onClose }: UserProfileViewProps) {
             {/* Social Media */}
             {(
               (privacy.showTelegram !== false && socialMedia.telegram) ||
+              (privacy.showWhatsapp !== false && socialMedia.whatsapp) ||
               (privacy.showFacebook !== false && socialMedia.facebook) ||
               (privacy.showInstagram !== false && socialMedia.instagram) ||
               (privacy.showVk !== false && socialMedia.vk)
@@ -202,6 +203,23 @@ export function UserProfileView({ userId, onClose }: UserProfileViewProps) {
                       <div className="flex-1 min-w-0">
                         <div className="text-xs text-[#666]">Telegram</div>
                         <div className="font-semibold text-[#1E1E1E] truncate">{socialMedia.telegram}</div>
+                      </div>
+                    </a>
+                  )}
+
+                  {privacy.showWhatsapp !== false && socialMedia.whatsapp && (
+                    <a
+                      href={`https://wa.me/${socialMedia.whatsapp.replace(/[^0-9]/g, '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 p-3 bg-[#F7FAFC] rounded-lg hover:bg-green-50 transition-colors"
+                    >
+                      <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center">
+                        <Phone className="w-5 h-5 text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs text-[#666]">WhatsApp</div>
+                        <div className="font-semibold text-[#1E1E1E] truncate">{socialMedia.whatsapp}</div>
                       </div>
                     </a>
                   )}

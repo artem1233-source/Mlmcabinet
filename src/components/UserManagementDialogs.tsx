@@ -184,6 +184,19 @@ export function UserManagementDialogs({
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="whatsapp" className="flex items-center gap-1.5 text-xs">
+                    <Phone className="w-3 h-3 text-green-600" />
+                    WhatsApp
+                  </Label>
+                  <Input
+                    id="whatsapp"
+                    value={editFormData.whatsapp || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, whatsapp: e.target.value })}
+                    placeholder="+7 999 123-45-67"
+                    className="text-sm"
+                  />
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="facebook" className="flex items-center gap-1.5 text-xs">
                     <MessageCircle className="w-3 h-3 text-blue-600" />
                     Facebook
