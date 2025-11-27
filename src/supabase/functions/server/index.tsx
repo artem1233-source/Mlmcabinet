@@ -4,6 +4,13 @@ import { logger } from "npm:hono/logger";
 import * as kv from "./kv_store.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getUserRank, invalidateRankCache, updateUplineRanks, updateUserRank } from "./rank_calculator.tsx";
+import * as metricsCache from "./user_metrics_cache.tsx";
+
+// 🎯 HELPER: Инвалидация кэша при изменении пользователей
+async function invalidateUsersCache() {
+  await kv.del('cache:all_users_list');
+  console.log('🗑️ Invalidated all users cache');
+}
 
 // Helper function for HMAC using Web Crypto API (works in Deno, no node:crypto needed)
 async function createHmacSha256(key: string | Uint8Array, data: string): Promise<string> {
@@ -7072,6 +7079,219 @@ app.post("/make-server-05aa3c8a/admin/recalculate-ranks", async (c) => {
       success: false,
       error: `${error}`
     }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// ======================
+// 🚀 ОПТИМИЗИРОВАННЫЕ ENDPOINTS ДЛЯ МАСШТАБИРОВАНИЯ
+// ======================
+
+/**
+ * 🚀 Оптимизированная загрузка пользователей с кэшированными метриками
+ * Используется новым компонентом UsersManagementOptimized
+ */
+app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+
+    const page = parseInt(c.req.query('page') || '1');
+    const limit = parseInt(c.req.query('limit') || '50');
+    const search = c.req.query('search') || '';
+    const sortBy = c.req.query('sortBy') || 'created';
+    const sortOrder = c.req.query('sortOrder') || 'desc';
+
+    // Проверяем кэш страницы
+    const cacheKey = `users_page:${page}:${limit}:${search}:${sortBy}:${sortOrder}`;
+    const cached = await kv.get(cacheKey);
+    
+    if (cached && cached.timestamp) {
+      const cacheAge = Date.now() - new Date(cached.timestamp).getTime();
+      if (cacheAge < 5 * 60 * 1000) { // 5 минут
+        console.log(`✅ Cache hit for page ${page}`);
+        return c.json(cached.data);
+      }
+    }
+
+    console.log(`📊 Loading optimized users page ${page}...`);
+
+    // 🎯 КРИТИЧЕСКАЯ ОПТИМИЗАЦИЯ #1: Кэш списка всех пользователей (2 минуты)
+    const ALL_USERS_CACHE_KEY = 'cache:all_users_list';
+    const ALL_USERS_CACHE_TTL = 2 * 60 * 1000;
+    
+    let allUsersCache = await kv.get(ALL_USERS_CACHE_KEY);
+    let users: any[];
+    
+    if (allUsersCache && allUsersCache.timestamp) {
+      const cacheAge = Date.now() - new Date(allUsersCache.timestamp).getTime();
+      if (cacheAge < ALL_USERS_CACHE_TTL) {
+        console.log(`✅ Using cached all users (age: ${Math.round(cacheAge/1000)}s)`);
+        users = allUsersCache.users;
+      } else {
+        const allUsers = await kv.getByPrefix('user:id:');
+        users = allUsers.filter((u: any) => !isUserAdmin(u));
+        await kv.set(ALL_USERS_CACHE_KEY, { users, timestamp: new Date().toISOString() });
+      }
+    } else {
+      const allUsers = await kv.getByPrefix('user:id:');
+      users = allUsers.filter((u: any) => !isUserAdmin(u));
+      await kv.set(ALL_USERS_CACHE_KEY, { users, timestamp: new Date().toISOString() });
+    }
+
+    // Применяем поиск
+    let filteredUsers = users;
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filteredUsers = users.filter((u: any) => 
+        u.имя?.toLowerCase().includes(searchLower) ||
+        u.фамилия?.toLowerCase().includes(searchLower) ||
+        u.email?.toLowerCase().includes(searchLower) ||
+        u.телефон?.includes(search) ||
+        u.id?.includes(search)
+      );
+    }
+
+    // 🎯 ОПТИМИЗАЦИЯ #2: Если сортировка не требует метрик - пагинируем СНАЧАЛА
+    if (sortBy === 'name' || sortBy === 'balance' || sortBy === 'created') {
+      // Быстрая сортировка без метрик
+      filteredUsers.sort((a: any, b: any) => {
+        let comparison = 0;
+        switch (sortBy) {
+          case 'name':
+            comparison = (a.имя || '').localeCompare(b.имя || '');
+            break;
+          case 'balance':
+            comparison = (b.баланс || 0) - (a.баланс || 0);
+            break;
+          case 'created':
+          default:
+            comparison = new Date(b.зарегистрирован || 0).getTime() - new Date(a.зарегистрирован || 0).getTime();
+        }
+        return sortOrder === 'asc' ? -comparison : comparison;
+      });
+      
+      // Пагинируем ДО загрузки метрик
+      const total = filteredUsers.length;
+      const totalPages = Math.ceil(total / limit);
+      const start = (page - 1) * limit;
+      const end = start + limit;
+      const paginatedUsers = filteredUsers.slice(start, end);
+      
+      // Загружаем метрики только для текущей страницы
+      const usersWithMetrics = await Promise.all(
+        paginatedUsers.map(async (user: any) => {
+          const metrics = await metricsCache.getUserMetrics(user.id);
+          return { ...user, _metrics: metrics };
+        })
+      );
+      
+      console.log(`✅ Fast path: ${usersWithMetrics.length} users (page ${page}/${totalPages})`);
+      
+      return c.json({
+        success: true,
+        users: usersWithMetrics,
+        pagination: { page, limit, total, totalPages, hasMore: page < totalPages }
+      });
+    }
+    
+    // Медленный путь: сортировка по метрикам
+    console.log(`⚠️ Loading metrics for ${filteredUsers.length} users (sorting by ${sortBy})`);
+    
+    const usersWithMetrics = await Promise.all(
+      filteredUsers.map(async (user: any) => {
+        const metrics = await metricsCache.getUserMetrics(user.id);
+        return { ...user, _metrics: metrics };
+      })
+    );
+
+    // Сортировка по метрикам
+    usersWithMetrics.sort((a: any, b: any) => {
+      let comparison = 0;
+      switch (sortBy) {
+        case 'rank':
+          comparison = (b._metrics?.rank || 0) - (a._metrics?.rank || 0);
+          break;
+        case 'teamSize':
+          comparison = (b._metrics?.totalTeamSize || 0) - (a._metrics?.totalTeamSize || 0);
+          break;
+        default:
+          comparison = 0;
+      }
+      return sortOrder === 'asc' ? -comparison : comparison;
+    });
+
+    // Пагинация
+    const total = usersWithMetrics.length;
+    const totalPages = Math.ceil(total / limit);
+    const start = (page - 1) * limit;
+    const end = start + limit;
+    const paginatedUsers = usersWithMetrics.slice(start, end);
+
+    const result = {
+      success: true,
+      users: paginatedUsers,
+      pagination: { page, limit, total, totalPages, hasMore: page < totalPages }
+    };
+
+    console.log(`✅ Loaded ${paginatedUsers.length} users (page ${page}/${totalPages})`);
+
+    return c.json(result);
+  } catch (error) {
+    console.error('❌ Optimized users load error:', error);
+    return c.json({ error: `${error}` }, 500);
+  }
+});
+
+/**
+ * 🔄 Пересчёт метрик для всех пользователей
+ * Вызывается админом вручную или по расписанию
+ */
+app.post("/make-server-05aa3c8a/metrics/recalculate", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+
+    console.log(`🔄 Admin ${currentUser.имя} initiated metrics recalculation`);
+
+    // Запускаем пересчёт
+    const result = await metricsCache.recalculateAllMetrics();
+
+    // Очищаем кэш страниц
+    await metricsCache.invalidatePageCache();
+
+    return c.json({
+      success: true,
+      message: `Пересчитано метрик: ${result.updated}, ошибок: ${result.errors}`,
+      ...result
+    });
+  } catch (error) {
+    console.error('❌ Metrics recalculation error:', error);
+    return c.json({ error: `${error}` }, 500);
+  }
+});
+
+/**
+ * 📊 Получение метрик конкретного пользователя
+ */
+app.get("/make-server-05aa3c8a/users/:userId/metrics", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    const userId = c.req.param('userId');
+
+    // Проверка прав: админ или сам пользователь
+    if (!isUserAdmin(currentUser) && currentUser.id !== userId) {
+      throw new Error('Access denied');
+    }
+
+    const metrics = await metricsCache.getUserMetrics(userId);
+
+    return c.json({
+      success: true,
+      metrics
+    });
+  } catch (error) {
+    console.error('❌ Get user metrics error:', error);
+    return c.json({ error: `${error}` }, 500);
   }
 });
 

@@ -55,6 +55,7 @@ import { Input } from './ui/input';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Checkbox } from './ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import {
   Dialog,
   DialogContent,
@@ -254,6 +255,84 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
     }
     
     return total;
+  };
+
+  // 🆕 Функция для расчёта метрик продаж пользователя
+  const calculateUserSalesMetrics = (userId: string) => {
+    if (!userOrders || userOrders.length === 0) {
+      return {
+        personalSales: 0,
+        teamSales: 0,
+        ordersCount: 0,
+        averageCheck: 0,
+        percentChange: 0,
+        salesByDay: Array(30).fill(0)
+      };
+    }
+
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+
+    // Личные продажи (где пользователь - покупатель)
+    const personalOrders = userOrders.filter(order => order.покупательId === userId);
+    const personalSales = personalOrders.reduce((sum, order) => sum + (order.итого || 0), 0);
+    
+    // Продажи команды (заказы партнёров)
+    const user = allUsers.find(u => u.id === userId) || users.find(u => u.id === userId);
+    const teamIds = user?.команда || [];
+    
+    const teamOrders = userOrders.filter(order => {
+      const firstItem = teamIds[0];
+      const isIdArray = typeof firstItem === 'string';
+      if (isIdArray) {
+        return teamIds.includes(order.покупательId);
+      }
+      return teamIds.some((item: any) => item.id === order.покупательId);
+    });
+    
+    const teamSales = teamOrders.reduce((sum, order) => sum + (order.итого || 0), 0);
+
+    // Заказы за последние 30 дней
+    const recentOrders = personalOrders.filter(order => {
+      const orderDate = new Date(order.датаСоздания || order.createdAt);
+      return orderDate >= thirtyDaysAgo;
+    });
+    
+    const ordersCount = recentOrders.length;
+    const averageCheck = ordersCount > 0 ? personalSales / ordersCount : 0;
+
+    // Продажи за предыдущий месяц для расчёта %
+    const previousMonthOrders = personalOrders.filter(order => {
+      const orderDate = new Date(order.датаСоздания || order.createdAt);
+      return orderDate >= sixtyDaysAgo && orderDate < thirtyDaysAgo;
+    });
+    
+    const previousMonthSales = previousMonthOrders.reduce((sum, order) => sum + (order.итого || 0), 0);
+    const currentMonthSales = recentOrders.reduce((sum, order) => sum + (order.итого || 0), 0);
+    
+    const percentChange = previousMonthSales > 0 
+      ? ((currentMonthSales - previousMonthSales) / previousMonthSales) * 100 
+      : currentMonthSales > 0 ? 100 : 0;
+
+    // График по дням (последние 30 дней)
+    const salesByDay = Array(30).fill(0);
+    recentOrders.forEach(order => {
+      const orderDate = new Date(order.датаСоздания || order.createdAt);
+      const daysAgo = Math.floor((now.getTime() - orderDate.getTime()) / (24 * 60 * 60 * 1000));
+      if (daysAgo >= 0 && daysAgo < 30) {
+        salesByDay[29 - daysAgo] += order.итого || 0;
+      }
+    });
+
+    return {
+      personalSales,
+      teamSales,
+      ordersCount,
+      averageCheck,
+      percentChange,
+      salesByDay
+    };
   };
 
   // Debounce search
@@ -1522,26 +1601,7 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                     <Loader2 className="w-8 h-8 animate-spin text-[#39B7FF]" />
                   </div>
                 ) : (
-                  <div className="space-y-3"> {/* Было space-y-6 */}
-                    {/* Auto-Rank Info Panel */}
-                    <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-4 rounded-xl border-2 border-green-200 shadow-sm">
-                      <div className="flex items-start gap-3">
-                        <div className="text-2xl">✨</div>
-                        <div className="flex-1">
-                          <h4 className="font-semibold text-green-900 mb-2 flex items-center gap-2">
-                            <Award className="w-4 h-4" />
-                            Автоматический расчёт рангов
-                          </h4>
-                          <div className="text-sm text-green-800 space-y-1">
-                            <p>✅ <strong>Ранги обновляются автоматически</strong> при регистрации нового партнёра</p>
-                            <p className="ml-5">→ Обновление для спонсора и всей upline цепочки</p>
-                            <p className="ml-5">→ Ранг = максимальная глубина дерева партнёров</p>
-                            <p className="mt-2">💡 Кнопка <strong>"Утилиты → Пересчитать ранги"</strong> — только для редких случаев</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    
+                  <div className="space-y-3">
                     {/* Filters & Sort Bar */}
                     <div className="bg-white p-4 rounded-xl border border-[#E6E9EE] shadow-sm">
                       {/* Верхний ряд - Фильтры */}
@@ -2100,7 +2160,7 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
               <div>
                 <DialogTitle>Подтверждение изменения данных</DialogTitle>
                 <DialogDescription>
-                  Проверьте корректность изменений перед сохранением
+                  Проверьте корректность изменений перед сох��анением
                 </DialogDescription>
               </div>
             </div>
@@ -2729,12 +2789,6 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                         {userRanks.get(selectedUserForDetails.id) ?? 0}
                       </p>
                     </div>
-                    <div className="bg-indigo-50 p-3 rounded-lg">
-                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>УРОВЕНЬ</p>
-                      <p className="text-[#1E1E1E]" style={{ fontSize: '13px', fontWeight: '600' }}>
-                        {selectedUserForDetails.уровень || 1}
-                      </p>
-                    </div>
                     <div className="bg-blue-50 p-3 rounded-lg">
                       <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>РЕГИСТРАЦИЯ</p>
                       <p className="text-[#1E1E1E]" style={{ fontSize: '13px', fontWeight: '600' }}>
@@ -2926,7 +2980,7 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                 {/* Вкладка: Команда */}
                 <TabsContent value="team" className="space-y-4">
                   {/* Структура команды */}
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-4 gap-3">
                     <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg">
                       <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>1 ЛИНИЯ</p>
                       <p className="text-[#1E1E1E] text-2xl font-bold">{selectedUserForDetails.команда?.length || 0}</p>
@@ -2935,9 +2989,52 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                     <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-lg">
                       <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>2 ЛИНИЯ</p>
                       <p className="text-[#1E1E1E] text-2xl font-bold">
-                        {selectedUserForDetails.команда?.reduce((sum: number, member: any) => sum + (member.команда?.length || 0), 0) || 0}
+                        {(() => {
+                          if (!selectedUserForDetails.команда) return 0;
+                          
+                          const firstItem = selectedUserForDetails.команда[0];
+                          const isIdArray = typeof firstItem === 'string';
+                          
+                          let count = 0;
+                          for (const item of selectedUserForDetails.команда) {
+                            const memberId = isIdArray ? item : item.id;
+                            const member = allUsers.find(u => u.id === memberId) || users.find(u => u.id === memberId);
+                            if (member?.команда) {
+                              count += member.команда.length;
+                            }
+                          }
+                          return count;
+                        })()}
                       </p>
                       <p className="text-xs text-[#666] mt-1">Партнёры 2 уровня</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-pink-50 to-pink-100 p-4 rounded-lg">
+                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>3 ЛИНИЯ</p>
+                      <p className="text-[#1E1E1E] text-2xl font-bold">
+                        {(() => {
+                          if (!selectedUserForDetails.команда) return 0;
+                          
+                          const firstItem = selectedUserForDetails.команда[0];
+                          const isIdArray = typeof firstItem === 'string';
+                          
+                          let count = 0;
+                          for (const item of selectedUserForDetails.команда) {
+                            const memberId = isIdArray ? item : item.id;
+                            const member = allUsers.find(u => u.id === memberId) || users.find(u => u.id === memberId);
+                            if (member?.команда) {
+                              for (const subItem of member.команда) {
+                                const subMemberId = typeof subItem === 'string' ? subItem : subItem.id;
+                                const subMember = allUsers.find(u => u.id === subMemberId) || users.find(u => u.id === subMemberId);
+                                if (subMember?.команда) {
+                                  count += subMember.команда.length;
+                                }
+                              }
+                            }
+                          }
+                          return count;
+                        })()}
+                      </p>
+                      <p className="text-xs text-[#666] mt-1">Партнёры 3 уровня</p>
                     </div>
                     <div className="bg-gradient-to-br from-teal-50 to-teal-100 p-4 rounded-lg">
                       <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>ВСЕГО</p>
@@ -2974,99 +3071,214 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                     </div>
                   </div>
 
-                  {/* Последние регистрации */}
+                  {/* Дерево команды */}
+                  {/* Топ партнёров с фильтрами */}
                   <div className="bg-white border border-[#E6E9EE] p-4 rounded-lg">
-                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
-                      <UserPlus className="w-4 h-4 text-[#39B7FF]" />
-                      Последние регистрации
-                    </h3>
-                    <div className="space-y-2">
-                      {selectedUserForDetails.команда?.slice(0, 3).map((member: any, idx: number) => (
-                        <div key={idx} className="flex items-center justify-between p-2 bg-[#F7FAFC] rounded-lg">
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] flex items-center justify-center text-white text-xs font-bold">
-                              {member.имя?.[0]}{member.фамилия?.[0]}
-                            </div>
-                            <div>
-                              <p className="text-sm font-medium text-[#1E1E1E]">{member.имя} {member.фамилия}</p>
-                              <p className="text-xs text-[#999]">ID: {member.id}</p>
-                            </div>
-                          </div>
-                          <Badge className="bg-green-100 text-green-700">Ранг {userRanks.get(member.id) ?? 0}</Badge>
-                        </div>
-                      )) || <p className="text-sm text-[#999] text-center py-4">Нет партнёров</p>}
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-[#1E1E1E] flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                        <TrendingUp className="w-4 h-4 text-[#39B7FF]" />
+                        Топ партнёров
+                      </h3>
                     </div>
+                    
+                    {/* Фильтры */}
+                    <div className="flex gap-2 mb-3">
+                      {/* Период */}
+                      <Select defaultValue="1month">
+                        <SelectTrigger className="h-8 text-xs flex-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1month">За месяц</SelectItem>
+                          <SelectItem value="3months">За 3 месяца</SelectItem>
+                          <SelectItem value="year">За год</SelectItem>
+                          <SelectItem value="all">За всё время</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      
+                      {/* Сортировка */}
+                      <Select defaultValue="turnover">
+                        <SelectTrigger className="h-8 text-xs flex-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="turnover">По обороту</SelectItem>
+                          <SelectItem value="recent">Новички</SelectItem>
+                          <SelectItem value="orders">По покупкам</SelectItem>
+                          <SelectItem value="activity">По активности</SelectItem>
+                          <SelectItem value="balance">По балансу</SelectItem>
+                          <SelectItem value="team">По команде</SelectItem>
+                          <SelectItem value="rank">По рангу</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    {/* Список топ партнёров */}
+                    <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                      {(() => {
+                        if (!selectedUserForDetails.команда || selectedUserForDetails.команда.length === 0) {
+                          return <p className="text-sm text-[#999] text-center py-4">Нет партнёров</p>;
+                        }
+                        
+                        // Получаем партнёров
+                        const firstItem = selectedUserForDetails.команда[0];
+                        const isIdArray = typeof firstItem === 'string';
+                        
+                        const partners = selectedUserForDetails.команда
+                          .map((item: any) => {
+                            const memberId = isIdArray ? item : item.id;
+                            return allUsers.find(u => u.id === memberId) || users.find(u => u.id === memberId);
+                          })
+                          .filter(Boolean)
+                          .slice(0, 10); // Топ-10
+                        
+                        if (partners.length === 0) {
+                          return <p className="text-sm text-[#999] text-center py-4">Нет данных</p>;
+                        }
+                        
+                        return partners.map((partner: any, index: number) => {
+                          const rank = userRanks.get(partner.id) ?? 0;
+                          const teamSize = partner.команда?.length || 0;
+                          const activity = getActivityStatus(partner);
+                          
+                          return (
+                            <div 
+                              key={partner.id}
+                              className="flex items-center gap-3 p-2 hover:bg-[#F7FAFC] rounded-lg transition-colors cursor-pointer border border-transparent hover:border-[#39B7FF]"
+                              onClick={() => {
+                                setSelectedUserForDetails(partner);
+                                setUserDetailsOpen(true);
+                              }}
+                            >
+                              {/* Место */}
+                              <div className="w-6 h-6 rounded-md bg-gradient-to-br from-yellow-100 to-yellow-200 flex items-center justify-center text-yellow-700 font-bold text-xs shrink-0">
+                                {index + 1}
+                              </div>
+                              
+                              {/* Аватар */}
+                              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] flex items-center justify-center text-white text-xs font-bold shrink-0">
+                                {partner.имя?.[0]}{partner.фамилия?.[0]}
+                              </div>
+                              
+                              {/* Информация */}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-0.5">
+                                  <p className="text-xs font-medium text-[#1E1E1E] truncate">
+                                    {partner.имя} {partner.фамилия}
+                                  </p>
+                                  <div className={`w-1.5 h-1.5 rounded-full ${activity.color} shrink-0`} title={activity.text}></div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Badge className="bg-gradient-to-r from-orange-100 to-orange-200 text-orange-700 text-[10px] px-1.5 py-0">
+                                    Ранг {rank}
+                                  </Badge>
+                                  <span className="text-[10px] text-[#999]">
+                                    {teamSize} партнёр{teamSize === 1 ? '' : teamSize < 5 ? 'а' : 'ов'}
+                                  </span>
+                                </div>
+                              </div>
+                              
+                              {/* Метрики */}
+                              <div className="text-right shrink-0">
+                                <p className="text-sm font-bold text-[#1E1E1E]">
+                                  {partner.баланс?.toLocaleString('ru-RU') || 0} ₽
+                                </p>
+                                <p className="text-[10px] text-[#999]">Баланс</p>
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                    
+                    {/* Показать всех */}
+                    {selectedUserForDetails.команда && selectedUserForDetails.команда.length > 10 && (
+                      <div className="mt-3 pt-3 border-t border-[#E6E9EE]">
+                        <button className="w-full text-xs text-[#39B7FF] hover:underline font-medium">
+                          Показать всех партнёров ({selectedUserForDetails.команда.length})
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </TabsContent>
 
                 {/* Вкладка: Продажи */}
                 <TabsContent value="sales" className="space-y-4">
-                  {/* Статистика продаж */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-lg">
-                      <div className="flex items-center justify-between mb-2">
-                        <ShoppingBag className="w-5 h-5 text-green-600" />
-                        <ArrowUpRight className="w-4 h-4 text-green-600" />
-                      </div>
-                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>ЛИЧНЫЕ ПРОДАЖИ</p>
-                      <p className="text-[#1E1E1E] text-xl font-bold">₽0</p>
-                      <p className="text-xs text-green-600 mt-1">+0% за месяц</p>
-                    </div>
-                    <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg">
-                      <div className="flex items-center justify-between mb-2">
-                        <ShoppingBag className="w-5 h-5 text-blue-600" />
-                        <TrendingUp className="w-4 h-4 text-blue-600" />
-                      </div>
-                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>ПРОДАЖИ КОМАНДЫ</p>
-                      <p className="text-[#1E1E1E] text-xl font-bold">₽0</p>
-                      <p className="text-xs text-blue-600 mt-1">+0% за месяц</p>
-                    </div>
-                    <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-lg">
-                      <div className="flex items-center justify-between mb-2">
-                        <Award className="w-5 h-5 text-purple-600" />
-                      </div>
-                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>ЗАКАЗОВ</p>
-                      <p className="text-[#1E1E1E] text-xl font-bold">0</p>
-                      <p className="text-xs text-[#666] mt-1">Всего заказов</p>
-                    </div>
-                    <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-lg">
-                      <div className="flex items-center justify-between mb-2">
-                        <BarChart3 className="w-5 h-5 text-orange-600" />
-                      </div>
-                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>СРЕДНИЙ ЧЕК</p>
-                      <p className="text-[#1E1E1E] text-xl font-bold">₽0</p>
-                      <p className="text-xs text-[#666] mt-1">За последний месяц</p>
-                    </div>
-                  </div>
+                  {(() => {
+                    const metrics = calculateUserSalesMetrics(selectedUserForDetails.id);
+                    const maxSale = Math.max(...metrics.salesByDay, 1);
+                    
+                    return (
+                      <>
+                        {/* Статистика продаж */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-lg">
+                            <div className="flex items-center justify-between mb-2">
+                              <ShoppingBag className="w-5 h-5 text-green-600" />
+                              <ArrowUpRight className="w-4 h-4 text-green-600" />
+                            </div>
+                            <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>ЛИЧНЫЕ ПРОДАЖИ</p>
+                            <p className="text-[#1E1E1E] text-xl font-bold">₽{metrics.personalSales.toLocaleString()}</p>
+                            <p className={`text-xs mt-1 ${metrics.percentChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {metrics.percentChange >= 0 ? '+' : ''}{metrics.percentChange.toFixed(1)}% за месяц
+                            </p>
+                          </div>
+                          <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg">
+                            <div className="flex items-center justify-between mb-2">
+                              <ShoppingBag className="w-5 h-5 text-blue-600" />
+                              <TrendingUp className="w-4 h-4 text-blue-600" />
+                            </div>
+                            <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>ПРОДАЖИ КОМАНДЫ</p>
+                            <p className="text-[#1E1E1E] text-xl font-bold">₽{metrics.teamSales.toLocaleString()}</p>
+                            <p className="text-xs text-blue-600 mt-1">За последний месяц</p>
+                          </div>
+                          <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-lg">
+                            <div className="flex items-center justify-between mb-2">
+                              <Award className="w-5 h-5 text-purple-600" />
+                            </div>
+                            <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>ЗАКАЗОВ</p>
+                            <p className="text-[#1E1E1E] text-xl font-bold">{metrics.ordersCount}</p>
+                            <p className="text-xs text-[#666] mt-1">За последний месяц</p>
+                          </div>
+                          <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-lg">
+                            <div className="flex items-center justify-between mb-2">
+                              <BarChart3 className="w-5 h-5 text-orange-600" />
+                            </div>
+                            <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>СРЕДНИЙ ЧЕК</p>
+                            <p className="text-[#1E1E1E] text-xl font-bold">₽{Math.round(metrics.averageCheck).toLocaleString()}</p>
+                            <p className="text-xs text-[#666] mt-1">За последний месяц</p>
+                          </div>
+                        </div>
 
-                  {/* График продаж (заглушка) */}
-                  <div className="bg-[#F7FAFC] p-4 rounded-lg">
-                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
-                      <TrendingUp className="w-4 h-4 text-[#39B7FF]" />
-                      Динамика продаж (30 дней)
-                    </h3>
-                    <div className="h-32 flex items-end gap-1">
-                      {[...Array(30)].map((_, i) => (
-                        <div
-                          key={i}
-                          className="flex-1 bg-gradient-to-t from-[#39B7FF] to-[#12C9B6] rounded-t opacity-30"
-                          style={{ height: `${Math.random() * 100}%` }}
-                        ></div>
-                      ))}
-                    </div>
-                    <p className="text-xs text-[#999] text-center mt-2">График активности за последние 30 дней</p>
-                  </div>
-
-                  {/* Топ продуктов */}
-                  <div className="bg-white border border-[#E6E9EE] p-4 rounded-lg">
-                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
-                      <Award className="w-4 h-4 text-[#39B7FF]" />
-                      Топ продуктов
-                    </h3>
-                    <div className="text-sm text-[#999] text-center py-6">
-                      Данные о продажах пока отсутствуют
-                    </div>
-                  </div>
+                        {/* График продаж */}
+                        <div className="bg-[#F7FAFC] p-4 rounded-lg">
+                          <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                            <TrendingUp className="w-4 h-4 text-[#39B7FF]" />
+                            Динамика продаж (30 дней)
+                          </h3>
+                          <div className="h-32 flex items-end gap-1">
+                            {metrics.salesByDay.map((sale, i) => (
+                              <div
+                                key={i}
+                                className="flex-1 bg-gradient-to-t from-[#39B7FF] to-[#12C9B6] rounded-t transition-all hover:opacity-100"
+                                style={{ 
+                                  height: `${maxSale > 0 ? (sale / maxSale) * 100 : 5}%`,
+                                  opacity: sale > 0 ? 0.8 : 0.2,
+                                  minHeight: '4px'
+                                }}
+                                title={`₽${sale.toLocaleString()}`}
+                              ></div>
+                            ))}
+                          </div>
+                          <p className="text-xs text-[#999] text-center mt-2">
+                            {metrics.salesByDay.reduce((a, b) => a + b, 0) > 0 
+                              ? `Общая сумма: ₽${metrics.salesByDay.reduce((a, b) => a + b, 0).toLocaleString()}`
+                              : 'Продаж за последние 30 дней не было'}
+                          </p>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </TabsContent>
 
                 {/* Вкладка: Финансы */}

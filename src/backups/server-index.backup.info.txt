@@ -1,0 +1,17 @@
+⚠️ ИНФОРМАЦИЯ О БЭКАПЕ СЕРВЕРА
+Дата создания: 2024-11-26
+
+ВАЖНО: Файл /supabase/functions/server/index.tsx НЕ БУДЕТ ИЗМЕНЁН!
+
+Вместо изменения существующего сервера, будут добавлены НОВЫЕ endpoints:
+- GET /make-server-05aa3c8a/users/optimized
+- POST /make-server-05aa3c8a/metrics/recalculate
+
+Существующий endpoint /make-server-05aa3c8a/admin/users/paginated останется без изменений.
+
+Для отката:
+1. Удалите новые endpoints из server/index.tsx
+2. Удалите файл /supabase/functions/server/user_metrics_cache.tsx
+3. Перезагрузите приложение
+
+Старая функциональность полностью сохранится!

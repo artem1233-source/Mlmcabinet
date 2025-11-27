@@ -107,8 +107,8 @@ export function StatsWidgets({ stats, activeFilter, onFilterClick }: StatsWidget
                 <Icon className="w-5 h-5 text-white" />
               </div>
               <div className="flex-1 min-w-0 text-left">
-                <p className="text-[10px] text-[#666] mb-0.5 truncate">{widget.label}</p>
-                <p className="text-lg font-bold text-[#1E1E1E]">
+                <p className="text-[11px] text-[#666] mb-1 truncate leading-tight">{widget.label}</p>
+                <p className="text-xl font-bold text-[#1E1E1E] leading-none">
                   {widget.isCurrency && widget.prefix}
                   {widget.value.toLocaleString('ru-RU')}
                   {!widget.isCurrency && widget.prefix ? ` ${widget.prefix}` : ''}

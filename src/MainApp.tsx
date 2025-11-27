@@ -7,6 +7,7 @@ import { OrdersRu } from './components/OrdersRu';
 import { BalanceRu } from './components/BalanceRu';
 import { CatalogRu } from './components/CatalogRu';
 import { UsersManagementRu } from './components/UsersManagementRuV2';
+import { UsersManagementOptimized } from './components/UsersManagementOptimized';
 import { OptimizedStructureRu } from './components/OptimizedStructureRu';
 import { TrainingRu } from './components/TrainingRu';
 import { ProfileRu } from './components/ProfileRu';
@@ -33,6 +34,8 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
   const [loading, setLoading] = useState(true);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // 🚀 Переключатель между старой и оптимизированной версией управления пользователями
+  const [useOptimizedUsers, setUseOptimizedUsers] = useState(false);
 
   const handleRefresh = () => {
     setRefreshTrigger(prev => prev + 1);
@@ -226,7 +229,51 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
         return <OptimizedStructureRu currentUser={currentUser} refreshTrigger={refreshTrigger} />;
       case 'пользователи':
       case 'users':
-        return <UsersManagementRu currentUser={currentUser} onRefresh={handleRefresh} />;
+        // 🚀 Переключатель между версиями с кнопкой выбора
+        return (
+          <div>
+            {/* Переключатель версий */}
+            <div className="bg-white border-b border-[#E6E9EE] px-6 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-[#666]" style={{ fontSize: '14px' }}>Версия:</span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setUseOptimizedUsers(false)}
+                    className={`px-4 py-2 rounded-lg transition-all ${
+                      !useOptimizedUsers 
+                        ? 'bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white shadow-sm' 
+                        : 'bg-gray-100 text-[#666] hover:bg-gray-200'
+                    }`}
+                    style={{ fontSize: '13px', fontWeight: '600' }}
+                  >
+                    Стандартная
+                  </button>
+                  <button
+                    onClick={() => setUseOptimizedUsers(true)}
+                    className={`px-4 py-2 rounded-lg transition-all ${
+                      useOptimizedUsers 
+                        ? 'bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white shadow-sm' 
+                        : 'bg-gray-100 text-[#666] hover:bg-gray-200'
+                    }`}
+                    style={{ fontSize: '13px', fontWeight: '600' }}
+                  >
+                    🚀 Оптимизированная
+                  </button>
+                </div>
+              </div>
+              <p className="text-[#999]" style={{ fontSize: '12px' }}>
+                {useOptimizedUsers ? '✅ Для больших объёмов (1000+ пользователей)' : '📋 Полный функционал'}
+              </p>
+            </div>
+            
+            {/* Рендер выбранной версии */}
+            {useOptimizedUsers ? (
+              <UsersManagementOptimized currentUser={currentUser} onRefresh={handleRefresh} />
+            ) : (
+              <UsersManagementRu currentUser={currentUser} onRefresh={handleRefresh} />
+            )}
+          </div>
+        );
       case 'заказы':
       case 'orders':
         return <OrdersRu currentUser={currentUser} refreshTrigger={refreshTrigger} />;

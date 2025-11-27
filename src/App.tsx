@@ -1,6 +1,17 @@
 import AppRu from './AppRu';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useEffect } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+// 🚀 React Query client для оптимизированных компонентов
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 export default function App() {
   useEffect(() => {
@@ -37,8 +48,10 @@ export default function App() {
   }, []);
   
   return (
-    <ErrorBoundary>
-      <AppRu />
-    </ErrorBoundary>
+    <QueryClientProvider client={queryClient}>
+      <ErrorBoundary>
+        <AppRu />
+      </ErrorBoundary>
+    </QueryClientProvider>
   );
 }
