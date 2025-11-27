@@ -37,7 +37,7 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
     имя: currentUser?.имя || '',
     телефон: currentUser?.телефон || '',
     telegram: currentUser?.socialMedia?.telegram || currentUser?.telegram || '',
-    whatsapp: currentUser?.socialMedia?.whatsapp || '',
+    facebook: currentUser?.socialMedia?.facebook || currentUser?.facebook || '',
     instagram: currentUser?.socialMedia?.instagram || currentUser?.instagram || '',
     vk: currentUser?.socialMedia?.vk || currentUser?.vk || '',
     аватарка: currentUser?.аватарка || '',
@@ -48,7 +48,7 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
     showPhone: currentUser?.privacySettings?.showPhone !== false,
     showEmail: currentUser?.privacySettings?.showEmail !== false,
     showTelegram: currentUser?.privacySettings?.showTelegram !== false,
-    showWhatsapp: currentUser?.privacySettings?.showWhatsapp !== false,
+    showFacebook: currentUser?.privacySettings?.showFacebook !== false,
     showInstagram: currentUser?.privacySettings?.showInstagram !== false,
     showVk: currentUser?.privacySettings?.showVk !== false,
     showBalance: currentUser?.privacySettings?.showBalance !== false,
@@ -62,7 +62,7 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
         имя: currentUser.имя || '',
         телефон: currentUser.телефон || '',
         telegram: currentUser.socialMedia?.telegram || currentUser.telegram || '',
-        whatsapp: currentUser.socialMedia?.whatsapp || '',
+        facebook: currentUser.socialMedia?.facebook || currentUser.facebook || '',
         instagram: currentUser.socialMedia?.instagram || currentUser.instagram || '',
         vk: currentUser.socialMedia?.vk || currentUser.vk || '',
         аватарка: currentUser.аватарка || '',
@@ -71,7 +71,7 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
         showPhone: currentUser.privacySettings?.showPhone !== false,
         showEmail: currentUser.privacySettings?.showEmail !== false,
         showTelegram: currentUser.privacySettings?.showTelegram !== false,
-        showWhatsapp: currentUser.privacySettings?.showWhatsapp !== false,
+        showFacebook: currentUser.privacySettings?.showFacebook !== false,
         showInstagram: currentUser.privacySettings?.showInstagram !== false,
         showVk: currentUser.privacySettings?.showVk !== false,
         showBalance: currentUser.privacySettings?.showBalance !== false,
@@ -120,7 +120,7 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
       имя: currentUser.имя || '',
       телефон: currentUser.телефон || '',
       telegram: currentUser.socialMedia?.telegram || currentUser.telegram || '',
-      whatsapp: currentUser.socialMedia?.whatsapp || '',
+      facebook: currentUser.socialMedia?.facebook || currentUser.facebook || '',
       instagram: currentUser.socialMedia?.instagram || currentUser.instagram || '',
       vk: currentUser.socialMedia?.vk || currentUser.vk || '',
       аватарка: currentUser.аватарка || '',
@@ -151,12 +151,12 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
       
       // Добавляем соц сети только если они заполнены
       const telegram = formData.telegram.replace(/^@/, '').trim();
-      const whatsapp = formData.whatsapp.replace(/^@/, '').trim();
+      const facebook = formData.facebook.replace(/^@/, '').trim();
       const instagram = formData.instagram.replace(/^@/, '').trim();
       const vk = formData.vk.replace(/^@/, '').trim();
       
       if (telegram) normalizedData.telegram = telegram;
-      if (whatsapp) normalizedData.whatsapp = whatsapp;
+      if (facebook) normalizedData.facebook = facebook;
       if (instagram) normalizedData.instagram = instagram;
       if (vk) normalizedData.vk = vk;
       
@@ -469,17 +469,17 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                           </a>
                         )}
                         
-                        {currentUser.whatsapp && (
+                        {currentUser.facebook && (
                           <a 
-                            data-social="whatsapp"
-                            data-value={currentUser.whatsapp}
-                            href={`https://wa.me/${String(currentUser.whatsapp).replace(/[^0-9]/g, '')}`}
+                            data-social="facebook"
+                            data-value={currentUser.facebook}
+                            href={`https://facebook.com/${String(currentUser.facebook).replace(/^@/, '').trim()}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center gap-2 p-3 bg-[#25D366] text-white rounded-xl hover:opacity-90 transition-opacity"
+                            className="flex items-center gap-2 p-3 bg-[#1877F2] text-white rounded-xl hover:opacity-90 transition-opacity"
                           >
-                            <Phone size={16} className="flex-shrink-0" />
-                            <span className="text-sm truncate">{String(currentUser.whatsapp).trim()}</span>
+                            <MessageCircle size={16} className="flex-shrink-0" />
+                            <span className="text-sm truncate">{String(currentUser.facebook).trim()}</span>
                           </a>
                         )}
                         
@@ -551,6 +551,20 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                       />
                       <p className="text-[#999] mt-1" style={{ fontSize: '11px' }}>
                         Будет создана ссылка t.me/username
+                      </p>
+                    </div>
+                    
+                    <div>
+                      <Label htmlFor="facebook" className="text-[#666]">Facebook</Label>
+                      <Input
+                        id="facebook"
+                        value={formData.facebook}
+                        onChange={(e) => setFormData(prev => ({ ...prev, facebook: e.target.value }))}
+                        className="mt-1"
+                        placeholder="username"
+                      />
+                      <p className="text-[#999] mt-1" style={{ fontSize: '11px' }}>
+                        Будет создана ссылка facebook.com/username
                       </p>
                     </div>
                     
@@ -701,20 +715,20 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
               
               <div className="flex items-center justify-between p-3 bg-[#F7FAFC] rounded-xl">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center">
-                    <Phone size={18} className="text-white" />
+                  <div className="w-10 h-10 bg-[#1877F2] rounded-lg flex items-center justify-center">
+                    <MessageCircle size={18} className="text-white" />
                   </div>
                   <div>
-                    <div className="text-[#1E1E1E] font-semibold text-sm">Показывать WhatsApp</div>
+                    <div className="text-[#1E1E1E] font-semibold text-sm">Показывать Facebook</div>
                     <div className="text-[#666] text-xs">
-                      {privacySettings.showWhatsapp ? 'Виден всем' : 'Скрыт'}
+                      {privacySettings.showFacebook ? 'Виден всем' : 'Скрыт'}
                     </div>
                   </div>
                 </div>
                 <Switch
-                  checked={privacySettings.showWhatsapp}
+                  checked={privacySettings.showFacebook}
                   onCheckedChange={async (checked) => {
-                    const newSettings = { ...privacySettings, showWhatsapp: checked };
+                    const newSettings = { ...privacySettings, showFacebook: checked };
                     setPrivacySettings(newSettings);
                     try {
                       await api.updateUserProfile({ privacySettings: newSettings });

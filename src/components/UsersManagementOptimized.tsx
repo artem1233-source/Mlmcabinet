@@ -177,7 +177,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
     баланс: 0,
     доступныйБаланс: 0,
     telegram: '',
-    whatsapp: '',
+    facebook: '',
     instagram: '',
     vk: '',
   });
@@ -434,7 +434,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       // Динамическая высота: развернутые карточки выше (воздушные плашки)
       const user = users[index];
       const hasExpandedContent = expandedCards.has(user?.id);
-      const hasSocial = user?.instagram || user?.telegram;
+      const hasSocial = user?.instagram || user?.telegram || user?.facebook || user?.vk;
       // Базовая высота свернутой: 68px
       // Развернутая БЕЗ социальных сетей: ~240px (воздушные плашки с space-y)
       // Развернутая С социальными сетями: ~340px
@@ -460,7 +460,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       баланс: user.баланс || 0,
       доступныйБаланс: user.доступныйБаланс || 0,
       telegram: user.telegram || user.socialMedia?.telegram || '',
-      whatsapp: user.whatsapp || user.socialMedia?.whatsapp || '',
+      facebook: user.facebook || user.socialMedia?.facebook || '',
       instagram: user.instagram || user.socialMedia?.instagram || '',
       vk: user.vk || user.socialMedia?.vk || '',
     });
@@ -474,7 +474,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       email: user.email || '',
       телефон: user.телефон || '',
       telegram: user.telegram || user.socialMedia?.telegram || '',
-      whatsapp: user.whatsapp || user.socialMedia?.whatsapp || '',
+      facebook: user.facebook || user.socialMedia?.facebook || '',
       instagram: user.instagram || user.socialMedia?.instagram || '',
       vk: user.vk || user.socialMedia?.vk || '',
     });
@@ -495,7 +495,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       editFormData.email !== originalUserData.email ||
       editFormData.телефон !== originalUserData.телефон ||
       editFormData.telegram !== originalUserData.telegram ||
-      editFormData.whatsapp !== originalUserData.whatsapp ||
+      editFormData.facebook !== originalUserData.facebook ||
       editFormData.instagram !== originalUserData.instagram ||
       editFormData.vk !== originalUserData.vk;
 
@@ -1015,7 +1015,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
             </div>
             
             {/* Социальные сети - GRID-COLS-2 горизонтально с цветами */}
-            {(user.instagram || user.telegram) && (
+            {(user.instagram || user.telegram || user.facebook || user.vk) && (
               <div>
                 <p className="text-[#999] mb-2" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Социальные сети
@@ -1041,6 +1041,26 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                       </p>
                     </a>
                   )}
+                  {user.facebook && (
+                    <a 
+                      href={`https://facebook.com/${user.facebook.replace('@', '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2.5 py-2 rounded-lg block hover:opacity-80 transition-opacity cursor-pointer"
+                      style={{ backgroundColor: '#EFF6FF' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <MessageCircle className="w-3 h-3 text-[#1877F2]" />
+                        <p className="text-[#1877F2]" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase' }}>
+                          Facebook
+                        </p>
+                      </div>
+                      <p className="text-[#1877F2] truncate" style={{ fontSize: '12px', fontWeight: '600' }}>
+                        {user.facebook}
+                      </p>
+                    </a>
+                  )}
                   {user.instagram && (
                     <a 
                       href={`https://instagram.com/${user.instagram.replace('@', '')}`}
@@ -1058,6 +1078,26 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                       </div>
                       <p className="text-[#EC4899] truncate" style={{ fontSize: '12px', fontWeight: '600' }}>
                         {user.instagram}
+                      </p>
+                    </a>
+                  )}
+                  {user.vk && (
+                    <a 
+                      href={`https://vk.com/${user.vk.replace('@', '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2.5 py-2 rounded-lg block hover:opacity-80 transition-opacity cursor-pointer"
+                      style={{ backgroundColor: '#EFF6FF' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <MessageCircle className="w-3 h-3 text-[#0077FF]" />
+                        <p className="text-[#0077FF]" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase' }}>
+                          VK
+                        </p>
+                      </div>
+                      <p className="text-[#0077FF] truncate" style={{ fontSize: '12px', fontWeight: '600' }}>
+                        {user.vk}
                       </p>
                     </a>
                   )}
@@ -1925,7 +1965,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   </div>
 
                   {/* Социальные сети */}
-                  {(selectedUserForDetails.telegram || selectedUserForDetails.whatsapp || selectedUserForDetails.instagram || selectedUserForDetails.vk || selectedUserForDetails.socialMedia) && (
+                  {(selectedUserForDetails.telegram || selectedUserForDetails.facebook || selectedUserForDetails.instagram || selectedUserForDetails.vk || selectedUserForDetails.socialMedia) && (
                     <div>
                       <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
                         <MessageCircle className="w-4 h-4 text-[#39B7FF]" />
@@ -1948,19 +1988,19 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                             </p>
                           </a>
                         )}
-                        {(selectedUserForDetails.whatsapp || selectedUserForDetails.socialMedia?.whatsapp) && (
+                        {(selectedUserForDetails.facebook || selectedUserForDetails.socialMedia?.facebook) && (
                           <a
-                            href={`https://wa.me/${(selectedUserForDetails.whatsapp || selectedUserForDetails.socialMedia?.whatsapp).replace(/[^0-9]/g, '')}`}
+                            href={`https://facebook.com/${(selectedUserForDetails.facebook || selectedUserForDetails.socialMedia?.facebook).replace(/^@/, '')}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="bg-green-50 hover:bg-green-100 p-3 rounded-lg transition-colors cursor-pointer block"
+                            className="bg-blue-50 hover:bg-blue-100 p-3 rounded-lg transition-colors cursor-pointer block"
                           >
                             <div className="flex items-center gap-2 mb-1">
-                              <Phone className="w-4 h-4 text-green-600" />
-                              <p className="text-[#999]" style={{ fontSize: '10px', fontWeight: '600' }}>WHATSAPP</p>
+                              <MessageCircle className="w-4 h-4 text-blue-600" />
+                              <p className="text-[#999]" style={{ fontSize: '10px', fontWeight: '600' }}>FACEBOOK</p>
                             </div>
-                            <p className="text-green-700 truncate" style={{ fontSize: '13px', fontWeight: '600' }}>
-                              {selectedUserForDetails.whatsapp || selectedUserForDetails.socialMedia?.whatsapp}
+                            <p className="text-blue-700 truncate" style={{ fontSize: '13px', fontWeight: '600' }}>
+                              {selectedUserForDetails.facebook || selectedUserForDetails.socialMedia?.facebook}
                             </p>
                           </a>
                         )}

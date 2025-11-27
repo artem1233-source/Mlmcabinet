@@ -83,8 +83,14 @@ async function apiCall(endpoint: string, options: RequestInit = {}) {
     console.log(`✅ API success:`, data);
     return data;
     
-  } catch (error) {
-    console.error(`💥 Fetch failed for ${endpoint}:`, error);
+  } catch (error: any) {
+    // Более детальное логирование ошибок
+    if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+      console.error(`💥 Network connection error for ${endpoint}:`, error);
+      console.error(`   This usually means the server is unreachable or CORS is blocking the request`);
+    } else {
+      console.error(`💥 Fetch failed for ${endpoint}:`, error);
+    }
     throw error;
   }
 }

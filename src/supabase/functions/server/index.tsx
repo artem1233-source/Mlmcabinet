@@ -71,6 +71,13 @@ const app = new Hono();
 const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
+
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error('❌ CRITICAL: Supabase credentials not found in environment variables');
+  console.error('   SUPABASE_URL:', supabaseUrl ? 'Set ✓' : 'MISSING ✗');
+  console.error('   SUPABASE_SERVICE_ROLE_KEY:', supabaseServiceKey ? 'Set ✓' : 'MISSING ✗');
+}
+
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // ✅ Enable CORS first (must be before logger and other middleware)
@@ -2023,8 +2030,8 @@ app.get("/make-server-05aa3c8a/user/:userId/profile", async (c) => {
       socialMedia.telegram = userData.telegram || '';
     }
     
-    if (isOwnProfile || privacySettings.showWhatsapp !== false) {
-      socialMedia.whatsapp = userData.телефон || ''; // используем телефон для WhatsApp
+    if (isOwnProfile || privacySettings.showFacebook !== false) {
+      socialMedia.facebook = userData.facebook || '';
     }
     
     if (isOwnProfile || privacySettings.showInstagram !== false) {
@@ -2126,27 +2133,59 @@ app.get("/make-server-05aa3c8a/user/:userId/rank", async (c) => {
   try {
     // ⚠️ Публичный эндпоинт - не требует авторизации
     const userId = c.req.param('userId');
+    const useCache = c.req.query('cache') !== 'false'; // По умолчанию true
     
-    console.log(`🏆 Getting rank for user: ${userId}`);
+    if (!userId) {
+      console.log(`⚠️ Missing userId parameter`);
+      return c.json({ 
+        success: true, 
+        userId: null,
+        rank: 0
+      });
+    }
     
-    // ✨ ПРОСТО читаем ранг из объекта пользователя
-    const user = await kv.get(`user:id:${userId}`);
-    const rank = user?.уровень || 0;
+    console.log(`🏆 Getting rank for user: ${userId} (useCache: ${useCache})`);
     
-    console.log(`✅ Rank for user ${userId}: ${rank}`);
-    
-    return c.json({ 
-      success: true, 
-      userId,
-      rank
-    });
+    try {
+      // ✨ Используем функцию getUserRank с кэшированием
+      const rank = await getUserRank(userId, useCache);
+      
+      console.log(`✅ Rank for user ${userId}: ${rank}`);
+      
+      return c.json({ 
+        success: true, 
+        userId,
+        rank
+      });
+    } catch (rankError) {
+      console.error(`❌ Rank calculation error for user ${userId}:`, rankError);
+      // Пробуем прочитать из пользователя напрямую как fallback
+      try {
+        const user = await kv.get(`user:id:${userId}`);
+        const fallbackRank = user?.уровень || 0;
+        console.log(`⚠️ Using fallback rank from user object: ${fallbackRank}`);
+        return c.json({ 
+          success: true, 
+          userId,
+          rank: fallbackRank
+        });
+      } catch (fallbackError) {
+        console.error(`❌ Fallback also failed:`, fallbackError);
+        // Возвращаем success: true с рангом 0, чтобы не ломать UI
+        return c.json({ 
+          success: true, 
+          userId,
+          rank: 0
+        });
+      }
+    }
   } catch (error) {
-    console.log(`Get rank error: ${error}`);
+    console.error(`❌ Get rank error:`, error);
     return c.json({ 
-      success: false,
-      error: `Failed to get rank: ${error}`,
+      success: true, // Возвращаем success: true с рангом 0
+      userId: c.req.param('userId') || null,
       rank: 0
-    }, 500);
+    });
   }
 });
 
