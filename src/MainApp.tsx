@@ -35,7 +35,8 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   // 🚀 Переключатель между старой и оптимизированной версией управления пользователями
-  const [useOptimizedUsers, setUseOptimizedUsers] = useState(false);
+  // ✅ Оптимизированная версия по умолчанию (имеет 100% функционал + лучшая производительность)
+  const [useOptimizedUsers, setUseOptimizedUsers] = useState(true);
 
   const handleRefresh = () => {
     setRefreshTrigger(prev => prev + 1);

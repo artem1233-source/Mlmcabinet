@@ -54,12 +54,29 @@ import {
   DollarSign,
   Target,
   CheckCircle2,
+  Network,
+  List,
+  Wrench,
+  AlertTriangle,
+  ChevronRight,
+  UserPlus,
+  UserCheck,
+  UserX,
+  MoreVertical,
+  Check,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
+import { Checkbox } from './ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import {
   Dialog,
   DialogContent,
@@ -78,6 +95,14 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { StatsWidgets } from './StatsWidgets';
 import * as api from '../utils/api';
 import { UserManagementDialogs } from './UserManagementDialogs';
+import * as userActions from './UsersManagementOptimizedActions';
+import { IdManager } from './admin/IdManager';
+import { ChangeUserId } from './admin/ChangeUserId';
+import { ManualLinkFixer } from './admin/ManualLinkFixer';
+import { ManualSponsorAssign } from './admin/ManualSponsorAssign';
+import { OrphanUsersManager } from './admin/OrphanUsersManager';
+import { UserTreeRenderer } from './UserTreeRenderer';
+import { AdvancedFiltersPanel } from './AdvancedFiltersPanel';
 
 interface UsersManagementOptimizedProps {
   currentUser: any;
@@ -97,7 +122,26 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
   const [balanceTo, setBalanceTo] = useState<string>('');
   const [rankFrom, setRankFrom] = useState<number>(0);
   const [rankTo, setRankTo] = useState<number>(150);
+  const [rankExactMatch, setRankExactMatch] = useState<boolean>(false);
   const [activityFilter, setActivityFilter] = useState<string>('all'); // all, online, today, week, inactive
+  
+  // 🎨 Режим отображения
+  const [viewMode, setViewMode] = useState<'list' | 'tree'>('list');
+  
+  // 🆕 Состояние развернутых карточек
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  
+  const toggleCard = (userId: string) => {
+    setExpandedCards(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(userId)) {
+        newSet.delete(userId);
+      } else {
+        newSet.add(userId);
+      }
+      return newSet;
+    });
+  };
 
   // 📊 Статистика
   const [stats, setStats] = useState({
@@ -115,7 +159,9 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
   // 📋 State для модального окна детальной информации
   const [userDetailsOpen, setUserDetailsOpen] = useState(false);
   const [selectedUserForDetails, setSelectedUserForDetails] = useState<any | null>(null);
-  const [allUsers, setAllUsers] = useState<any[]>([]); // Для расчёта команды
+
+  // ✅ State для отмеченных пользователей
+  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   
   // 📊 User Ranks Map (для отображения рангов)
   const [userRanks, setUserRanks] = useState<Map<string, number>>(new Map());
@@ -238,32 +284,34 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
   const users = data?.users || [];
   const pagination = data?.pagination || { page: 1, total: 0, totalPages: 0, hasMore: false };
 
-  // 📊 Обновляем статистику при получении данных
-  useEffect(() => {
-    if (data?.stats) {
-      setStats(data.stats);
-    }
-  }, [data]);
-
-  // 🎯 Заполняем userRanks из загруженных пользователей
-  useEffect(() => {
-    if (users && users.length > 0) {
-      const ranksMap = new Map<string, number>();
-      users.forEach((user: any) => {
-        if (user.id && user._metrics?.rank !== undefined) {
-          ranksMap.set(user.id, user._metrics.rank);
+  // 🌳 Загрузка всех пользователей для режима "Дерево"
+  const { data: allUsersData, isLoading: treeLoading } = useQuery({
+    queryKey: ['users-all-tree'],
+    queryFn: async () => {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/users/all`,
+        {
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+            'X-User-Id': currentUser?.id || '',
+          },
         }
-      });
-      setUserRanks(ranksMap);
-      console.log('📊 User ranks updated:', ranksMap.size, 'users');
-    }
-  }, [users]);
+      );
+      if (!response.ok) throw new Error('Failed to load all users');
+      return response.json();
+    },
+    enabled: viewMode === 'tree', // Загружаем только при переключении на дерево
+    staleTime: 5 * 60 * 1000, // Кэш на 5 минут
+  });
 
-  // 🎯 Обработчик клика по виджетам статистики
-  const handleStatsFilterClick = (filter: string) => {
-    setActiveStatsFilter(filter);
-    setPage(1); // Reset to first page
-  };
+  const allUsers = allUsersData?.users || [];
+
+  // 🌳 Загружаем ранги для древовидного режима
+  useEffect(() => {
+    if (viewMode === 'tree' && allUsers.length > 0) {
+      loadUserRanks();
+    }
+  }, [viewMode, allUsers]);
 
   // 🆕 Функция для подсчета всей команды рекурсивно
   const calculateTotalTeam = (userId: string, visited = new Set<string>()): number => {
@@ -283,6 +331,81 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
     return total;
   };
 
+  // 📊 Обновляем статистику при получении данных
+  useEffect(() => {
+    if (data?.stats) {
+      setStats(data.stats);
+    }
+  }, [data]);
+
+  // 🎯 Загружаем ранги для пользователей (клиентская загрузка для точности)
+  useEffect(() => {
+    if (viewMode === 'list' && users && users.length > 0) {
+      loadUserRanks();
+    }
+  }, [users, viewMode]);
+
+  const loadUserRanks = async () => {
+    try {
+      const newRanks = new Map<string, number>();
+      
+      // Определяем какой массив пользователей использовать
+      const currentUsers = viewMode === 'tree' ? allUsers : users;
+      
+      if (currentUsers.length === 0) return;
+      
+      // Сначала используем данные сервера если есть
+      currentUsers.forEach((user: any) => {
+        if (user.id && user._metrics?.rank !== undefined) {
+          newRanks.set(user.id, user._metrics.rank);
+        }
+      });
+      
+      // Быстро обновляем UI с серверными данными
+      setUserRanks(newRanks);
+      
+      // Затем параллельно догружаем свежие ранги только для партнёров (максимум 100 для дерева)
+      const partnersToLoad = currentUsers
+        .filter(u => !u.isAdmin && (!u._metrics || !u._metrics.rank))
+        .slice(0, viewMode === 'tree' ? 100 : 50); // Ограничение для производительности
+      
+      if (partnersToLoad.length > 0) {
+        // Загружаем ранги параллельно (макс. 15 одновременно)
+        const batchSize = 15;
+        for (let i = 0; i < partnersToLoad.length; i += batchSize) {
+          const batch = partnersToLoad.slice(i, i + batchSize);
+          const rankPromises = batch.map(user => 
+            api.getUserRank(user.id, true).catch(() => ({ success: true, rank: 0 }))
+          );
+          
+          const results = await Promise.all(rankPromises);
+          results.forEach((result, index) => {
+            if (result.success) {
+              const user = batch[index];
+              newRanks.set(user.id, result.rank);
+            }
+          });
+        }
+        
+        // Обновляем финальные ранги
+        setUserRanks(new Map(newRanks));
+        console.log(`📊 User ranks updated [${viewMode}]:`, newRanks.size, 'users (fresh data loaded)');
+      } else {
+        console.log(`📊 User ranks updated [${viewMode}]:`, newRanks.size, 'users (from server cache)');
+      }
+    } catch (error) {
+      console.error('Failed to load ranks:', error);
+    }
+  };
+
+  // 🎯 Обработчик клика по виджетам статистики
+  const handleStatsFilterClick = (filter: string) => {
+    setActiveStatsFilter(filter);
+    setPage(1); // Reset to first page
+  };
+
+
+
   // 👁️ Открытие модального окна детальной информации
   const openUserDetails = (user: any, event: React.MouseEvent) => {
     event.stopPropagation();
@@ -290,13 +413,41 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
     setUserDetailsOpen(true);
   };
 
-  // 🎨 Виртуализация списка
+  // ✅ Переключение отметки пользователя
+  const toggleUserSelection = (userId: string) => {
+    setSelectedUsers(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(userId)) {
+        newSet.delete(userId);
+      } else {
+        newSet.add(userId);
+      }
+      return newSet;
+    });
+  };
+
+  // 🎨 Виртуализация списка с динамической высотой для развернутых карточек
   const rowVirtualizer = useVirtualizer({
     count: users.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 80, // Примерная высота строки
-    overscan: 5, // Рендерим 5 дополнительных элементов сверху и снизу
+    estimateSize: (index) => {
+      // Динамическая высота: развернутые карточки выше (воздушные плашки)
+      const user = users[index];
+      const hasExpandedContent = expandedCards.has(user?.id);
+      const hasSocial = user?.instagram || user?.telegram;
+      // Базовая высота свернутой: 68px
+      // Развернутая БЕЗ социальных сетей: ~240px (воздушные плашки с space-y)
+      // Развернутая С социальными сетями: ~340px
+      if (!hasExpandedContent) return 68;
+      return hasSocial ? 340 : 240;
+    },
+    overscan: 10, // Рендерим 10 дополнительных элементов сверху и снизу для плавной прокрутки
   });
+
+  // 🔄 Пересчитываем виртуализатор при изменении развернутых карточек
+  useEffect(() => {
+    rowVirtualizer.measure();
+  }, [expandedCards, rowVirtualizer]);
 
   // ✏️ Открыть диалог редактирования
   const openEditDialog = (user: any) => {
@@ -664,40 +815,58 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
   const renderUserCard = (user: any) => {
     const activityStatus = getActivityStatus(user);
     const metrics = user._metrics || {};
+    const isSelected = selectedUsers.has(user.id);
 
     return (
       <div 
-        className="border rounded-xl p-4 bg-white hover:shadow-md transition-all duration-150 border-[#E6E9EE] hover:border-[#39B7FF]/40"
+        className={`border rounded-lg p-2.5 bg-white hover:shadow-md transition-all duration-150 cursor-pointer ${
+          isSelected 
+            ? 'border-green-500 bg-green-50' 
+            : 'border-[#E6E9EE] hover:border-[#39B7FF]/40'
+        }`}
+        onClick={() => toggleCard(user.id)}
       >
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center justify-between gap-3">
           {/* User Info */}
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            {/* Avatar */}
-            <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white shrink-0 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6]">
-              <span style={{ fontWeight: '600', fontSize: '16px' }}>
+          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+            {/* Avatar с поддержкой изображения */}
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center text-white shrink-0 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] overflow-hidden relative">
+              {user.аватарка ? (
+                <img 
+                  src={user.аватарка} 
+                  alt={user.имя}
+                  className="w-full h-full object-cover absolute inset-0"
+                  onError={(e) => {
+                    // Fallback к инициалам при ошибке загрузки
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              ) : null}
+              <span className={user.аватарка ? 'hidden' : ''} style={{ fontWeight: '600', fontSize: '14px' }}>
                 {user.имя?.charAt(0).toUpperCase() || '?'}
               </span>
             </div>
             
             {/* Info */}
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1 flex-wrap">
-                <h3 className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '15px' }}>
+              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                <h3 className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '14px' }}>
                   {user.имя} {user.фамилия}
                 </h3>
-                <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white px-2 py-0 text-xs">
+                {/* ✅ ИСПРАВЛЕНО: Только ID и Ранг, БЕЗ P1 */}
+                <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white px-1.5 py-0 text-xs">
                   ID: {user.id}
                 </Badge>
-                <Badge className="bg-orange-500 text-white px-2 py-0 text-xs">
-                  Ранг {metrics.rank || 0}
+                <Badge className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-1.5 py-0 text-xs flex items-center gap-1">
+                  <Award className="w-2.5 h-2.5" />
+                  Ранг {userRanks.get(user.id) ?? metrics.rank ?? 0}
                 </Badge>
               </div>
               
-              <div className="flex items-center gap-3 text-[#666] flex-wrap" style={{ fontSize: '12px' }}>
-                {/* Activity Status */}
+              <div className="flex items-center gap-2.5 text-[#666] flex-wrap" style={{ fontSize: '11px' }}>
+                {/* ✅ ИСПРАВЛЕНО: Activity Status БЕЗ иконки часов */}
                 <span className="flex items-center gap-1.5 shrink-0">
-                  <span className={`w-2 h-2 rounded-full ${activityStatus.color} animate-pulse`}></span>
-                  <Clock className="w-3 h-3 shrink-0" />
+                  <span className={`w-1.5 h-1.5 rounded-full ${activityStatus.color} animate-pulse`}></span>
                   <span className={activityStatus.textColor}>{activityStatus.text}</span>
                 </span>
                 
@@ -707,50 +876,196 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   <span className="truncate">{user.email}</span>
                 </span>
                 
-                {/* Team Size */}
-                {metrics.totalTeamSize > 0 && (
+                {/* Телефон */}
+                {user.телефон && (
                   <span className="flex items-center gap-1 shrink-0">
-                    <Users className="w-3 h-3 text-teal-600" />
-                    <span>Команда: {metrics.totalTeamSize}</span>
+                    <Phone className="w-3 h-3 shrink-0 text-[#12C9B6]" />
+                    <span>{user.телефон}</span>
                   </span>
                 )}
+                
+                {/* ✅ ИСПРАВЛЕНО: Счетчик только email + телефон */}
+                <span className="text-[#999]">
+                  (всего: {[user.email, user.телефон].filter(Boolean).length})
+                </span>
               </div>
             </div>
           </div>
 
           {/* Stats & Actions */}
-          <div className="flex items-center gap-4 shrink-0">
+          <div className="flex items-center gap-3 shrink-0">
             {/* Balance */}
             <div className="text-right">
-              <p className="text-[#1E1E1E]" style={{ fontWeight: '700', fontSize: '16px' }}>
+              <p className="text-[#1E1E1E]" style={{ fontWeight: '700', fontSize: '14px' }}>
                 ₽{user.баланс?.toLocaleString() || 0}
               </p>
-              <p className="text-[#999]" style={{ fontSize: '11px' }}>
+              <p className="text-[#999]" style={{ fontSize: '10px' }}>
                 Дост: ₽{user.доступныйБаланс?.toLocaleString() || 0}
               </p>
             </div>
             
-            {/* Metrics */}
-            <div className="flex items-center gap-2">
-              {metrics.ordersCount > 0 && (
-                <Badge variant="outline" className="text-xs">
-                  {metrics.ordersCount} заказ{metrics.ordersCount > 1 ? 'а' : ''}
-                </Badge>
-              )}
+            {/* Action Buttons - Info, Edit, Delete */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => openUserDetails(user, e)}
+                className="w-8 h-8 p-0 hover:bg-blue-50 rounded-lg"
+                title="Подробная информация"
+              >
+                <Eye className="w-4 h-4 text-[#39B7FF]" />
+              </Button>
+              
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openEditDialog(user);
+                }}
+                className="w-8 h-8 p-0 hover:bg-green-50 rounded-lg"
+                title="Редактировать"
+              >
+                <Edit className="w-4 h-4 text-[#12C9B6]" />
+              </Button>
+              
+              {/* Чекбокс для массового выбора */}
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                }}
+                className="w-8 h-8 flex items-center justify-center hover:bg-blue-50 rounded-lg cursor-pointer"
+                title="Выбрать для массовых операций"
+              >
+                <Checkbox
+                  checked={isSelected}
+                  onCheckedChange={() => toggleUserSelection(user.id)}
+                  className="w-4 h-4"
+                />
+              </div>
+              
+              {/* 🆕 EXPAND/COLLAPSE ARROW - СПРАВА */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleCard(user.id);
+                }}
+                className="w-8 h-8 p-0 hover:bg-gray-100 rounded-lg shrink-0"
+                title={expandedCards.has(user.id) ? "Свернуть" : "Развернуть"}
+              >
+                {expandedCards.has(user.id) ? (
+                  <ChevronUp className="w-5 h-5 text-[#666]" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-[#666]" />
+                )}
+              </Button>
             </div>
-            
-            {/* Quick View Button */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => openUserDetails(user, e)}
-              className="w-8 h-8 p-0 hover:bg-blue-50"
-              title="Быстрый просмотр"
-            >
-              <Eye className="w-4 h-4 text-[#39B7FF]" />
-            </Button>
           </div>
         </div>
+        
+        {/* ✅ ИСПРАВЛЕНО: Expanded Details - МАКСИМАЛЬНО ВОЗДУШНЫЙ ДИЗАЙН КАК В ОРИГИНАЛЕ */}
+        {expandedCards.has(user.id) && (
+          <div className="mt-3 px-3 pb-3 pt-3 border-t border-[#E6E9EE]">
+            {/* Основная информация - 4 колонки в одну строку с пастельными цветами */}
+            <div className="grid grid-cols-4 gap-2 mb-3">
+              {/* Регистрация - светло-голубой */}
+              <div className="px-2.5 py-2 rounded-lg" style={{ backgroundColor: '#EFF6FF' }}>
+                <p className="text-[#999] mb-1" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Регистрация
+                </p>
+                <p className="text-[#1E1E1E]" style={{ fontSize: '12px', fontWeight: '600' }}>
+                  {user.датаСоздания ? new Date(user.датаСоздания).toLocaleDateString('ru-RU') : 'N/A'}
+                </p>
+              </div>
+              
+              {/* Спонсор - светло-розовый */}
+              <div className="px-2.5 py-2 rounded-lg" style={{ backgroundColor: '#FDF2F8' }}>
+                <p className="text-[#999] mb-1" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Спонсор
+                </p>
+                <p className="text-[#1E1E1E]" style={{ fontSize: '12px', fontWeight: '600' }}>
+                  {user.спонсорId || 'Нет'}
+                </p>
+              </div>
+              
+              {/* Команда - светло-зеленый */}
+              <div className="px-2.5 py-2 rounded-lg" style={{ backgroundColor: '#F0FDF4' }}>
+                <p className="text-[#999] mb-1" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Команда
+                </p>
+                <p className="text-[#1E1E1E]" style={{ fontSize: '12px', fontWeight: '600' }}>
+                  Первая линия: {user.команда?.length || 0}
+                </p>
+                <p className="text-[#666]" style={{ fontSize: '10px' }}>
+                  Вся структура: {calculateTotalTeam(user.id) || metrics.totalTeamSize || 0}
+                </p>
+              </div>
+              
+              {/* Реф-код - светло-зеленый */}
+              <div className="px-2.5 py-2 rounded-lg" style={{ backgroundColor: '#F0FDF4' }}>
+                <p className="text-[#999] mb-1" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Реф код
+                </p>
+                <p className="text-[#1E1E1E]" style={{ fontSize: '12px', fontWeight: '600' }}>
+                  {user.рефКод || 'N/A'}
+                </p>
+              </div>
+            </div>
+            
+            {/* Социальные сети - GRID-COLS-2 горизонтально с цветами */}
+            {(user.instagram || user.telegram) && (
+              <div>
+                <p className="text-[#999] mb-2" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Социальные сети
+                </p>
+                <div className="grid grid-cols-4 gap-2">
+                  {user.telegram && (
+                    <a 
+                      href={`https://t.me/${user.telegram.replace('@', '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2.5 py-2 rounded-lg block hover:opacity-80 transition-opacity cursor-pointer"
+                      style={{ backgroundColor: '#EFF6FF' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Send className="w-3 h-3 text-[#3B82F6]" />
+                        <p className="text-[#3B82F6]" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase' }}>
+                          Telegram
+                        </p>
+                      </div>
+                      <p className="text-[#3B82F6] truncate" style={{ fontSize: '12px', fontWeight: '600' }}>
+                        {user.telegram}
+                      </p>
+                    </a>
+                  )}
+                  {user.instagram && (
+                    <a 
+                      href={`https://instagram.com/${user.instagram.replace('@', '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2.5 py-2 rounded-lg block hover:opacity-80 transition-opacity cursor-pointer"
+                      style={{ backgroundColor: '#FDF2F8' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Instagram className="w-3 h-3 text-[#EC4899]" />
+                        <p className="text-[#EC4899]" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase' }}>
+                          Instagram
+                        </p>
+                      </div>
+                      <p className="text-[#EC4899] truncate" style={{ fontSize: '12px', fontWeight: '600' }}>
+                        {user.instagram}
+                      </p>
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   };
@@ -802,8 +1117,34 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
         onFilterClick={handleStatsFilterClick}
       />
 
-      {/* Filters - Базовые */}
-      <Card className="mb-4">
+      {/* 🗂️ Tabs - Вкладки управления */}
+      <Tabs defaultValue="users" className="space-y-3">
+        <TabsList className="bg-white border border-[#E6E9EE] p-1.5 rounded-xl shadow-sm">
+          <TabsTrigger 
+            value="users" 
+            className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white data-[state=active]:shadow-md"
+          >
+            <Users className="w-4 h-4 mr-2" />
+            Пользователи
+            {selectedUsers.size > 0 && (
+              <Badge className="ml-2 bg-green-600 text-white px-2 py-0 text-xs">
+                {selectedUsers.size}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger 
+            value="ids" 
+            className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white data-[state=active]:shadow-md"
+          >
+            <Shield className="w-4 h-4 mr-2" />
+            Управление ID
+          </TabsTrigger>
+        </TabsList>
+
+        {/* 👥 Users Tab */}
+        <TabsContent value="users" className="space-y-4">
+          {/* Filters - Базовые */}
+          <Card className="mb-4">
         <CardContent className="p-4">
           <div className="flex items-center gap-3">
             {/* Search */}
@@ -840,133 +1181,384 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
               <ArrowUpDown className="w-4 h-4 mr-2" />
               {sortOrder === 'asc' ? 'По возрастанию' : 'По убыванию'}
             </Button>
+
+            {/* Выбрать все */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (selectedUsers.size === users.length && users.length > 0) {
+                  // Снять все отметки
+                  setSelectedUsers(new Set());
+                } else {
+                  // Выбрать все видимые
+                  setSelectedUsers(new Set(users.map((u: any) => u.id)));
+                }
+              }}
+              className={selectedUsers.size > 0 ? 'border-blue-500 text-blue-600' : ''}
+            >
+              {selectedUsers.size === users.length && users.length > 0 ? (
+                <UserX className="w-4 h-4 mr-2" />
+              ) : (
+                <UserCheck className="w-4 h-4 mr-2" />
+              )}
+              {selectedUsers.size === users.length && users.length > 0 
+                ? 'Снять все' 
+                : `Выбрать все (${users.length})`
+              }
+            </Button>
+
+            {/* Массовые операции */}
+            {selectedUsers.size > 0 && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (confirm(`Удалить ${selectedUsers.size} выбранных пользователей?`)) {
+                      // TODO: Реализовать массовое удаление
+                      toast.success(`Удалено пользователей: ${selectedUsers.size}`);
+                      setSelectedUsers(new Set());
+                    }
+                  }}
+                  className="border-red-500 text-red-600 hover:bg-red-50"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Удалить ({selectedUsers.size})
+                </Button>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    // TODO: Реализовать массовую рассылку
+                    toast.info(`Рассылка для ${selectedUsers.size} пользователей`);
+                  }}
+                  className="border-blue-500 text-blue-600 hover:bg-blue-50"
+                >
+                  <MessageCircle className="w-4 h-4 mr-2" />
+                  Рассылка ({selectedUsers.size})
+                </Button>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedUsers(new Set())}
+                  className="border-green-500 text-green-600 hover:bg-green-50"
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Снять отметки
+                </Button>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>
 
       {/* 🆕 Расширенные фильтры */}
+      <AdvancedFiltersPanel
+        rankFrom={rankFrom}
+        rankTo={rankTo}
+        rankExactMatch={rankExactMatch}
+        balanceFrom={balanceFrom}
+        balanceTo={balanceTo}
+        totalResults={pagination.total}
+        onRankFromChange={(value) => {
+          setRankFrom(value);
+          setPage(1);
+        }}
+        onRankToChange={(value) => {
+          setRankTo(value);
+          setPage(1);
+        }}
+        onRankExactMatchChange={(value) => {
+          setRankExactMatch(value);
+          setPage(1);
+        }}
+        onBalanceFromChange={(value) => {
+          setBalanceFrom(value);
+          setPage(1);
+        }}
+        onBalanceToChange={(value) => {
+          setBalanceTo(value);
+          setPage(1);
+        }}
+        onResetFilters={() => {
+          setRankFrom(0);
+          setRankTo(150);
+          setRankExactMatch(false);
+          setBalanceFrom('');
+          setBalanceTo('');
+          setActivityFilter('all');
+          setPage(1);
+        }}
+      />
+
+      {/* Кнопки управления: Режимы + Утилиты + Экспорт */}
       <Card className="mb-4">
         <CardContent className="p-4">
-          <div className="flex items-center gap-3 mb-3">
-            <Filter className="w-4 h-4 text-[#39B7FF]" />
-            <h3 className="text-[#1E1E1E]" style={{ fontSize: '14px', fontWeight: '600' }}>
-              Расширенные фильтры
-            </h3>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {/* Баланс */}
-            <div>
-              <p className="text-[#666] mb-2" style={{ fontSize: '12px', fontWeight: '600' }}>
-                💰 БАЛАНС
-              </p>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  placeholder="От"
-                  value={balanceFrom}
-                  onChange={(e) => setBalanceFrom(e.target.value)}
-                  className="flex-1"
-                />
-                <span className="text-[#999]">—</span>
-                <Input
-                  type="number"
-                  placeholder="До"
-                  value={balanceTo}
-                  onChange={(e) => setBalanceTo(e.target.value)}
-                  className="flex-1"
-                />
-              </div>
-            </div>
-
-            {/* Ранги */}
-            <div>
-              <p className="text-[#666] mb-2" style={{ fontSize: '12px', fontWeight: '600' }}>
-                🏆 РАНГ
-              </p>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  placeholder="От"
-                  value={rankFrom}
-                  onChange={(e) => setRankFrom(Number(e.target.value))}
-                  className="flex-1"
-                  min={0}
-                />
-                <span className="text-[#999]">—</span>
-                <Input
-                  type="number"
-                  placeholder="До"
-                  value={rankTo}
-                  onChange={(e) => setRankTo(Number(e.target.value))}
-                  className="flex-1"
-                  max={150}
-                />
-              </div>
-            </div>
-
-            {/* Активность */}
-            <div>
-              <p className="text-[#666] mb-2" style={{ fontSize: '12px', fontWeight: '600' }}>
-                ⏰ АКТИВНОСТЬ
-              </p>
-              <Select value={activityFilter} onValueChange={setActivityFilter}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Все пользователи</SelectItem>
-                  <SelectItem value="online">🟢 Онлайн (&lt; 3 мин)</SelectItem>
-                  <SelectItem value="today">🟡 Сегодня (&lt; 24ч)</SelectItem>
-                  <SelectItem value="week">🟠 Неделя (&lt; 7д)</SelectItem>
-                  <SelectItem value="inactive">⚪ Неактивные (&gt; 7д)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Кнопка сброса фильтров */}
-          {(balanceFrom || balanceTo || rankFrom !== 0 || rankTo !== 150 || activityFilter !== 'all') && (
-            <div className="mt-3">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            {/* Переключение режимов */}
+            <div className="flex gap-2 items-center">
               <Button
-                variant="outline"
+                variant={viewMode === 'list' ? 'default' : 'outline'}
                 size="sm"
-                onClick={() => {
-                  setBalanceFrom('');
-                  setBalanceTo('');
-                  setRankFrom(0);
-                  setRankTo(150);
-                  setActivityFilter('all');
-                  setPage(1);
-                }}
+                onClick={() => setViewMode('list')}
+                className={viewMode === 'list' ? 'bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white' : ''}
               >
-                🔄 Сбросить фильтры
+                <List className="w-4 h-4 mr-2" />
+                Список
+              </Button>
+              <Button
+                variant={viewMode === 'tree' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('tree')}
+                className={viewMode === 'tree' ? 'bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white' : ''}
+              >
+                <Network className="w-4 h-4 mr-2" />
+                Дерево
+              </Button>
+              <div className="w-px h-6 bg-[#E6E9EE] mx-1"></div>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={async () => {
+                  try {
+                    // Экспорт в Google Sheets
+                    const exportData = users.map((user, index) => ({
+                      '№': index + 1,
+                      'ID': user.id || '-',
+                      'Имя': user.имя || '-',
+                      'Фамилия': user.фамилия || '-',
+                      'Email': user.email || '-',
+                      'Телефон': user.телефон || '-',
+                      'Ранг': userRanks.get(user.id) ?? 0,
+                      'Баланс': user.баланс || 0,
+                      'Доступный баланс': user.доступныйБаланс || 0,
+                      'Реферальный код': user.реферальныйКод || '-',
+                      'Спонсор ID': user.спонсорId || '-',
+                      'Команда (1 линия)': user.команда?.length || 0,
+                      'Дата регистрации': user.зарегистрирован ? new Date(user.зарегистрирован).toLocaleDateString('ru-RU') : '-',
+                    }));
+
+                    const headers = Object.keys(exportData[0] || {});
+                    const csvContent = [
+                      headers.join('\t'),
+                      ...exportData.map(row => headers.map(h => row[h]).join('\t'))
+                    ].join('\n');
+
+                    const textArea = document.createElement('textarea');
+                    textArea.value = csvContent;
+                    textArea.style.position = 'fixed';
+                    textArea.style.left = '-9999px';
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    
+                    const successful = document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    
+                    if (successful) {
+                      toast.success('Данные скопированы! Откройте Google Sheets и вставьте (Ctrl+V)', { duration: 5000 });
+                    } else {
+                      throw new Error('execCommand failed');
+                    }
+                  } catch (error) {
+                    toast.error('Ошибка экспорта данных');
+                  }
+                }}
+                className="border-green-200 hover:bg-green-50 text-green-700 hover:border-green-300"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Экспорт в Google Sheets
               </Button>
             </div>
-          )}
+            
+            {/* Меню утилит */}
+            {viewMode === 'list' && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    className="border-[#E6E9EE] hover:bg-gray-50"
+                  >
+                    <Wrench className="w-4 h-4 mr-2" />
+                    Утилиты
+                    <ChevronDown className="w-4 h-4 ml-2" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem onClick={async () => {
+                    try {
+                      const toastId = toast.loading('🔄 Пересчет рангов...');
+                      const response = await fetch(
+                        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/recalculate-ranks`,
+                        {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${publicAnonKey}`,
+                            'X-User-Id': currentUser?.id || '',
+                          },
+                        }
+                      );
+                      const data = await response.json();
+                      if (data.success) {
+                        toast.success(`✅ Пересчитано рангов: ${data.stats?.processed || 0}`, { id: toastId });
+                        setTimeout(() => {
+                          queryClient.invalidateQueries({ queryKey: ['users-optimized'] });
+                        }, 500);
+                      } else {
+                        toast.error(`❌ Ошибка: ${data.error}`, { id: toastId });
+                      }
+                    } catch (error) {
+                      toast.error('Ошибка при пересчете рангов');
+                    }
+                  }}>
+                    <Award className="w-4 h-4 mr-2 text-purple-600" />
+                    <span>Пересчитать ранги</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={async () => {
+                    try {
+                      const toastId = toast.loading('Запуск миграции...');
+                      const response = await fetch(
+                        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/migrate-activity`,
+                        {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${publicAnonKey}`,
+                            'X-User-Id': currentUser?.id || '',
+                          },
+                        }
+                      );
+                      const data = await response.json();
+                      if (data.success) {
+                        toast.success(`Миграция завершена: обновлено ${data.migratedCount} из ${data.totalUsers} пользователей`, { id: toastId });
+                        setTimeout(() => queryClient.invalidateQueries({ queryKey: ['users-optimized'] }), 500);
+                      } else {
+                        toast.error(`Ошибка миграции: ${data.error}`, { id: toastId });
+                      }
+                    } catch (error) {
+                      toast.error('Ошибка при выполнении миграции');
+                    }
+                  }}>
+                    <Activity className="w-4 h-4 mr-2 text-green-600" />
+                    <span>Миграция активности</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={async () => {
+                    try {
+                      const toastId = toast.loading('🧹 Очистка битых ссылок...');
+                      const response = await fetch(
+                        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/clean-broken-refs`,
+                        {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${publicAnonKey}`,
+                            'X-User-Id': currentUser?.id || '',
+                          },
+                        }
+                      );
+                      const data = await response.json();
+                      if (data.success) {
+                        toast.success(`✅ Очищено: ${data.cleaned || 0}`, { id: toastId });
+                        setTimeout(() => queryClient.invalidateQueries({ queryKey: ['users-optimized'] }), 500);
+                      } else {
+                        toast.error(`❌ Ошибка: ${data.error}`, { id: toastId });
+                      }
+                    } catch (error) {
+                      toast.error('Ошибка при очистке');
+                    }
+                  }}>
+                    <AlertTriangle className="w-4 h-4 mr-2 text-orange-600" />
+                    <span>Очистить битые ссылки</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={async () => {
+                    try {
+                      const toastId = toast.loading('🔄 Синхронизация команд...');
+                      const response = await fetch(
+                        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/sync-teams`,
+                        {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${publicAnonKey}`,
+                            'X-User-Id': currentUser?.id || '',
+                          },
+                        }
+                      );
+                      const data = await response.json();
+                      if (data.success) {
+                        toast.success(`✅ Синхронизировано: ${data.synced || 0}`, { id: toastId });
+                        setTimeout(() => queryClient.invalidateQueries({ queryKey: ['users-optimized'] }), 500);
+                      } else {
+                        toast.error(`❌ Ошибка: ${data.error}`, { id: toastId });
+                      }
+                    } catch (error) {
+                      toast.error('Ошибка при синхронизации');
+                    }
+                  }}>
+                    <Users className="w-4 h-4 mr-2 text-blue-600" />
+                    <span>Синхронизировать команды</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
         </CardContent>
       </Card>
 
-      {/* Users List - Virtualized */}
+      {/* Users List - Virtualized или Tree */}
       <Card>
         <CardContent className="p-0">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="w-8 h-8 animate-spin text-[#39B7FF]" />
-              <span className="ml-3 text-[#666]">Загрузка пользователей...</span>
-            </div>
-          ) : error ? (
-            <div className="flex items-center justify-center py-20 text-red-600">
-              Ошибка загрузки данных
-            </div>
-          ) : users.length === 0 ? (
-            <div className="flex items-center justify-center py-20 text-[#999]">
-              Пользователи не найдены
-            </div>
+          {viewMode === 'tree' ? (
+            // 🌳 Древовидный режим
+            treeLoading ? (
+              <div className="flex items-center justify-center py-20">
+                <Loader2 className="w-8 h-8 animate-spin text-[#39B7FF]" />
+                <span className="ml-3 text-[#666]">Загрузка структуры...</span>
+              </div>
+            ) : allUsers.length === 0 ? (
+              <div className="flex items-center justify-center py-20 text-[#999]">
+                Пользователи не найдены
+              </div>
+            ) : (
+              <div className="p-4 space-y-3">
+                {allUsers
+                  .filter(u => !u.спонсорId && u.isAdmin !== true)
+                  .map((rootUser) => (
+                    <UserTreeRenderer
+                      key={rootUser.id}
+                      user={rootUser}
+                      allUsers={allUsers}
+                      depth={0}
+                      userRanks={userRanks}
+                      calculateTotalTeam={calculateTotalTeam}
+                      onUserClick={openUserDetails}
+                    />
+                  ))}
+              </div>
+            )
           ) : (
+            // 📋 Режим списка с виртуализацией
+            isLoading ? (
+              <div className="flex items-center justify-center py-20">
+                <Loader2 className="w-8 h-8 animate-spin text-[#39B7FF]" />
+                <span className="ml-3 text-[#666]">Загрузка пользователей...</span>
+              </div>
+            ) : error ? (
+              <div className="flex items-center justify-center py-20 text-red-600">
+                Ошибка загрузки данных
+              </div>
+            ) : users.length === 0 ? (
+              <div className="flex items-center justify-center py-20 text-[#999]">
+                Пользователи не найдены
+              </div>
+            ) : (
             <div
               ref={parentRef}
-              className="h-[600px] overflow-auto"
+              className="h-[2000px] overflow-auto"
               style={{ contain: 'strict' }}
             >
               <div
@@ -990,7 +1582,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                         transform: `translateY(${virtualRow.start}px)`,
                       }}
                     >
-                      <div className="p-3">
+                      <div className="px-3 py-1.5">
                         {renderUserCard(user)}
                       </div>
                     </div>
@@ -998,11 +1590,13 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                 })}
               </div>
             </div>
+            )
           )}
         </CardContent>
       </Card>
 
-      {/* Pagination */}
+      {/* Pagination - только для режима списка */}
+      {viewMode === 'list' && (
       <div className="mt-4 flex items-center justify-between">
         <p className="text-[#666]" style={{ fontSize: '14px' }}>
           Показано {users.length} из {pagination.total}
@@ -1030,6 +1624,18 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
           </Button>
         </div>
       </div>
+      )}
+        </TabsContent>
+
+        {/* 🛡️ ID Management Tab */}
+        <TabsContent value="ids" className="space-y-6">
+          <IdManager currentUser={currentUser} onDataChange={() => queryClient.invalidateQueries({ queryKey: ['users-optimized'] })} />
+          <ChangeUserId />
+          <ManualLinkFixer />
+          <ManualSponsorAssign />
+          <OrphanUsersManager />
+        </TabsContent>
+      </Tabs>
 
       {/* 👁️ User Details Modal */}
       <Dialog open={userDetailsOpen} onOpenChange={setUserDetailsOpen}>
@@ -1057,6 +1663,53 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                     Ранг {userRanks.get(selectedUserForDetails?.id || '') ?? selectedUserForDetails?._metrics?.rank ?? 0}
                   </Badge>
                 </div>
+              </div>
+              
+              {/* Quick Action Icons */}
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    const el = document.querySelector('[data-user-info-section]');
+                    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                  className="w-9 h-9 p-0 hover:bg-blue-50 rounded-lg"
+                  title="Информация"
+                >
+                  <Info className="w-4 h-4 text-[#39B7FF]" />
+                </Button>
+                
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setUserDetailsOpen(false);
+                    openEditDialog(selectedUserForDetails);
+                  }}
+                  className="w-9 h-9 p-0 hover:bg-green-50 rounded-lg"
+                  title="Редактировать"
+                >
+                  <Edit className="w-4 h-4 text-[#12C9B6]" />
+                </Button>
+                
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => toggleUserSelection(selectedUserForDetails?.id)}
+                  className={`w-9 h-9 p-0 rounded-lg ${
+                    selectedUsers.has(selectedUserForDetails?.id) 
+                      ? 'bg-green-100 hover:bg-green-200' 
+                      : 'hover:bg-gray-100'
+                  }`}
+                  title={selectedUsers.has(selectedUserForDetails?.id) ? 'Снять отметку' : 'Отметить'}
+                >
+                  {selectedUsers.has(selectedUserForDetails?.id) ? (
+                    <CheckCircle2 className="w-4 h-4 text-green-600" />
+                  ) : (
+                    <Check className="w-4 h-4 text-gray-600" />
+                  )}
+                </Button>
               </div>
             </DialogTitle>
             <DialogDescription>
@@ -1120,6 +1773,24 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   <Link2 className="w-3.5 h-3.5" />
                   Реф-ссылка
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => userActions.toggleAdmin(selectedUserForDetails, queryClient, onRefresh)}
+                  className="flex items-center gap-1.5"
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  {selectedUserForDetails.isAdmin ? 'Убрать админа' : 'Сделать админом'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => userActions.deleteUser(selectedUserForDetails, queryClient, onRefresh, setUserDetailsOpen)}
+                  className="flex items-center gap-1.5 text-red-600 border-red-200 hover:bg-red-50"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Удалить
+                </Button>
               </div>
 
               {/* Tabs */}
@@ -1169,7 +1840,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   </div>
 
                   {/* Контактная информация */}
-                  <div className="bg-[#F7FAFC] p-4 rounded-lg">
+                  <div className="bg-[#F7FAFC] p-4 rounded-lg" data-user-info-section>
                     <h3 className="text-[#1E1E1E] mb-4 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
                       <Mail className="w-4 h-4 text-[#39B7FF]" />
                       Контактная информация

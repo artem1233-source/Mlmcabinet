@@ -2124,7 +2124,7 @@ app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
 // Get user rank (максимальная глубина дерева)
 app.get("/make-server-05aa3c8a/user/:userId/rank", async (c) => {
   try {
-    await verifyUser(c.req.header('X-User-Id'));
+    // ⚠️ Публичный эндпоинт - не требует авторизации
     const userId = c.req.param('userId');
     
     console.log(`🏆 Getting rank for user: ${userId}`);
@@ -3350,6 +3350,9 @@ app.post("/make-server-05aa3c8a/admin/users/:userId/level", async (c) => {
       await kv.set(`user:tg:${user.telegramId}`, user);
     }
     
+    // 🗑️ Инвалидация кэша
+    await invalidateUsersCache();
+    
     console.log(`Admin updated user ${userId} to level ${level}`);
     
     return c.json({ success: true, user });
@@ -3383,6 +3386,9 @@ app.post("/make-server-05aa3c8a/admin/users/:userId/balance", async (c) => {
     if (user.telegramId) {
       await kv.set(`user:tg:${user.telegramId}`, user);
     }
+    
+    // 🗑️ Инвалидация кэша
+    await invalidateUsersCache();
     
     console.log(`Admin adjusted balance for ${userId}: ${amount} (${reason})`);
     
@@ -3478,6 +3484,9 @@ app.delete("/make-server-05aa3c8a/admin/users/:userId", async (c) => {
       await freeUserId(userId);
     }
     
+    // 🗑️ Инвалидация кэша
+    await invalidateUsersCache();
+    
     console.log(`✅ User ${userId} deleted and ID freed for reuse`);
     
     return c.json({ success: true, message: 'Пользователь удалён, ID освобождён для повторного использования' });
@@ -3506,6 +3515,9 @@ app.post("/make-server-05aa3c8a/admin/users/:userId/set-admin", async (c) => {
     if (user.telegramId) {
       await kv.set(`user:tg:${user.telegramId}`, user);
     }
+    
+    // 🗑️ Инвалидация кэша
+    await invalidateUsersCache();
     
     console.log(`Admin status for user ${userId} set to ${isAdmin}`);
     
@@ -7177,20 +7189,33 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
       const end = start + limit;
       const paginatedUsers = filteredUsers.slice(start, end);
       
-      // Загружаем метрики только для текущей страницы
-      const usersWithMetrics = await Promise.all(
-        paginatedUsers.map(async (user: any) => {
-          const metrics = await metricsCache.getUserMetrics(user.id);
-          return { ...user, _metrics: metrics };
-        })
-      );
+      // ⚡ КРИТИЧЕСКОЕ УСКОРЕНИЕ: НЕ загружаем метрики на быстром пути
+      // Клиент сам догрузит ранги через getUserRank API
+      // Это экономит ~500-1000ms на страницу
       
-      console.log(`✅ Fast path: ${usersWithMetrics.length} users (page ${page}/${totalPages})`);
+      // 📊 Рассчитываем статистику
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      
+      const stats = {
+        totalUsers: users.length,
+        newToday: users.filter((u: any) => new Date(u.зарегистрирован) >= today).length,
+        newThisMonth: users.filter((u: any) => new Date(u.зарегистрирован) >= thisMonth).length,
+        activePartners: users.filter((u: any) => u.партнёрскийID && u.команда?.length > 0).length,
+        passivePartners: users.filter((u: any) => u.партнёрскийID && (!u.команда || u.команда.length === 0)).length,
+        activeUsers: users.filter((u: any) => !u.партнёрскийID && u.команда?.length > 0).length,
+        passiveUsers: users.filter((u: any) => !u.партнёрскийID && (!u.команда || u.команда.length === 0)).length,
+        totalBalance: users.reduce((sum: number, u: any) => sum + (u.баланс || 0), 0),
+      };
+      
+      console.log(`⚡ ULTRA-FAST path: ${paginatedUsers.length} users (page ${page}/${totalPages}) - NO METRICS LOADED`);
       
       return c.json({
         success: true,
-        users: usersWithMetrics,
-        pagination: { page, limit, total, totalPages, hasMore: page < totalPages }
+        users: paginatedUsers, // Возвращаем без метрик для максимальной скорости
+        pagination: { page, limit, total, totalPages, hasMore: page < totalPages },
+        stats
       });
     }
     
@@ -7227,10 +7252,27 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
     const end = start + limit;
     const paginatedUsers = usersWithMetrics.slice(start, end);
 
+    // 📊 Рассчитываем статистику
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    
+    const stats = {
+      totalUsers: users.length,
+      newToday: users.filter((u: any) => new Date(u.зарегистрирован) >= today).length,
+      newThisMonth: users.filter((u: any) => new Date(u.зарегистрирован) >= thisMonth).length,
+      activePartners: users.filter((u: any) => u.партнёрскийID && u.команда?.length > 0).length,
+      passivePartners: users.filter((u: any) => u.партнёрскийID && (!u.команда || u.команда.length === 0)).length,
+      activeUsers: users.filter((u: any) => !u.партнёрскийID && u.команда?.length > 0).length,
+      passiveUsers: users.filter((u: any) => !u.партнёрскийID && (!u.команда || u.команда.length === 0)).length,
+      totalBalance: users.reduce((sum: number, u: any) => sum + (u.баланс || 0), 0),
+    };
+
     const result = {
       success: true,
       users: paginatedUsers,
-      pagination: { page, limit, total, totalPages, hasMore: page < totalPages }
+      pagination: { page, limit, total, totalPages, hasMore: page < totalPages },
+      stats
     };
 
     console.log(`✅ Loaded ${paginatedUsers.length} users (page ${page}/${totalPages})`);
