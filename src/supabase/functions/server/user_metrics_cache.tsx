@@ -86,10 +86,29 @@ async function calculateSalesMetrics(userId: string, allOrders: any[]) {
  */
 export async function calculateAndCacheUserMetrics(userId: string, allUsers?: any[], allOrders?: any[]): Promise<UserMetrics> {
   try {
+    console.log(`📊 Calculating metrics for user ${userId}...`);
+    
     // Загружаем пользователя
     const user = await kv.get(`user:id:${userId}`);
     if (!user) {
+      console.error(`❌ User ${userId} not found`);
       throw new Error(`User ${userId} not found`);
+    }
+    
+    // Проверяем что это не админ
+    if (user.isAdmin || user.__type === 'admin') {
+      console.log(`⚠️ User ${userId} is admin, skipping metrics`);
+      return {
+        userId,
+        rank: 0,
+        teamSize: 0,
+        totalTeamSize: 0,
+        personalSales: 0,
+        teamSales: 0,
+        ordersCount: 0,
+        averageCheck: 0,
+        lastCalculated: new Date().toISOString()
+      };
     }
 
     // Если данные не переданы, загружаем их
@@ -101,15 +120,34 @@ export async function calculateAndCacheUserMetrics(userId: string, allUsers?: an
     }
 
     // Расчёт ранга
-    const rankResult = await getUserRank(userId, true);
-    const rank = rankResult.rank || 0;
+    let rank = 0;
+    try {
+      rank = await getUserRank(userId, true);
+      console.log(`   ✅ Rank for ${userId}: ${rank}`);
+    } catch (error) {
+      console.error(`   ❌ Error calculating rank for ${userId}:`, error);
+      rank = 0;
+    }
 
     // Расчёт размера команды
     const teamSize = user.команда?.length || 0;
-    const totalTeamSize = await calculateTotalTeamSize(userId, allUsers);
+    let totalTeamSize = 0;
+    try {
+      totalTeamSize = await calculateTotalTeamSize(userId, allUsers);
+      console.log(`   ✅ Team sizes for ${userId}: direct=${teamSize}, total=${totalTeamSize}`);
+    } catch (error) {
+      console.error(`   ❌ Error calculating team size for ${userId}:`, error);
+      totalTeamSize = 0;
+    }
 
     // Расчёт метрик продаж
-    const salesMetrics = await calculateSalesMetrics(userId, allOrders);
+    let salesMetrics = { personalSales: 0, teamSales: 0, ordersCount: 0, averageCheck: 0 };
+    try {
+      salesMetrics = await calculateSalesMetrics(userId, allOrders);
+      console.log(`   ✅ Sales for ${userId}: personal=${salesMetrics.personalSales}, orders=${salesMetrics.ordersCount}`);
+    } catch (error) {
+      console.error(`   ❌ Error calculating sales for ${userId}:`, error);
+    }
 
     const metrics: UserMetrics = {
       userId,
@@ -125,10 +163,12 @@ export async function calculateAndCacheUserMetrics(userId: string, allUsers?: an
 
     // Сохраняем в кэш на 1 час
     await kv.set(`user_metrics:${userId}`, metrics);
+    
+    console.log(`✅ Metrics calculated and cached for user ${userId}`);
 
     return metrics;
   } catch (error) {
-    console.error(`Error calculating metrics for user ${userId}:`, error);
+    console.error(`❌ CRITICAL: Error calculating metrics for user ${userId}:`, error);
     
     // Возвращаем пустые метрики в случае ошибки
     return {

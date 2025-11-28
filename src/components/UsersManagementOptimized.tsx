@@ -14,7 +14,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { 
   Users,
@@ -48,6 +48,7 @@ import {
   Copy,
   Link2,
   Bell,
+  Download,
   Download,
   PhoneCall,
   TrendingDown,
@@ -93,6 +94,7 @@ import {
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { StatsWidgets } from './StatsWidgets';
+import { exportAllUsersToCSV } from '../utils/exportToCSV';
 import * as api from '../utils/api';
 import { UserManagementDialogs } from './UserManagementDialogs';
 import * as userActions from './UsersManagementOptimizedActions';
@@ -103,6 +105,7 @@ import { ManualSponsorAssign } from './admin/ManualSponsorAssign';
 import { OrphanUsersManager } from './admin/OrphanUsersManager';
 import { UserTreeRenderer } from './UserTreeRenderer';
 import { AdvancedFiltersPanel } from './AdvancedFiltersPanel';
+import { VirtualizedTreeView } from './VirtualizedTreeView';
 
 interface UsersManagementOptimizedProps {
   currentUser: any;
@@ -212,7 +215,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
   }, [searchQuery]);
 
   // 🔍 Загрузка пользователей с сервера (с кэшем)
-  const { data, isLoading, isFetching, error } = useQuery({
+  const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ['users-optimized', page, limit, debouncedSearch, sortBy, sortOrder, balanceFrom, balanceTo, rankFrom, rankTo, activityFilter, activeStatsFilter],
     queryFn: async () => {
       const userId = localStorage.getItem('userId');
@@ -252,41 +255,13 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
     retry: false, // Не повторять запрос при ошибке
   });
 
-  // 🔄 Пересчёт метрик
-  const recalculateMetrics = useMutation({
-    mutationFn: async () => {
-      const userId = localStorage.getItem('userId');
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/metrics/recalculate`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'X-User-Id': userId || '',
-          },
-        }
-      );
 
-      if (!response.ok) {
-        throw new Error('Failed to recalculate metrics');
-      }
-
-      return response.json();
-    },
-    onSuccess: () => {
-      toast.success('Метрики пересчитаны!');
-      queryClient.invalidateQueries({ queryKey: ['users-optimized'] });
-    },
-    onError: (error: any) => {
-      toast.error(`Ошибка: ${error.message}`);
-    },
-  });
 
   const users = data?.users || [];
   const pagination = data?.pagination || { page: 1, total: 0, totalPages: 0, hasMore: false };
 
   // 🌳 Загрузка всех пользователей для режима "Дерево"
-  const { data: allUsersData, isLoading: treeLoading } = useQuery({
+  const { data: allUsersData, isLoading: treeLoading, refetch: allUsersRefetch } = useQuery({
     queryKey: ['users-all-tree'],
     queryFn: async () => {
       const response = await fetch(
@@ -332,6 +307,162 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
     return total;
   };
 
+  // 🌳 НОВАЯ ФУНКЦИЯ: Расчёт ранга на основе древовидной структуры
+  const calculateRankFromTree = (userId: string, userMap: Map<string, any>, visited = new Set<string>()): number => {
+    // Защита от циклов
+    if (visited.has(userId)) {
+      console.warn(`⚠️ Обнаружен цикл для пользователя ${userId}`);
+      return 0;
+    }
+    visited.add(userId);
+    
+    const user = userMap.get(userId);
+    if (!user) {
+      console.warn(`⚠️ Пользователь ${userId} не найден`);
+      return 0;
+    }
+    
+    // Получаем всех детей из спонсорId (древовидная структура)
+    const children = Array.from(userMap.values()).filter(u => u.спонсорId === userId);
+    
+    // Если нет детей - ранг = 0 (листья дерева)
+    if (children.length === 0) {
+      return 0;
+    }
+    
+    // ✅ ПРАВИЛЬНАЯ ЛОГИКА: РАНГ = МАКСИМАЛЬНАЯ ГЛУБИНА самой длинной ветки!
+    // Рекурсивно находим максимальный ранг среди всех детей
+    let maxChildRank = 0;
+    
+    for (const child of children) {
+      const childRank = calculateRankFromTree(child.id, userMap, new Set(visited));
+      if (childRank > maxChildRank) {
+        maxChildRank = childRank;
+      }
+    }
+    
+    // Ранг = 1 (прямой реферал) + максимальная глубина ниже
+    return 1 + maxChildRank;
+  };
+
+  // 🔄 Пересчёт ВСЕХ рангов на основе дерева
+  const recalculateAllRanksFromTree = async () => {
+    const toastId = toast.loading('🌳 Начинаем пересчёт рангов...');
+    
+    try {
+      // Создаём Map для быстрого доступа
+      const userMap = new Map<string, any>();
+      allUsers.forEach(u => userMap.set(u.id, u));
+      
+      toast.loading('🔍 Анализируем древовидную структуру...', { id: toastId });
+      
+      // Рассчитываем ранги для ВСЕХ пользователей
+      const newRanks = new Map<string, number>();
+      const updates: Array<{userId: string, userName: string, newRank: number, oldRank: number}> = [];
+      
+      for (const user of allUsers) {
+        if (user.isAdmin) continue; // Админам ранги не нужны
+        
+        const newRank = calculateRankFromTree(user.id, userMap);
+        const oldRank = userRanks.get(user.id) ?? user.уровень ?? 0;
+        
+        newRanks.set(user.id, newRank);
+        
+        if (newRank !== oldRank) {
+          updates.push({ 
+            userId: user.id, 
+            userName: `${user.имя} ${user.фамилия}`,
+            newRank, 
+            oldRank 
+          });
+        }
+      }
+      
+      // Обновляем локальное состояние СРАЗУ для визуализации
+      setUserRanks(newRanks);
+      
+      console.log(`📊 Пересчитано рангов: ${newRanks.size}, изменений: ${updates.length}`);
+      
+      if (updates.length === 0) {
+        toast.success('✅ Все ранги уже корректны! Ошибок не обнаружено.', { id: toastId });
+        return;
+      }
+      
+      // Показываем топ-5 изменений для наглядности
+      const topChanges = updates
+        .sort((a, b) => Math.abs(b.newRank - b.oldRank) - Math.abs(a.newRank - a.oldRank))
+        .slice(0, 5);
+      
+      console.log('🔝 Топ-5 изменений:');
+      topChanges.forEach(u => {
+        console.log(`  ${u.userName}: ${u.oldRank} → ${u.newRank} (${u.newRank > u.oldRank ? '+' : ''}${u.newRank - u.oldRank})`);
+      });
+      
+      toast.loading(`💾 Сохраняем ${updates.length} изме��ений...`, { id: toastId });
+      
+      // Сохраняем в базу ПАКЕТАМИ для скорости
+      let savedCount = 0;
+      let errorCount = 0;
+      const batchSize = 10;
+      
+      for (let i = 0; i < updates.length; i += batchSize) {
+        const batch = updates.slice(i, i + batchSize);
+        
+        // Сохраняем параллельно
+        const promises = batch.map(update => 
+          fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/user/${update.userId}/rank`,
+            {
+              method: 'PUT',
+              headers: {
+                'Authorization': `Bearer ${publicAnonKey}`,
+                'Content-Type': 'application/json',
+                'X-User-Id': currentUser?.id || '',
+              },
+              body: JSON.stringify({ rank: update.newRank }),
+            }
+          ).then(response => ({ success: response.ok, update }))
+           .catch(() => ({ success: false, update }))
+        );
+        
+        const results = await Promise.all(promises);
+        
+        results.forEach(({ success, update }) => {
+          if (success) {
+            savedCount++;
+            console.log(`✅ ${update.userName}: ${update.oldRank} → ${update.newRank}`);
+          } else {
+            errorCount++;
+            console.error(`❌ Ошибка для ${update.userName}`);
+          }
+        });
+        
+        // Обновляем прогресс
+        toast.loading(`💾 Сохранено ${savedCount}/${updates.length}...`, { id: toastId });
+      }
+      
+      if (errorCount === 0) {
+        toast.success(`🎉 Успешно пересчитано и сохранено ${savedCount} рангов!`, { 
+          id: toastId,
+          duration: 5000 
+        });
+      } else {
+        toast.warning(`⚠️ Сохранено ${savedCount} из ${updates.length}. Ошибок: ${errorCount}`, { 
+          id: toastId,
+          duration: 7000 
+        });
+      }
+      
+      // Перезагружаем данные
+      await queryClient.invalidateQueries({ queryKey: ['users-all-tree'] });
+      await queryClient.invalidateQueries({ queryKey: ['users-optimized'] });
+      
+    } catch (error) {
+      console.error('Ошибка пересчёта рангов:', error);
+      toast.error(`❌ Ошибка: ${error}`, { id: toastId });
+    }
+  };
+
   // 📊 Обновляем статистику при получении данных
   useEffect(() => {
     if (data?.stats) {
@@ -345,6 +476,13 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       loadUserRanks();
     }
   }, [users, viewMode]);
+
+  // 🌳 Загружаем ранги для древовидного режима
+  useEffect(() => {
+    if (viewMode === 'tree' && allUsers && allUsers.length > 0) {
+      loadUserRanks();
+    }
+  }, [allUsers, viewMode]);
 
   const loadUserRanks = async () => {
     try {
@@ -976,7 +1114,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
               {/* Регистрация - светло-голубой */}
               <div className="px-2.5 py-2 rounded-lg" style={{ backgroundColor: '#EFF6FF' }}>
                 <p className="text-[#999] mb-1" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Регистрация
+                  Регис��рация
                 </p>
                 <p className="text-[#1E1E1E]" style={{ fontSize: '12px', fontWeight: '600' }}>
                   {user.датаСоздания ? new Date(user.датаСоздания).toLocaleDateString('ru-RU') : 'N/A'}
@@ -1044,26 +1182,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                       </p>
                     </a>
                   )}
-                  {user.whatsapp && (
-                    <a 
-                      href={`https://wa.me/${user.whatsapp.replace(/[^0-9]/g, '')}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-2.5 py-2 rounded-lg block hover:opacity-80 transition-opacity cursor-pointer"
-                      style={{ backgroundColor: '#DCFCE7' }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <Phone className="w-3 h-3 text-[#10B981]" />
-                        <p className="text-[#10B981]" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase' }}>
-                          WhatsApp
-                        </p>
-                      </div>
-                      <p className="text-[#10B981] truncate" style={{ fontSize: '12px', fontWeight: '600' }}>
-                        {user.whatsapp}
-                      </p>
-                    </a>
-                  )}
+
                   {user.facebook && (
                     <a 
                       href={`https://facebook.com/${user.facebook.replace('@', '')}`}
@@ -1142,34 +1261,13 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
     <div className="p-6 max-w-[1400px] mx-auto">
       {/* Header */}
       <div className="mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h1 className="text-[#1E1E1E] mb-2" style={{ fontSize: '28px', fontWeight: '700' }}>
-              Управление пользователями
-            </h1>
-            <p className="text-[#666]" style={{ fontSize: '14px' }}>
-              🚀 Оптимизированная версия для больших объёмов данных
-            </p>
-          </div>
-          
-          {/* Recalculate Button */}
-          <Button
-            onClick={() => recalculateMetrics.mutate()}
-            disabled={recalculateMetrics.isPending}
-            className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white"
-          >
-            {recalculateMetrics.isPending ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Пересчёт...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Пересчитать метрики
-              </>
-            )}
-          </Button>
+        <div>
+          <h1 className="text-[#1E1E1E] mb-2" style={{ fontSize: '28px', fontWeight: '700' }}>
+            Управление пользователями
+          </h1>
+          <p className="text-[#666]" style={{ fontSize: '14px' }}>
+            🚀 Оптимизированная версия для больших объёмов данных
+          </p>
         </div>
       </div>
 
@@ -1363,11 +1461,14 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
           <div className="flex items-center justify-between flex-wrap gap-3">
             {/* Переключение режимов */}
             <div className="flex gap-2 items-center">
+              <div className="flex items-center gap-1 mr-2">
+                <span className="text-[#666]" style={{ fontSize: '13px', fontWeight: '600' }}>Режим:</span>
+              </div>
               <Button
                 variant={viewMode === 'list' ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setViewMode('list')}
-                className={viewMode === 'list' ? 'bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white' : ''}
+                className={viewMode === 'list' ? 'bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white shadow-md' : 'hover:bg-gray-100'}
               >
                 <List className="w-4 h-4 mr-2" />
                 Список
@@ -1376,10 +1477,11 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                 variant={viewMode === 'tree' ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setViewMode('tree')}
-                className={viewMode === 'tree' ? 'bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white' : ''}
+                className={viewMode === 'tree' ? 'bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white shadow-md' : 'hover:bg-gradient-to-r hover:from-[#39B7FF]/10 hover:to-[#12C9B6]/10 border-2 border-[#39B7FF]/30'}
+                title="Переключиться на древовидное отображение структуры"
               >
                 <Network className="w-4 h-4 mr-2" />
-                Дерево
+                🌳 Дерево
               </Button>
               <div className="w-px h-6 bg-[#E6E9EE] mx-1"></div>
               <Button 
@@ -1451,11 +1553,72 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
+                  {/* 🔍 ДИАГНОСТИКА РАНГОВ */}
                   <DropdownMenuItem onClick={async () => {
                     try {
-                      const toastId = toast.loading('🔄 Пересчет рангов...');
+                      const toastId = toast.loading('🔍 Диагностика системы рангов...');
                       const response = await fetch(
-                        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/recalculate-ranks`,
+                        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/diagnose-ranks`,
+                        {
+                          method: 'GET',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${publicAnonKey}`,
+                            'X-User-Id': currentUser?.id || '',
+                          },
+                        }
+                      );
+                      const data = await response.json();
+                      if (data.success) {
+                        console.log('📊 Диагностика рангов:', data);
+                        
+                        if (data.issuesCount === 0) {
+                          toast.success('✅ Все ранги рассчитаны правильно!', { id: toastId });
+                        } else {
+                          // Показываем детальный отчет
+                          let reportText = `🔍 ДИАГНОСТИКА РАНГОВ\n\n`;
+                          reportText += `Всего пользователей: ${data.totalUsers}\n`;
+                          reportText += `Обнаружено проблем: ${data.issuesCount}\n\n`;
+                          
+                          if (data.issues && data.issues.length > 0) {
+                            reportText += `ПРОБЛЕМЫ:\n`;
+                            data.issues.slice(0, 10).forEach((issue: any, i: number) => {
+                              reportText += `${i + 1}. ${issue.name} (ID: ${issue.userId})\n`;
+                              reportText += `   ${issue.problem}\n\n`;
+                            });
+                            
+                            if (data.issues.length > 10) {
+                              reportText += `... и еще ${data.issues.length - 10} проблем\n\n`;
+                            }
+                          }
+                          
+                          reportText += `Используйте "Исправить все ранги" для автоматического исправления.`;
+                          
+                          alert(reportText);
+                          toast.warning(`⚠️ Найдено ${data.issuesCount} проблем`, { id: toastId });
+                        }
+                      } else {
+                        toast.error(`❌ Ошибка: ${data.error}`, { id: toastId });
+                      }
+                    } catch (error) {
+                      console.error('Diagnosis error:', error);
+                      toast.error('Ошибка диагностики');
+                    }
+                  }}>
+                    <Search className="w-4 h-4 mr-2 text-yellow-600" />
+                    <span>🔍 Диагностика рангов</span>
+                  </DropdownMenuItem>
+                  
+                  {/* 🔄 ПЕРЕСЧИТАТЬ ВСЕ МЕТРИКИ */}
+                  <DropdownMenuItem onClick={async () => {
+                    if (!confirm('🔄 ПЕРЕСЧЁТ ВСЕХ МЕТРИК\n\nЭта операция пересчитает ранги, команды и другие метрики ВСЕХ пользователей.\n\nПродолжить?')) {
+                      return;
+                    }
+                    
+                    try {
+                      const toastId = toast.loading('🔄 Пересчёт метрик...');
+                      const response = await fetch(
+                        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/recalculate-all-ranks`,
                         {
                           method: 'POST',
                           headers: {
@@ -1467,7 +1630,28 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                       );
                       const data = await response.json();
                       if (data.success) {
-                        toast.success(`✅ Пересчитано рангов: ${data.stats?.processed || 0}`, { id: toastId });
+                        console.log('✅ Метрики пересчитаны:', data);
+                        
+                        let resultText = `✅ ПЕРЕСЧЁТ ЗАВЕРШЁН\n\n`;
+                        resultText += `Всего пользователей: ${data.totalUsers}\n`;
+                        resultText += `Обновлено: ${data.updatedCount}\n\n`;
+                        
+                        if (data.updates && data.updates.length > 0) {
+                          resultText += `ОБНОВЛЕНИЯ:\n`;
+                          data.updates.slice(0, 10).forEach((upd: any, i: number) => {
+                            resultText += `${i + 1}. ${upd.name} (ID: ${upd.userId})\n`;
+                            resultText += `   Ранг: ${upd.oldRank} → ${upd.newRank}\n\n`;
+                          });
+                          
+                          if (data.updates.length > 10) {
+                            resultText += `... и еще ${data.updates.length - 10} обновлений`;
+                          }
+                        }
+                        
+                        alert(resultText);
+                        toast.success(`✅ Обновлено: ${data.updatedCount}`, { id: toastId });
+                        
+                        // Перезагружаем данные
                         setTimeout(() => {
                           queryClient.invalidateQueries({ queryKey: ['users-optimized'] });
                         }, 500);
@@ -1475,39 +1659,24 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                         toast.error(`❌ Ошибка: ${data.error}`, { id: toastId });
                       }
                     } catch (error) {
-                      toast.error('Ошибка при пересчете рангов');
+                      console.error('Recalculation error:', error);
+                      toast.error('Ошибка пересчёта метрик');
                     }
                   }}>
-                    <Award className="w-4 h-4 mr-2 text-purple-600" />
-                    <span>Пересчитать ранги</span>
+                    <RefreshCw className="w-4 h-4 mr-2 text-[#39B7FF]" />
+                    <span>🔄 Пересчитать все метрики</span>
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={async () => {
+                  <DropdownMenuItem onClick={() => {
                     try {
-                      const toastId = toast.loading('Запуск миграции...');
-                      const response = await fetch(
-                        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/migrate-activity`,
-                        {
-                          method: 'POST',
-                          headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${publicAnonKey}`,
-                            'X-User-Id': currentUser?.id || '',
-                          },
-                        }
-                      );
-                      const data = await response.json();
-                      if (data.success) {
-                        toast.success(`Миграция завершена: обновлено ${data.migratedCount} из ${data.totalUsers} пользователей`, { id: toastId });
-                        setTimeout(() => queryClient.invalidateQueries({ queryKey: ['users-optimized'] }), 500);
-                      } else {
-                        toast.error(`Ошибка миграции: ${data.error}`, { id: toastId });
-                      }
+                      exportAllUsersToCSV(displayedUsers);
+                      toast.success(`📊 Экспортировано ${displayedUsers.length} пользователей`);
                     } catch (error) {
-                      toast.error('Ошибка при выполнении миграции');
+                      console.error('Export error:', error);
+                      toast.error('Ошибка экспорта данных');
                     }
                   }}>
-                    <Activity className="w-4 h-4 mr-2 text-green-600" />
-                    <span>Миграция активности</span>
+                    <Download className="w-4 h-4 mr-2 text-[#39B7FF]" />
+                    <span>📊 Экспорт в CSV</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={async () => {
                     try {
@@ -1583,24 +1752,35 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                 <span className="ml-3 text-[#666]">Загрузка структуры...</span>
               </div>
             ) : allUsers.length === 0 ? (
-              <div className="flex items-center justify-center py-20 text-[#999]">
-                Пользователи не найдены
+              <div className="flex flex-col items-center justify-center py-20 text-[#999]">
+                <Network className="w-16 h-16 mb-4 text-[#E6E9EE]" />
+                <p className="text-[#666] mb-2" style={{ fontSize: '16px', fontWeight: '600' }}>
+                  Нет данных для построения дерева
+                </p>
+                <p className="text-[#999] mb-4" style={{ fontSize: '14px' }}>
+                  Добавьте пользователей для отображения структуры команды
+                </p>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => setViewMode('list')}
+                  className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6]"
+                >
+                  <List className="w-4 h-4 mr-2" />
+                  Вернуться к списку
+                </Button>
               </div>
             ) : (
-              <div className="p-4 space-y-3">
-                {allUsers
-                  .filter(u => !u.спонсорId && u.isAdmin !== true)
-                  .map((rootUser) => (
-                    <UserTreeRenderer
-                      key={rootUser.id}
-                      user={rootUser}
-                      allUsers={allUsers}
-                      depth={0}
-                      userRanks={userRanks}
-                      calculateTotalTeam={calculateTotalTeam}
-                      onUserClick={openUserDetails}
-                    />
-                  ))}
+              <div className="p-4">
+                {/* 🚀 НОВЫЙ ВИРТУАЛИЗИРОВАННЫЙ КОМПОНЕНТ */}
+                <VirtualizedTreeView
+                  allUsers={allUsers}
+                  userRanks={userRanks}
+                  calculateTotalTeam={calculateTotalTeam}
+                  onUserClick={openUserDetails}
+                  onRecalculateRanks={recalculateAllRanksFromTree}
+                  isRecalculating={treeLoading}
+                />
               </div>
             )
           ) : (
@@ -1615,8 +1795,40 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                 Ошибка загрузки данных
               </div>
             ) : users.length === 0 ? (
-              <div className="flex items-center justify-center py-20 text-[#999]">
-                Пользователи не найдены
+              <div className="flex flex-col items-center justify-center py-20 text-[#999]">
+                <Users className="w-16 h-16 mb-4 text-[#E6E9EE]" />
+                <p className="text-[#666] mb-2" style={{ fontSize: '16px', fontWeight: '600' }}>
+                  Пользователи не найдены
+                </p>
+                <p className="text-[#999] mb-4" style={{ fontSize: '14px' }}>
+                  Попробуйте изменить фильтры или очистить поиск
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setBalanceFrom('');
+                      setBalanceTo('');
+                      setRankFrom(0);
+                      setRankTo(150);
+                      setActivityFilter('all');
+                    }}
+                  >
+                    <X className="w-4 h-4 mr-2" />
+                    Сбросить фильтры
+                  </Button>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => setViewMode('tree')}
+                    className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6]"
+                  >
+                    <Network className="w-4 h-4 mr-2" />
+                    🌳 Открыть дерево
+                  </Button>
+                </div>
               </div>
             ) : (
             <div
@@ -1988,7 +2200,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   </div>
 
                   {/* Социальные сети */}
-                  {(selectedUserForDetails.telegram || selectedUserForDetails.whatsapp || selectedUserForDetails.facebook || selectedUserForDetails.instagram || selectedUserForDetails.vk || selectedUserForDetails.socialMedia) && (
+                  {(selectedUserForDetails.telegram || selectedUserForDetails.facebook || selectedUserForDetails.instagram || selectedUserForDetails.vk || selectedUserForDetails.socialMedia) && (
                     <div>
                       <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
                         <MessageCircle className="w-4 h-4 text-[#39B7FF]" />
@@ -2011,22 +2223,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                             </p>
                           </a>
                         )}
-                        {(selectedUserForDetails.whatsapp || selectedUserForDetails.socialMedia?.whatsapp) && (
-                          <a
-                            href={`https://wa.me/${(selectedUserForDetails.whatsapp || selectedUserForDetails.socialMedia?.whatsapp).replace(/[^0-9]/g, '')}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="bg-green-50 hover:bg-green-100 p-3 rounded-lg transition-colors cursor-pointer block"
-                          >
-                            <div className="flex items-center gap-2 mb-1">
-                              <Phone className="w-4 h-4 text-green-600" />
-                              <p className="text-[#999]" style={{ fontSize: '10px', fontWeight: '600' }}>WHATSAPP</p>
-                            </div>
-                            <p className="text-green-700 truncate" style={{ fontSize: '13px', fontWeight: '600' }}>
-                              {selectedUserForDetails.whatsapp || selectedUserForDetails.socialMedia?.whatsapp}
-                            </p>
-                          </a>
-                        )}
+
                         {(selectedUserForDetails.facebook || selectedUserForDetails.socialMedia?.facebook) && (
                           <a
                             href={`https://facebook.com/${(selectedUserForDetails.facebook || selectedUserForDetails.socialMedia?.facebook).replace(/^@/, '')}`}

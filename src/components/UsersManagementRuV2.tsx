@@ -47,7 +47,8 @@ import {
   CheckCircle2,
   XCircle,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  Bug
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -492,7 +493,34 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
         throw new Error(data.error || 'Failed to load users');
       }
 
-      setUsers(data.users || []);
+      const loadedUsers = data.users || [];
+      
+      // 🔍 DEBUG: Выводим данные о команде пользователя 014
+      const user014 = loadedUsers.find((u: any) => u.id === '014');
+      if (user014) {
+        console.log('\n🔍 DEBUG User 014 (Artem10) RAW data:');
+        console.log('   ID:', user014.id);
+        console.log('   Имя:', user014.имя, user014.фамилия);
+        console.log('   Ранг:', user014.уровень);
+        console.log('   SpонсорId:', user014.спонсорId);
+        console.log('   команда RAW:', user014.команда);
+        console.log('   команда type:', typeof user014.команда);
+        console.log('   команда isArray:', Array.isArray(user014.команда));
+        console.log('   команда length:', user014.команда?.length);
+        if (Array.isArray(user014.команда)) {
+          user014.команда.forEach((item: any, index: number) => {
+            console.log(`   команда[${index}]:`, {
+              value: item,
+              type: typeof item,
+              stringValue: String(item),
+              isValidString: typeof item === 'string' && item.trim() !== ''
+            });
+          });
+        }
+        console.log('\n');
+      }
+      
+      setUsers(loadedUsers);
       setPagination({
         page: data.pagination.page,
         limit: data.pagination.limit,
@@ -635,6 +663,60 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
       vk: user.vk || user.socialMedia?.vk || '',
     });
     setEditDialogOpen(true);
+  };
+
+  const debugUserRank = async (userId: string, userName: string) => {
+    try {
+      console.log(`🔍 Debugging rank for user ${userId} (${userName})`);
+      toast.loading(`Диагностика ранга для ${userName}...`, { id: `debug-${userId}` });
+      
+      // Получаем RAW данные
+      const rawData = await api.debugUserRaw(userId);
+      console.log('🔍 RAW data:', rawData);
+      
+      // Получаем обработанные данные
+      const userData = await api.debugUserData(userId);
+      console.log('🔍 User data:', userData);
+      
+      // Рассчитываем ранг
+      const result = await api.debugUserRank(userId);
+      console.log('🔍 Rank calculation result:', result);
+      
+      if (result.success) {
+        toast.success(`Ранг пересчитан: ${result.calculatedRank}. Проверьте консоль для деталей.`, { id: `debug-${userId}` });
+        
+        // Обновляем данные пользователя
+        await loadUsers();
+        
+        // Формируем детальный отчет
+        let teamInfo = 'нет';
+        if (userData.teamData && userData.teamData.length > 0) {
+          teamInfo = userData.teamData.map((m: any) => 
+            `${m.id} (${m.имя}, команда: ${m.команда?.length || 0}, уровень: ${m.уровень})`
+          ).join('\n  ');
+        }
+        
+        // Анализ поля команда
+        let командаAnalysis = 'N/A';
+        if (rawData.командаAnalysis) {
+          const analysis = rawData.командаAnalysis;
+          командаAnalysis = `Тип: ${analysis.type}\nМассив: ${analysis.isArray}\nДлина: ${analysis.length}\n`;
+          if (analysis.items && analysis.items.length > 0) {
+            командаAnalysis += 'Элементы:\n' + analysis.items.map((item: any) => 
+              `  [${item.index}] "${item.value}" (${item.type}) - valid: ${item.isValid}`
+            ).join('\n');
+          }
+        }
+        
+        // Показываем детали в alert
+        alert(`🔍 ДИАГНОСТИКА РАНГА\n\nПользователь: ${userName}\nID: ${userId}\n\n📊 RAW ДАННЫЕ ПОЛЯ "команда":\n${командаAnalysis}\n\n📊 ОБРАБОТАННЫЕ ДАННЫЕ:\nКоманда: ${result.user.команда?.join(', ') || 'нет'}\nРазмер команды: ${result.user.командаРазмер}\nСпонсор: ${result.user.спонсорId || 'нет'}\n\n👥 ЧЛЕНЫ КОМАНДЫ:\n  ${teamInfo}\n\n📈 РЕЗУЛЬТАТ:\nТекущий уровень в БД: ${result.user.текущийУровень}\nРассчитанный ранг: ${result.calculatedRank}\n\n⚠️ Детальные логи в консоли браузера и сервера Supabase!`);
+      } else {
+        toast.error(`Ошибка диагностики: ${result.error}`, { id: `debug-${userId}` });
+      }
+    } catch (error) {
+      console.error('Debug rank error:', error);
+      toast.error('Ошибка диагностики ранга', { id: `debug-${userId}` });
+    }
   };
 
   const handleSaveUser = async () => {
@@ -1153,6 +1235,20 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
               <div className="h-8 w-px bg-[#E6E9EE]"></div>
               
               <div className="flex items-center gap-1">
+                {!isAdmin && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      debugUserRank(user.id, `${user.имя} ${user.фамилия}`);
+                    }}
+                    className="w-8 h-8 p-0 hover:bg-yellow-50"
+                    title="Диагностика ранга"
+                  >
+                    <Bug className="w-4 h-4 text-yellow-600" />
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   size="sm"
@@ -1516,6 +1612,122 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                           <Users className="w-4 h-4 mr-2 text-blue-600" />
                           <span>Синхронизировать</span>
                         </DropdownMenuItem>
+                        
+                        {/* 🔍 ДИАГНОСТИКА РАНГОВ */}
+                        <DropdownMenuItem onClick={async () => {
+                          try {
+                            const toastId = toast.loading('🔍 Диагностика системы рангов...');
+                            const response = await fetch(
+                              `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/diagnose-ranks`,
+                              {
+                                method: 'GET',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                  'Authorization': `Bearer ${publicAnonKey}`,
+                                  'X-User-Id': currentUser?.id || '',
+                                },
+                              }
+                            );
+                            const data = await response.json();
+                            if (data.success) {
+                              console.log('📊 Диагностика рангов:', data);
+                              
+                              if (data.issuesCount === 0) {
+                                toast.success('✅ Все ранги рассчитаны правильно!', { id: toastId });
+                              } else {
+                                // Показываем детальный отчет
+                                let reportText = `🔍 ДИАГНОСТИКА РАНГОВ\n\n`;
+                                reportText += `Всего пользователей: ${data.totalUsers}\n`;
+                                reportText += `Обнаружено проблем: ${data.issuesCount}\n\n`;
+                                
+                                if (data.issues && data.issues.length > 0) {
+                                  reportText += `ПРОБЛЕМЫ:\n`;
+                                  data.issues.slice(0, 10).forEach((issue: any, i: number) => {
+                                    reportText += `${i + 1}. ${issue.name} (ID: ${issue.userId})\n`;
+                                    reportText += `   ${issue.problem}\n\n`;
+                                  });
+                                  
+                                  if (data.issues.length > 10) {
+                                    reportText += `... и еще ${data.issues.length - 10} проблем\n\n`;
+                                  }
+                                }
+                                
+                                reportText += `Используйте "Исправить все ранги" для автоматического исправления.`;
+                                
+                                alert(reportText);
+                                toast.warning(`⚠️ Найдено ${data.issuesCount} проблем`, { id: toastId });
+                              }
+                            } else {
+                              toast.error(`❌ Ошибка: ${data.error}`, { id: toastId });
+                            }
+                          } catch (error) {
+                            console.error('Diagnosis error:', error);
+                            toast.error('Ошибка диагностики');
+                          }
+                        }}>
+                          <Search className="w-4 h-4 mr-2 text-yellow-600" />
+                          <span>Диагностика рангов</span>
+                        </DropdownMenuItem>
+                        
+                        {/* 🔧 ИСПРАВИТЬ ВСЕ РАНГИ */}
+                        <DropdownMenuItem onClick={async () => {
+                          if (!confirm('🔧 ИСПРАВЛЕНИЕ ВСЕХ РАНГОВ\n\nЭта операция пересчитает и исправит ранги ВСЕХ пользователей.\n\nПродолжить?')) {
+                            return;
+                          }
+                          
+                          try {
+                            const toastId = toast.loading('🔧 Исправление рангов...');
+                            const response = await fetch(
+                              `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/recalculate-all-ranks`,
+                              {
+                                method: 'POST',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                  'Authorization': `Bearer ${publicAnonKey}`,
+                                  'X-User-Id': currentUser?.id || '',
+                                },
+                              }
+                            );
+                            const data = await response.json();
+                            if (data.success) {
+                              console.log('✅ Ранги исправлены:', data);
+                              
+                              let resultText = `✅ ИСПРАВЛЕНИЕ ЗАВЕРШЕНО\n\n`;
+                              resultText += `Всего пользователей: ${data.totalUsers}\n`;
+                              resultText += `Обновлено: ${data.updatedCount}\n\n`;
+                              
+                              if (data.updates && data.updates.length > 0) {
+                                resultText += `ОБНОВЛЕНИЯ:\n`;
+                                data.updates.slice(0, 10).forEach((upd: any, i: number) => {
+                                  resultText += `${i + 1}. ${upd.name} (ID: ${upd.userId})\n`;
+                                  resultText += `   Ранг: ${upd.oldRank} → ${upd.newRank}\n\n`;
+                                });
+                                
+                                if (data.updates.length > 10) {
+                                  resultText += `... и еще ${data.updates.length - 10} обновлений`;
+                                }
+                              }
+                              
+                              alert(resultText);
+                              toast.success(`✅ Обновлено: ${data.updatedCount}`, { id: toastId });
+                              
+                              // Перезагружаем данные
+                              setTimeout(() => {
+                                loadUsers(false);
+                                loadUserRanks();
+                              }, 500);
+                            } else {
+                              toast.error(`❌ Ошибка: ${data.error}`, { id: toastId });
+                            }
+                          } catch (error) {
+                            console.error('Fix error:', error);
+                            toast.error('Ошибка исправления');
+                          }
+                        }}>
+                          <Wrench className="w-4 h-4 mr-2 text-green-600" />
+                          <span>Исправить все ранги</span>
+                        </DropdownMenuItem>
+                        
                         <DropdownMenuItem onClick={async () => {
                           try {
                             const toastId = toast.loading('🔄 Пересчет рангов...');

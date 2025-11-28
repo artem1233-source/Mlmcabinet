@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { UserPlus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -6,6 +6,7 @@ import { Input } from '../ui/input';
 import { toast } from 'sonner';
 import * as api from '../../utils/api';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { useAllUsers, useInvalidateUsers } from '../../hooks/useAllUsers';
 
 interface ManualSponsorAssignProps {
   currentUser: any;
@@ -13,25 +14,15 @@ interface ManualSponsorAssignProps {
 }
 
 export function ManualSponsorAssign({ currentUser, onSuccess }: ManualSponsorAssignProps) {
-  const [loading, setLoading] = useState(false);
-  const [users, setUsers] = useState<any[]>([]);
+  // 🚀 Используем общий хук для загрузки пользователей
+  const { users, isLoading, refetch } = useAllUsers();
+  const invalidateUsers = useInvalidateUsers();
+  
+  const [assigning, setAssigning] = useState(false);
   const [childId, setChildId] = useState('');
   const [sponsorId, setSponsorId] = useState('');
 
-  useEffect(() => {
-    loadUsers();
-  }, []);
-
-  const loadUsers = async () => {
-    try {
-      const response = await api.getAllUsers();
-      if (response.success) {
-        setUsers(response.users || []);
-      }
-    } catch (error) {
-      console.error('Failed to load users:', error);
-    }
-  };
+  const loading = isLoading || assigning;
 
   const findUser = (id: string) => {
     return users.find(u => u.id === id);
@@ -74,7 +65,7 @@ export function ManualSponsorAssign({ currentUser, onSuccess }: ManualSponsorAss
     }
 
     try {
-      setLoading(true);
+      setAssigning(true);
 
       // Update child: set sponsorId
       const updatedChild = { ...child, спонсорId: sponsorId };
@@ -118,7 +109,9 @@ export function ManualSponsorAssign({ currentUser, onSuccess }: ManualSponsorAss
       toast.success(`✅ Связь восстановлена!\n${childId} → ${sponsorId}`);
       setChildId('');
       setSponsorId('');
-      await loadUsers();
+      
+      // Инвалидируем кэш пользователей
+      invalidateUsers();
       
       if (onSuccess) {
         onSuccess();
@@ -129,7 +122,7 @@ export function ManualSponsorAssign({ currentUser, onSuccess }: ManualSponsorAss
         description: String(error)
       });
     } finally {
-      setLoading(false);
+      setAssigning(false);
     }
   };
 

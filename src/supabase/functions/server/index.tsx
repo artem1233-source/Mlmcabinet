@@ -3,7 +3,7 @@ import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
 import * as kv from "./kv_store.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { getUserRank, invalidateRankCache, updateUplineRanks, updateUserRank } from "./rank_calculator.tsx";
+import { getUserRank, invalidateRankCache, updateUplineRanks, updateUserRank, calculateUserRank } from "./rank_calculator.tsx";
 import * as metricsCache from "./user_metrics_cache.tsx";
 
 // 🎯 HELPER: Инвалидация кэша при изменении пользователей
@@ -127,7 +127,12 @@ app.use('*', async (c, next) => {
           // console.log(`💓 Middleware: Updated activity for ${user.имя || userIdHeader}`);
         }
       } catch (error) {
-        console.error('⚠️ Middleware activity update error:', error);
+        // Тихо игнорируем ошибки activity tracking, чтобы не ломать основной запрос
+        // Логируем только если это не проблема с окружением
+        const errorMessage = error?.message || String(error);
+        if (!errorMessage.includes('SUPABASE_URL') && !errorMessage.includes('SUPABASE_SERVICE_ROLE_KEY')) {
+          console.error('⚠️ Activity update error:', errorMessage);
+        }
         // Не бросаем ошибку - продолжаем обработку запроса
       }
     })();
@@ -2919,6 +2924,31 @@ app.get("/make-server-05aa3c8a/admin/users", async (c) => {
   }
 });
 
+// 🌳 Alias для древовидного режима - возвращает ВСЕ пользователей (включая админов для полной структуры)
+app.get("/make-server-05aa3c8a/admin/users/all", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    console.log('🌳 Getting ALL users for tree view...');
+    
+    // Get ALL users including admins for complete tree structure
+    const users = await kv.getByPrefix('user:id:');
+    const userArray = Array.isArray(users) ? users : [];
+    
+    console.log(`🌳 Found ${userArray.length} total users for tree`);
+    
+    return c.json({ success: true, users: userArray });
+  } catch (error) {
+    console.log(`Admin get all users error: ${error}`);
+    return c.json({ 
+      success: false, 
+      error: `${error}`,
+      users: []
+    }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
 // 🆕 Get users with pagination, search, and filters
 app.get("/make-server-05aa3c8a/admin/users/paginated", async (c) => {
   try {
@@ -3168,6 +3198,44 @@ app.get("/make-server-05aa3c8a/admin/users/paginated", async (c) => {
     const offset = (page - 1) * limit;
     const paginatedUsers = filteredUsers.slice(offset, offset + limit);
     
+    // 📊 Add metrics (including rank) to each paginated user
+    console.log(`📊 Loading metrics for ${paginatedUsers.length} users...`);
+    const usersWithMetrics = await Promise.all(
+      paginatedUsers.map(async (user: any) => {
+        if (user.isAdmin || user.__type === 'admin') {
+          return user;
+        }
+        
+        try {
+          // Get cached or calculate fresh metrics
+          const metrics = await metricsCache.getUserMetrics(user.id);
+          console.log(`✅ Loaded metrics for user ${user.id}: rank=${metrics.rank}, teamSize=${metrics.teamSize}`);
+          return {
+            ...user,
+            _metrics: metrics
+          };
+        } catch (error) {
+          console.error(`❌ Error getting metrics for user ${user.id} (${user.имя} ${user.фамилия}):`, error);
+          return {
+            ...user,
+            _metrics: { 
+              userId: user.id,
+              rank: 0, 
+              teamSize: 0, 
+              totalTeamSize: 0,
+              personalSales: 0,
+              teamSales: 0,
+              ordersCount: 0,
+              averageCheck: 0,
+              lastCalculated: new Date().toISOString()
+            }
+          };
+        }
+      })
+    );
+    
+    console.log(`✅ Metrics loaded for all users`);
+    
     // 📊 Calculate statistics from ALL users (not just filtered)
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -3245,7 +3313,7 @@ app.get("/make-server-05aa3c8a/admin/users/paginated", async (c) => {
     
     return c.json({ 
       success: true, 
-      users: paginatedUsers,
+      users: usersWithMetrics,
       pagination: {
         page,
         limit,
@@ -3262,6 +3330,63 @@ app.get("/make-server-05aa3c8a/admin/users/paginated", async (c) => {
       error: `${error}`,
       users: [],
       pagination: { page: 1, limit: 50, total: 0, totalPages: 0, hasMore: false }
+    }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// 🎯 Update user rank (admin only)
+app.put("/make-server-05aa3c8a/admin/user/:userId/rank", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const userId = c.req.param('userId');
+    const { rank } = await c.req.json();
+    
+    console.log(`🎯 Updating rank for user ${userId} to ${rank}`);
+    
+    if (!userId) {
+      return c.json({ success: false, error: 'User ID is required' }, 400);
+    }
+    
+    if (typeof rank !== 'number' || rank < 0) {
+      return c.json({ success: false, error: 'Invalid rank value' }, 400);
+    }
+    
+    // Получаем пользователя
+    const userKey = `user:id:${userId}`;
+    const user = await kv.get(userKey);
+    
+    if (!user) {
+      return c.json({ success: false, error: 'User not found' }, 404);
+    }
+    
+    // Обновляем ранг
+    user.уровень = rank;
+    
+    // Обновляем метрики если есть
+    if (!user._metrics) {
+      user._metrics = {};
+    }
+    user._metrics.rank = rank;
+    user._metrics.lastRankUpdate = new Date().toISOString();
+    
+    // Сохраняем
+    await kv.set(userKey, user);
+    
+    console.log(`✅ Rank updated for ${userId}: ${rank}`);
+    
+    return c.json({ 
+      success: true, 
+      userId,
+      rank,
+      message: 'Rank updated successfully'
+    });
+  } catch (error) {
+    console.log(`Admin update rank error: ${error}`);
+    return c.json({ 
+      success: false, 
+      error: `${error}`
     }, (error as any).message?.includes('Admin') ? 403 : 500);
   }
 });
@@ -7352,6 +7477,490 @@ app.post("/make-server-05aa3c8a/metrics/recalculate", async (c) => {
     });
   } catch (error) {
     console.error('❌ Metrics recalculation error:', error);
+    return c.json({ error: `${error}` }, 500);
+  }
+});
+
+/**
+ * 🔍 Просмотр RAW данных пользователя (как они хранятся в БД)
+ */
+app.get("/make-server-05aa3c8a/debug/user-raw/:userId", async (c) => {
+  try {
+    const userId = c.req.param('userId');
+    const user = await kv.get(`user:id:${userId}`);
+    
+    if (!user) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+    
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`🔍 RAW DATA FOR USER ${userId}`);
+    console.log(`${'='.repeat(80)}`);
+    console.log(JSON.stringify(user, null, 2));
+    console.log(`${'='.repeat(80)}\n`);
+    
+    // Проверяем тип поля команда
+    console.log(`📊 команда field analysis:`);
+    console.log(`   Type: ${typeof user.команда}`);
+    console.log(`   Is Array: ${Array.isArray(user.команда)}`);
+    console.log(`   Value:`, user.команда);
+    
+    if (Array.isArray(user.команда)) {
+      console.log(`   Length: ${user.команда.length}`);
+      user.команда.forEach((id: any, index: number) => {
+        console.log(`   [${index}] = "${id}" (type: ${typeof id}, valid: ${id && typeof id === 'string' && id.trim() !== ''})`);
+      });
+    }
+    
+    return c.json({
+      success: true,
+      userId,
+      rawData: user,
+      командаAnalysis: {
+        type: typeof user.команда,
+        isArray: Array.isArray(user.команда),
+        length: user.команда?.length,
+        items: Array.isArray(user.команда) ? user.команда.map((id: any, index: number) => ({
+          index,
+          value: id,
+          type: typeof id,
+          isValid: id && typeof id === 'string' && id.trim() !== ''
+        })) : []
+      }
+    });
+  } catch (error) {
+    console.error('❌ Debug user raw error:', error);
+    return c.json({ error: `${error}` }, 500);
+  }
+});
+
+/**
+ * 🔍 Просмотр данных пользователя
+ */
+app.get("/make-server-05aa3c8a/debug/user-data/:userId", async (c) => {
+  try {
+    const userId = c.req.param('userId');
+    const user = await kv.get(`user:id:${userId}`);
+    
+    if (!user) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+    
+    // Получаем данные о членах команды
+    const teamData = [];
+    if (user.команда && Array.isArray(user.команда)) {
+      for (const memberId of user.команда) {
+        const member = await kv.get(`user:id:${memberId}`);
+        teamData.push({
+          id: memberId,
+          exists: !!member,
+          имя: member?.имя || 'N/A',
+          команда: member?.команда || [],
+          уровень: member?.уровень || 0
+        });
+      }
+    }
+    
+    return c.json({
+      success: true,
+      user: {
+        id: user.id,
+        имя: user.имя,
+        фамилия: user.фамилия,
+        email: user.email,
+        команда: user.команда,
+        спонсорId: user.спонсорId,
+        уровень: user.уровень,
+        isAdmin: user.isAdmin,
+        __type: user.__type
+      },
+      teamData,
+      teamSize: user.команда?.length || 0
+    });
+  } catch (error) {
+    console.error('❌ Debug user data error:', error);
+    return c.json({ error: `${error}` }, 500);
+  }
+});
+
+/**
+ * 🔍 ПОЛНАЯ ДИАГНОСТИКА СИСТЕМЫ РАНГОВ
+ */
+app.get("/make-server-05aa3c8a/admin/diagnose-ranks", async (c) => {
+  try {
+    console.log('\n' + '='.repeat(100));
+    console.log('🔍 ПОЛНАЯ ДИАГНОСТИКА СИСТЕМЫ РАНГОВ');
+    console.log('='.repeat(100) + '\n');
+    
+    // Получаем всех пользователей
+    const allUsers = await kv.getByPrefix('user:id:');
+    const users = allUsers.filter((u: any) => u.__type !== 'admin' && !u.isAdmin);
+    
+    console.log(`📊 Всего пользователей: ${users.length}`);
+    
+    // Строим дерево связей
+    const userMap = new Map();
+    const childrenMap = new Map(); // спонсор -> [дети]
+    
+    for (const user of users) {
+      userMap.set(user.id, user);
+      
+      // Инициализируем команду для каждого пользователя
+      if (!childrenMap.has(user.id)) {
+        childrenMap.set(user.id, []);
+      }
+      
+      // Если есть спонсор, добавляем пользователя в его команду
+      if (user.спонсорId) {
+        if (!childrenMap.has(user.спонсорId)) {
+          childrenMap.set(user.спонсорId, []);
+        }
+        childrenMap.get(user.спонсорId).push(user.id);
+      }
+    }
+    
+    // Функция для правильного расчета ранга (снизу вверх)
+    const calculatedRanks = new Map();
+    const calculating = new Set();
+    
+    function calculateRank(userId: string): number {
+      if (calculatedRanks.has(userId)) {
+        return calculatedRanks.get(userId);
+      }
+      
+      if (calculating.has(userId)) {
+        console.warn(`⚠️ Cycle detected for user ${userId}`);
+        return 0;
+      }
+      
+      calculating.add(userId);
+      
+      const children = childrenMap.get(userId) || [];
+      
+      if (children.length === 0) {
+        calculatedRanks.set(userId, 0);
+        calculating.delete(userId);
+        return 0;
+      }
+      
+      const childRanks = children.map((childId: string) => calculateRank(childId));
+      const maxChildRank = Math.max(...childRanks);
+      const rank = maxChildRank + 1;
+      
+      calculatedRanks.set(userId, rank);
+      calculating.delete(userId);
+      return rank;
+    }
+    
+    // Рассчитываем ранги для всех пользователей
+    for (const user of users) {
+      calculateRank(user.id);
+    }
+    
+    // Сравниваем с текущими рангами в БД
+    const issues = [];
+    const report = [];
+    
+    for (const user of users) {
+      const currentRank = user.уровень || 0;
+      const correctRank = calculatedRanks.get(user.id) || 0;
+      const children = childrenMap.get(user.id) || [];
+      const команда = user.команда || [];
+      
+      const status = currentRank === correctRank ? '✅' : '❌';
+      
+      const userInfo = {
+        id: user.id,
+        name: `${user.имя} ${user.фамилия || ''}`,
+        sponsorId: user.спонсорId || 'нет',
+        currentRank,
+        correctRank,
+        isCorrect: currentRank === correctRank,
+        teamSize: children.length,
+        teamInDB: команда.length,
+        teamMismatch: children.length !== команда.length,
+        children: children.map((childId: string) => {
+          const child = userMap.get(childId);
+          return {
+            id: childId,
+            name: child ? `${child.имя} ${child.фамилия || ''}` : 'Unknown',
+            rank: calculatedRanks.get(childId) || 0
+          };
+        })
+      };
+      
+      report.push(userInfo);
+      
+      if (!userInfo.isCorrect) {
+        issues.push({
+          userId: user.id,
+          name: userInfo.name,
+          problem: `Ранг в БД: ${currentRank}, должен быть: ${correctRank}`,
+          difference: correctRank - currentRank
+        });
+      }
+      
+      if (userInfo.teamMismatch) {
+        issues.push({
+          userId: user.id,
+          name: userInfo.name,
+          problem: `Несоответствие размера команды: в поле команда=${команда.length}, реальных детей=${children.length}`,
+          teamInDB: команда,
+          actualChildren: children
+        });
+      }
+      
+      console.log(`${status} User ${user.id} (${userInfo.name}): Rank ${currentRank} → ${correctRank} | Team: ${children.length} | Sponsor: ${user.спонсорId || 'нет'}`);
+    }
+    
+    console.log('\n' + '='.repeat(100));
+    console.log(`📊 ИТОГИ ДИАГНОСТИКИ:`);
+    console.log(`   Всего пользователей: ${users.length}`);
+    console.log(`   Проблем обнаружено: ${issues.length}`);
+    console.log('='.repeat(100) + '\n');
+    
+    if (issues.length > 0) {
+      console.log('❌ ОБНАРУЖЕННЫЕ ПРОБЛЕМЫ:');
+      issues.forEach((issue, i) => {
+        console.log(`${i + 1}. User ${issue.userId} (${issue.name}): ${issue.problem}`);
+      });
+      console.log('\n');
+    }
+    
+    return c.json({
+      success: true,
+      totalUsers: users.length,
+      issuesCount: issues.length,
+      issues,
+      report,
+      message: issues.length > 0 
+        ? `Обнаружено ${issues.length} проблем. Используйте /admin/recalculate-all-ranks для исправления.`
+        : 'Все ранги рассчитаны правильно!'
+    });
+  } catch (error) {
+    console.error('❌ Diagnosis error:', error);
+    return c.json({ error: `${error}` }, 500);
+  }
+});
+
+/**
+ * 🔧 ПЕРЕСЧЕТ ВСЕХ РАНГОВ (ИСПРАВЛЕНИЕ)
+ */
+app.post("/make-server-05aa3c8a/admin/recalculate-all-ranks", async (c) => {
+  try {
+    console.log('\n' + '='.repeat(100));
+    console.log('🔧 ПЕРЕСЧЕТ ВСЕХ РАНГОВ');
+    console.log('='.repeat(100) + '\n');
+    
+    // Получаем всех пользователей
+    const allUsers = await kv.getByPrefix('user:id:');
+    const users = allUsers.filter((u: any) => u.__type !== 'admin' && !u.isAdmin);
+    
+    console.log(`📊 Пользователей для обновления: ${users.length}`);
+    
+    // Строим дерево
+    const childrenMap = new Map();
+    const userMap = new Map();
+    
+    for (const user of users) {
+      userMap.set(user.id, user);
+      if (!childrenMap.has(user.id)) {
+        childrenMap.set(user.id, []);
+      }
+      
+      if (user.спонсорId) {
+        if (!childrenMap.has(user.спонсорId)) {
+          childrenMap.set(user.спонсорId, []);
+        }
+        childrenMap.get(user.спонсорId).push(user.id);
+      }
+    }
+    
+    // Рассчитываем правильные ранги
+    const calculatedRanks = new Map();
+    const calculating = new Set();
+    
+    function calculateRank(userId: string): number {
+      if (calculatedRanks.has(userId)) {
+        return calculatedRanks.get(userId);
+      }
+      
+      if (calculating.has(userId)) {
+        return 0;
+      }
+      
+      calculating.add(userId);
+      
+      const children = childrenMap.get(userId) || [];
+      
+      if (children.length === 0) {
+        calculatedRanks.set(userId, 0);
+        calculating.delete(userId);
+        return 0;
+      }
+      
+      const childRanks = children.map((childId: string) => calculateRank(childId));
+      const maxChildRank = Math.max(...childRanks);
+      const rank = maxChildRank + 1;
+      
+      calculatedRanks.set(userId, rank);
+      calculating.delete(userId);
+      return rank;
+    }
+    
+    // Рассчитываем для всех
+    for (const user of users) {
+      calculateRank(user.id);
+    }
+    
+    // Обновляем в БД
+    const updates = [];
+    
+    for (const user of users) {
+      const correctRank = calculatedRanks.get(user.id) || 0;
+      const oldRank = user.уровень || 0;
+      
+      if (oldRank !== correctRank) {
+        user.уровень = correctRank;
+        await kv.set(`user:id:${user.id}`, user);
+        
+        // Очищаем кэш
+        await kv.del(`rank:user:${user.id}`);
+        await kv.del(`user_metrics:${user.id}`);
+        
+        updates.push({
+          userId: user.id,
+          name: `${user.имя} ${user.фамилия || ''}`,
+          oldRank,
+          newRank: correctRank
+        });
+        
+        console.log(`✅ Updated ${user.id} (${user.имя}): ${oldRank} → ${correctRank}`);
+      }
+    }
+    
+    console.log('\n' + '='.repeat(100));
+    console.log(`✅ ПЕРЕСЧЕТ ЗАВЕРШЕН:`);
+    console.log(`   Обновлено пользователей: ${updates.length}`);
+    console.log('='.repeat(100) + '\n');
+    
+    return c.json({
+      success: true,
+      totalUsers: users.length,
+      updatedCount: updates.length,
+      updates,
+      message: `Обновлено ${updates.length} пользователей`
+    });
+  } catch (error) {
+    console.error('❌ Recalculation error:', error);
+    return c.json({ error: `${error}` }, 500);
+  }
+});
+
+/**
+ * 🔍 Диагностика ранга конкретного пользователя
+ */
+app.get("/make-server-05aa3c8a/debug/user-rank/:userId", async (c) => {
+  try {
+    const userId = c.req.param('userId');
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`🔍 DIAGNOSTIC RANK CALCULATION FOR USER ${userId}`);
+    console.log(`${'='.repeat(80)}\n`);
+    
+    const user = await kv.get(`user:id:${userId}`);
+    if (!user) {
+      console.log(`❌ User ${userId} not found in database`);
+      return c.json({ error: 'User not found' }, 404);
+    }
+    
+    console.log(`📊 User basic info:`);
+    console.log(`   ID: ${user.id}`);
+    console.log(`   Name: ${user.имя} ${user.фамилия || ''}`);
+    console.log(`   Email: ${user.email}`);
+    console.log(`   Current level (уровень): ${user.уровень}`);
+    console.log(`   Sponsor ID: ${user.спонсорId || 'none'}`);
+    console.log(`   Team (команда):`, user.команда);
+    console.log(`   Team size: ${user.команда?.length || 0}`);
+    console.log(`   isAdmin: ${user.isAdmin}`);
+    console.log(`   __type: ${user.__type}`);
+    
+    // Очищаем кэш для этого пользователя
+    console.log(`\n🗑️ Clearing cache for user ${userId}...`);
+    await kv.del(`rank:user:${userId}`);
+    await kv.del(`user_metrics:${userId}`);
+    console.log(`✅ Cache cleared`);
+    
+    // Вычисляем ранг заново с детальным логированием
+    console.log(`\n🔄 Starting rank calculation...\n`);
+    const rank = await calculateUserRank(userId);
+    
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`✅ CALCULATION COMPLETE: Rank = ${rank}`);
+    console.log(`${'='.repeat(80)}\n`);
+    
+    return c.json({
+      success: true,
+      userId,
+      user: {
+        id: user.id,
+        имя: user.имя,
+        фамилия: user.фамилия,
+        команда: user.команда,
+        командаРазмер: user.команда?.length || 0,
+        спонсорId: user.спонсорId,
+        текущийУровень: user.уровень
+      },
+      calculatedRank: rank,
+      message: 'Check server console for detailed calculation logs'
+    });
+  } catch (error) {
+    console.error('❌ Diagnostic error:', error);
+    return c.json({ error: `${error}` }, 500);
+  }
+});
+
+/**
+ * 🗑️ Очистка кэша метрик и рангов
+ * Принудительное удаление всех закэшированных метрик и рангов
+ */
+app.post("/make-server-05aa3c8a/metrics/clear-cache", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+
+    console.log(`🗑️ Admin ${currentUser.имя} initiated cache clearing`);
+
+    // Очищаем кэш метрик
+    const metricsKeys = await kv.getByPrefix('user_metrics:');
+    let metricsCleared = 0;
+    for (const key of metricsKeys) {
+      await kv.del(`user_metrics:${key.userId || ''}`);
+      metricsCleared++;
+    }
+
+    // Очищаем кэш рангов
+    const rankKeys = await kv.getByPrefix('rank:user:');
+    let ranksCleared = 0;
+    for (const item of rankKeys) {
+      if (item && typeof item === 'object' && 'userId' in item) {
+        await kv.del(`rank:user:${item.userId}`);
+        ranksCleared++;
+      }
+    }
+
+    // Очищаем кэш страниц
+    await metricsCache.invalidatePageCache();
+
+    console.log(`✅ Cache cleared: ${metricsCleared} metrics, ${ranksCleared} ranks`);
+
+    return c.json({
+      success: true,
+      message: `Очищено: ${metricsCleared} метрик, ${ranksCleared} рангов`,
+      metricsCleared,
+      ranksCleared
+    });
+  } catch (error) {
+    console.error('❌ Cache clearing error:', error);
     return c.json({ error: `${error}` }, 500);
   }
 });

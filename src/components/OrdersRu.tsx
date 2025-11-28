@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { ShoppingBag, Package, CheckCircle2, Clock, XCircle, Loader2, Filter } from 'lucide-react';
+import { ShoppingBag, Package, CheckCircle2, Clock, XCircle, Loader2, Filter, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
+import { Button } from './ui/button';
 import * as api from '../utils/api';
 import { toast } from 'sonner';
+import { exportOrdersToCSV } from '../utils/exportToCSV';
 
 interface OrdersRuProps {
   currentUser: any;
@@ -98,11 +100,26 @@ export function OrdersRu({ currentUser, refreshTrigger }: OrdersRuProps) {
   return (
     <div className="p-4 lg:p-8 max-w-full overflow-x-hidden" style={{ backgroundColor: '#F7FAFC' }}>
       {/* Header */}
-      <div className="mb-6 lg:mb-8">
-        <h1 className="text-[#1E1E1E] mb-2" style={{ fontSize: '24px', fontWeight: '700' }}>
-          История заказов
-        </h1>
-        <p className="text-[#666]">Все ваши заказы и их статусы</p>
+      <div className="mb-6 lg:mb-8 flex items-start justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-[#1E1E1E] mb-2" style={{ fontSize: '24px', fontWeight: '700' }}>
+            История заказов
+          </h1>
+          <p className="text-[#666]">Все ваши заказы и их статусы</p>
+        </div>
+        {orders.length > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              exportOrdersToCSV(filteredOrders);
+              toast.success(`📊 Экспортировано ${filteredOrders.length} заказов`);
+            }}
+          >
+            <Download size={16} className="mr-2" />
+            Экспорт CSV
+          </Button>
+        )}
       </div>
 
       {/* Filters */}

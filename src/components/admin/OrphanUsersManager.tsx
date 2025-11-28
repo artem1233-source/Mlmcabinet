@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { UserX, Users, ArrowRight, CheckSquare, Square } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -7,6 +7,7 @@ import { Badge } from '../ui/badge';
 import { toast } from 'sonner';
 import * as api from '../../utils/api';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { useAllUsers, useInvalidateUsers } from '../../hooks/useAllUsers';
 
 interface OrphanUsersManagerProps {
   currentUser: any;
@@ -14,54 +15,40 @@ interface OrphanUsersManagerProps {
 }
 
 export function OrphanUsersManager({ currentUser, onSuccess }: OrphanUsersManagerProps) {
-  const [loading, setLoading] = useState(false);
-  const [users, setUsers] = useState<any[]>([]);
-  const [orphans, setOrphans] = useState<any[]>([]);
-  const [sponsors, setSponsors] = useState<any[]>([]);
+  // 🚀 Используем общий хук для загрузки пользователей
+  const { users: allUsers, isLoading, refetch } = useAllUsers();
+  const invalidateUsers = useInvalidateUsers();
+  
+  const [assigning, setAssigning] = useState(false);
   const [selectedOrphans, setSelectedOrphans] = useState<Set<string>>(new Set());
   const [selectedSponsor, setSelectedSponsor] = useState<string>('');
   const [searchSponsor, setSearchSponsor] = useState('');
 
-  useEffect(() => {
-    loadUsers();
-  }, []);
-
-  const loadUsers = async () => {
-    try {
-      setLoading(true);
-      const response = await api.getAllUsers();
-      if (response.success) {
-        const allUsers = response.users || [];
-        
-        // 🆕 ИСПРАВЛЕНИЕ: Фильтруем администраторов
-        // Админы не должны показываться в списке пользователей без спонсоров
-        const isAdmin = (u: any) => {
-          return u.isAdmin === true || 
-                 u.email?.toLowerCase() === 'admin@admin.com' || 
-                 u.id === 'ceo' || 
-                 u.id === '1';
-        };
-        
-        const nonAdminUsers = allUsers.filter((u: any) => !isAdmin(u));
-        console.log(`📊 OrphanUsersManager: Filtered ${allUsers.length} total users to ${nonAdminUsers.length} non-admin users`);
-        
-        setUsers(nonAdminUsers);
-
-        // Пользователи без спонсора (исключая админов)
-        const orphanUsers = nonAdminUsers.filter((u: any) => !u.спонсорId);
-        console.log(`📊 OrphanUsersManager: Found ${orphanUsers.length} orphan users (non-admin)`);
-        setOrphans(orphanUsers);
-
-        // Потенциальные спонсоры (все пользователи, не включая админов)
-        setSponsors(nonAdminUsers);
-      }
-    } catch (error) {
-      console.error('Failed to load users:', error);
-      toast.error('Ошибка загрузки данных');
-    } finally {
-      setLoading(false);
-    }
+  // Фильтруем администраторов
+  const isAdmin = (u: any) => {
+    return u.isAdmin === true || 
+           u.email?.toLowerCase() === 'admin@admin.com' || 
+           u.id === 'ceo' || 
+           u.id === '1';
   };
+
+  // Мемоизируем фильтрацию пользователей
+  const { users, orphans, sponsors } = useMemo(() => {
+    const nonAdminUsers = allUsers.filter(u => !isAdmin(u));
+    console.log(`📊 OrphanUsersManager: Filtered ${allUsers.length} total users to ${nonAdminUsers.length} non-admin users`);
+
+    // Пользователи без спонсора (исключая админов)
+    const orphanUsers = nonAdminUsers.filter((u: any) => !u.спонсорId);
+    console.log(`📊 OrphanUsersManager: Found ${orphanUsers.length} orphan users (non-admin)`);
+
+    return {
+      users: nonAdminUsers,
+      orphans: orphanUsers,
+      sponsors: nonAdminUsers,
+    };
+  }, [allUsers]);
+
+  const loading = isLoading || assigning;
 
   const toggleOrphan = (userId: string) => {
     const newSelected = new Set(selectedOrphans);
@@ -174,7 +161,7 @@ export function OrphanUsersManager({ currentUser, onSuccess }: OrphanUsersManage
     }
 
     try {
-      setLoading(true);
+      setAssigning(true);
       let successCount = 0;
       let errorCount = 0;
 
@@ -200,7 +187,9 @@ export function OrphanUsersManager({ currentUser, onSuccess }: OrphanUsersManage
 
       setSelectedOrphans(new Set());
       setSelectedSponsor('');
-      await loadUsers();
+      
+      // Инвалидируем кэш пользователей
+      invalidateUsers();
       
       if (onSuccess) {
         onSuccess();
@@ -209,7 +198,7 @@ export function OrphanUsersManager({ currentUser, onSuccess }: OrphanUsersManage
       console.error('Batch assign error:', error);
       toast.error('Ошибка массового назначения');
     } finally {
-      setLoading(false);
+      setAssigning(false);
     }
   };
 
@@ -229,10 +218,12 @@ export function OrphanUsersManager({ currentUser, onSuccess }: OrphanUsersManage
     }
 
     try {
-      setLoading(true);
+      setAssigning(true);
       await handleAssignSponsor(orphanId, sponsorId);
       toast.success('✅ Спонсор назначен!');
-      await loadUsers();
+      
+      // Инвалидируем кэш пользователей
+      invalidateUsers();
       
       if (onSuccess) {
         onSuccess();
@@ -241,19 +232,21 @@ export function OrphanUsersManager({ currentUser, onSuccess }: OrphanUsersManage
       console.error('Single assign error:', error);
       toast.error('Ошибка назначения спонсора');
     } finally {
-      setLoading(false);
+      setAssigning(false);
     }
   };
 
-  const filteredSponsors = sponsors.filter(s => {
-    if (!searchSponsor) return true;
-    return (
-      s.имя?.toLowerCase().includes(searchSponsor.toLowerCase()) ||
-      s.фамилия?.toLowerCase().includes(searchSponsor.toLowerCase()) ||
-      s.id?.includes(searchSponsor) ||
-      s.email?.toLowerCase().includes(searchSponsor.toLowerCase())
-    );
-  });
+  const filteredSponsors = useMemo(() => {
+    return sponsors.filter(s => {
+      if (!searchSponsor) return true;
+      return (
+        s.имя?.toLowerCase().includes(searchSponsor.toLowerCase()) ||
+        s.фамилия?.toLowerCase().includes(searchSponsor.toLowerCase()) ||
+        s.id?.includes(searchSponsor) ||
+        s.email?.toLowerCase().includes(searchSponsor.toLowerCase())
+      );
+    });
+  }, [sponsors, searchSponsor]);
 
   return (
     <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">

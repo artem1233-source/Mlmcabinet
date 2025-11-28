@@ -6,7 +6,7 @@ import * as kv from './kv_store.tsx';
  * @param visitedIds - Множество посещённых ID (защита от циклов)
  * @returns Максимальная глубина дерева (ранг)
  */
-async function calculateTreeDepth(userId: string, visitedIds: Set<string> = new Set()): Promise<number> {
+async function calculateTreeDepth(userId: string, visitedIds: Set<string> = new Set(), depth: number = 0): Promise<number> {
   // Защита от циклов
   if (visitedIds.has(userId)) {
     console.warn(`⚠️ Cycle detected for user ${userId}`);
@@ -19,28 +19,59 @@ async function calculateTreeDepth(userId: string, visitedIds: Set<string> = new 
   const user = await kv.get(`user:id:${userId}`);
   
   if (!user) {
-    console.warn(`⚠️ User ${userId} not found`);
+    console.warn(`⚠️ User ${userId} not found in KV store`);
     return 0;
   }
+  
+  console.log(`📊 Calculating depth for user ${userId} (${user.имя} ${user.фамилия || ''})`);
+  console.log(`   Current visited IDs: [${Array.from(visitedIds).join(', ')}]`);
+  console.log(`   User команда:`, user.команда);
   
   // Если нет команды - ранг 0
   if (!user.команда || user.команда.length === 0) {
-    console.log(`📊 User ${userId} (${user.имя}): команда пуста → ранг 0`);
+    console.log(`   ✅ User ${userId}: команда пуста → depth = 0`);
     return 0;
   }
   
-  console.log(`📊 User ${userId} (${user.имя}): команда = [${user.команда.join(', ')}]`);
+  // ✅ Фильтруем невалидные ID из команды
+  console.log(`   🔍 Filtering team members...`);
+  const validTeam = user.команда.filter((id: any, index: number) => {
+    console.log(`      [${index}] Checking: value="${id}", type=${typeof id}, isString=${typeof id === 'string'}, trimmed="${typeof id === 'string' ? id.trim() : 'N/A'}"`);
+    
+    const isValid = id && typeof id === 'string' && id.trim() !== '';
+    
+    if (!isValid) {
+      console.warn(`      ❌ [${index}] INVALID: "${id}" (type: ${typeof id})`);
+    } else {
+      console.log(`      ✅ [${index}] VALID: "${id}"`);
+    }
+    
+    return isValid;
+  });
+  
+  if (validTeam.length === 0) {
+    console.log(`   ⚠️ User ${userId}: все ID в команде невалидны → depth = 0`);
+    return 0;
+  }
+  
+  console.log(`   ✅ Valid team members: [${validTeam.join(', ')}]`);
   
   // Рекурсивно вычисляем глубину для каждого партнёра в команде
   const depths: number[] = [];
   
-  for (const partnerId of user.команда) {
+  console.log(`   🔄 Processing ${validTeam.length} team members...`);
+  
+  for (let i = 0; i < validTeam.length; i++) {
+    const partnerId = validTeam[i];
+    console.log(`   [${i + 1}/${validTeam.length}] Processing partner ${partnerId}...`);
+    
     try {
-      const partnerDepth = await calculateTreeDepth(partnerId, new Set(visitedIds));
+      // ✅ ИСПРАВЛЕНО: Передаем копию Set для каждой ветки, чтобы избежать конфликтов между ветками
+      const partnerDepth = await calculateTreeDepth(partnerId, new Set(visitedIds), depth + 1);
       depths.push(partnerDepth);
-      console.log(`   └─ Партнёр ${partnerId}: глубина = ${partnerDepth}`);
+      console.log(`   [${i + 1}/${validTeam.length}] ✅ Partner ${partnerId}: depth = ${partnerDepth}`);
     } catch (error) {
-      console.error(`Error calculating depth for partner ${partnerId}:`, error);
+      console.error(`   [${i + 1}/${validTeam.length}] ❌ Error for partner ${partnerId}:`, error);
       depths.push(0);
     }
   }
@@ -53,7 +84,7 @@ async function calculateTreeDepth(userId: string, visitedIds: Set<string> = new 
   const maxDepth = depths.length > 0 ? Math.max(...depths) : -1;
   const resultRank = maxDepth + 1; // -1+1=0 для пустой команды, 0+1=1 для команды с новичками
   
-  console.log(`📊 User ${userId} (${user.имя}): max(${depths.join(', ')}) + 1 = ${resultRank}`);
+  console.log(`   📊 RESULT for ${userId} (${user.имя}): depths=[${depths.join(', ')}], max=${maxDepth}, rank=${resultRank}`);
   return resultRank;
 }
 

@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Hash, User, ArrowRight, Check, X, Search } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Checkbox } from '../ui/checkbox';
-import { ScrollArea } from '../ui/scroll-area';
 import { Input } from '../ui/input';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { 
   Dialog,
   DialogContent,
@@ -29,6 +29,7 @@ import {
 } from '../ui/tooltip';
 import * as api from '../../utils/api';
 import { toast } from 'sonner';
+import { useAllUsers, useInvalidateUsers } from '../../hooks/useAllUsers';
 
 interface IdManagerProps {
   currentUser: any;
@@ -43,9 +44,12 @@ interface UserData {
 }
 
 export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
-  const [users, setUsers] = useState<UserData[]>([]);
+  // 🚀 Используем общий хук для загрузки пользователей
+  const { users: allUsers, isLoading: usersLoading, refetch: refetchUsers } = useAllUsers();
+  const invalidateUsers = useInvalidateUsers();
+  
   const [reservedIds, setReservedIds] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingReserved, setLoadingReserved] = useState(true);
   const [selectedFreeIds, setSelectedFreeIds] = useState<string[]>([]);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
@@ -53,51 +57,86 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
+  // Конвертируем типы для совместимости
+  const users: UserData[] = useMemo(() => {
+    return allUsers.map(u => ({
+      id: u.id,
+      имя: u.имя,
+      фамилия: u.фамилия,
+      email: u.email,
+    }));
+  }, [allUsers]);
+
+  const loading = usersLoading || loadingReserved;
+
   useEffect(() => {
-    loadData();
+    loadReservedIds();
   }, []);
 
-  const loadData = async () => {
+  const loadReservedIds = async () => {
     try {
-      setLoading(true);
-      
-      // Load users
-      const usersResponse = await api.getAllUsers();
-      if (usersResponse.success) {
-        setUsers(usersResponse.users || []);
-      }
-
-      // Load reserved IDs
+      setLoadingReserved(true);
       const reservedResponse = await api.getReservedIds();
       if (reservedResponse.success) {
         setReservedIds(reservedResponse.reserved || []);
       }
     } catch (error) {
-      console.error('Failed to load data:', error);
-      toast.error('Ошибка загрузки данных');
+      console.error('Failed to load reserved IDs:', error);
+      toast.error('Ошибка загрузки зарезервированных ID');
     } finally {
-      setLoading(false);
+      setLoadingReserved(false);
     }
   };
 
-  // Generate all IDs from 001 to 99999 (up to 5-digit format)
-  const allIds = Array.from({ length: 99999 }, (_, i) => String(i + 1).padStart(3, '0'));
+  const loadData = async () => {
+    await Promise.all([
+      refetchUsers(),
+      loadReservedIds()
+    ]);
+  };
+
+  // 🚀 ОПТИМИЗАЦИЯ: Мемоизация генерации всех ID (генерируется ОДИН РАЗ)
+  const allIds = useMemo(() => {
+    console.log('🔄 Generating allIds array (99,999 elements)...');
+    const ids = Array.from({ length: 99999 }, (_, i) => String(i + 1).padStart(3, '0'));
+    console.log('✅ Generated allIds');
+    return ids;
+  }, []); // Пустой массив зависимостей = генерируется один раз
   
-  // Occupied IDs (users have them)
-  const occupiedIds = users.map(u => u.id).sort((a, b) => a.localeCompare(b));
-  
-  // Free IDs (not occupied and not reserved) - convert reservedIds to strings with padding
-  const reservedIdsFormatted = reservedIds.map(id => {
-    const numId = parseInt(id);
-    return numId <= 999 ? String(numId).padStart(3, '0') : String(numId);
-  });
-  const freeIds = allIds.filter(id => !occupiedIds.includes(id) && !reservedIdsFormatted.includes(id));
-  
-  // Calculate duplicates (IDs that are both occupied and reserved)
-  const duplicateIds = reservedIdsFormatted.filter(id => occupiedIds.includes(id)).sort((a, b) => a.localeCompare(b));
-  
-  // Next ID to assign (first free)
-  const nextId = freeIds[0] || 'N/A';
+  // 🚀 ОПТИМИЗАЦИЯ: Мемоизация вычислений на основе users и reservedIds
+  const { occupiedIds, reservedIdsFormatted, freeIds, duplicateIds, nextId } = useMemo(() => {
+    console.log('🔄 Recalculating occupied/free/reserved IDs...');
+    
+    // Occupied IDs (users have them)
+    const occupied = users.map(u => u.id).sort((a, b) => a.localeCompare(b));
+    
+    // Free IDs (not occupied and not reserved) - convert reservedIds to strings with padding
+    const reservedFormatted = reservedIds.map(id => {
+      const numId = parseInt(id);
+      return numId <= 999 ? String(numId).padStart(3, '0') : String(numId);
+    });
+    
+    const occupiedSet = new Set(occupied);
+    const reservedSet = new Set(reservedFormatted);
+    
+    const free = allIds.filter(id => !occupiedSet.has(id) && !reservedSet.has(id));
+    
+    // Calculate duplicates (IDs that are both occupied and reserved)
+    const duplicates = reservedFormatted.filter(id => occupiedSet.has(id)).sort((a, b) => a.localeCompare(b));
+    
+    // Next ID to assign (first free)
+    const next = free[0] || 'N/A';
+    
+    console.log(`✅ Calculated: ${occupied.length} occupied, ${free.length} free, ${reservedFormatted.length} reserved, ${duplicates.length} duplicates`);
+    
+    return {
+      occupiedIds: occupied,
+      reservedIdsFormatted: reservedFormatted,
+      freeIds: free,
+      duplicateIds: duplicates,
+      nextId: next
+    };
+  }, [users, reservedIds, allIds]);
 
   const toggleFreeId = (id: string) => {
     setSelectedFreeIds(prev => 
@@ -120,7 +159,7 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
       if (response.success) {
         toast.success(`Зарезервировано ${selectedFreeIds.length} номеров`);
         setSelectedFreeIds([]);
-        loadData();
+        await loadReservedIds();
       }
     } catch (error) {
       console.error('Error reserving IDs:', error);
@@ -133,7 +172,7 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
       const response = await api.unreserveId(id);
       if (response.success) {
         toast.success(`Номер ${id} возвращён в свободные`);
-        loadData();
+        await loadReservedIds();
       }
     } catch (error) {
       console.error('Error unreserving ID:', error);
@@ -143,7 +182,7 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
 
   const handleSyncReservedIds = async () => {
     try {
-      setLoading(true);
+      setLoadingReserved(true);
       const response = await api.syncReservedIds();
       if (response.success) {
         const { removed, message } = response;
@@ -152,13 +191,14 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
         } else {
           toast.success('Все зарезервированные номера актуальны');
         }
-        loadData();
+        await loadReservedIds();
+        invalidateUsers();
       }
     } catch (error) {
       console.error('Error syncing reserved IDs:', error);
       toast.error('Ошибка синхронизации');
     } finally {
-      setLoading(false);
+      setLoadingReserved(false);
     }
   };
 
@@ -181,7 +221,11 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
         setAssignDialogOpen(false);
         setSelectedReservedId('');
         setSelectedUserId('');
-        loadData();
+        
+        // Инвалидируем кэш пользователей
+        invalidateUsers();
+        await loadReservedIds();
+        
         // Trigger parent component refresh if callback provided
         if (onDataChange) {
           onDataChange();
@@ -195,8 +239,71 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
 
   const handleUserClick = (userId: string) => {
     // Scroll to user in the tree (future enhancement)
-    toast.info(`Переход к пользователю ${userId} (в азработке)`);
+    toast.info(`Переход к пользователю ${userId} (в разработке)`);
   };
+
+  // 🚀 ВИРТУАЛИЗАЦИЯ: Refs для списков
+  const occupiedListRef = useRef<HTMLDivElement>(null);
+  const freeListRef = useRef<HTMLDivElement>(null);
+  const reservedListRef = useRef<HTMLDivElement>(null);
+
+  // 🚀 ВИРТУАЛИЗАЦИЯ: Virtualizers для каждого списка
+  const occupiedVirtualizer = useVirtualizer({
+    count: occupiedIds.length,
+    getScrollElement: () => occupiedListRef.current,
+    estimateSize: () => 60, // Примерная высота элемента
+    overscan: 5, // Рендерим 5 дополнительных элементов за пределами видимой области
+  });
+
+  const freeVirtualizer = useVirtualizer({
+    count: Math.min(freeIds.length, 500), // Показываем первые 500
+    getScrollElement: () => freeListRef.current,
+    estimateSize: () => 52,
+    overscan: 5,
+  });
+
+  const reservedVirtualizer = useVirtualizer({
+    count: reservedIdsFormatted.length,
+    getScrollElement: () => reservedListRef.current,
+    estimateSize: () => 60,
+    overscan: 5,
+  });
+
+  // 🚀 ВИРТУАЛИЗАЦИЯ: Ref и virtualizer для списка пользователей в диалоге
+  const usersDialogListRef = useRef<HTMLDivElement>(null);
+
+  // Фильтрация и сортировка пользователей для диалога
+  const filteredUsers = useMemo(() => {
+    return users
+      .filter(user => {
+        const query = searchQuery.toLowerCase().trim();
+        if (!query) return true;
+        return (
+          user.имя.toLowerCase().includes(query) ||
+          user.фамилия.toLowerCase().includes(query) ||
+          user.id.includes(query) ||
+          user.email.toLowerCase().includes(query)
+        );
+      })
+      .sort((a, b) => {
+        // Sort by relevance if there's a search query
+        if (searchQuery.trim()) {
+          const query = searchQuery.toLowerCase();
+          const aNameMatch = a.имя.toLowerCase().startsWith(query) || a.фамилия.toLowerCase().startsWith(query);
+          const bNameMatch = b.имя.toLowerCase().startsWith(query) || b.фамилия.toLowerCase().startsWith(query);
+          if (aNameMatch && !bNameMatch) return -1;
+          if (!aNameMatch && bNameMatch) return 1;
+        }
+        return `${a.имя} ${a.фамилия}`.localeCompare(`${b.имя} ${b.фамилия}`);
+      });
+  }, [users, searchQuery]);
+
+  const usersDialogVirtualizer = useVirtualizer({
+    count: filteredUsers.length,
+    getScrollElement: () => usersDialogListRef.current,
+    estimateSize: () => 70,
+    overscan: 3,
+  });
 
   if (loading) {
     return (
@@ -295,7 +402,7 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
             )}
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
-              {/* Column 1: Occupied IDs */}
+              {/* Column 1: Occupied IDs - 🚀 С ВИРТУАЛИЗАЦИЕЙ */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="font-semibold text-[#1E1E1E]">
@@ -303,40 +410,61 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
                   </h3>
                   <Badge variant="secondary">{occupiedIds.length}</Badge>
                 </div>
-                <ScrollArea className="h-[600px] rounded-xl border border-[#E6E9EE] p-3 bg-gray-50">
-                  <div className="space-y-1">
-                    {occupiedIds.map(id => {
-                      const user = users.find(u => u.id === id);
-                      return (
-                        <button
-                          key={id}
-                          onClick={() => handleUserClick(id)}
-                          className="w-full text-left px-3 py-2 rounded-lg bg-white border border-gray-200 hover:border-[#39B7FF] hover:bg-[#F7FAFC] transition-colors group"
-                        >
-                          <div className="flex items-center justify-between">
-                            <code className="text-sm font-mono text-[#1E1E1E] font-semibold">
-                              {id}
-                            </code>
-                            <User className="w-3 h-3 text-[#666] group-hover:text-[#39B7FF]" />
+                <div 
+                  ref={occupiedListRef}
+                  className="h-[600px] rounded-xl border border-[#E6E9EE] p-3 bg-gray-50 overflow-auto"
+                >
+                  {occupiedIds.length === 0 ? (
+                    <p className="text-center text-[#999] text-sm py-8">
+                      Нет занятых номеров
+                    </p>
+                  ) : (
+                    <div
+                      style={{
+                        height: `${occupiedVirtualizer.getTotalSize()}px`,
+                        width: '100%',
+                        position: 'relative',
+                      }}
+                    >
+                      {occupiedVirtualizer.getVirtualItems().map((virtualRow) => {
+                        const id = occupiedIds[virtualRow.index];
+                        const user = users.find(u => u.id === id);
+                        return (
+                          <div
+                            key={virtualRow.key}
+                            style={{
+                              position: 'absolute',
+                              top: 0,
+                              left: 0,
+                              width: '100%',
+                              transform: `translateY(${virtualRow.start}px)`,
+                            }}
+                          >
+                            <button
+                              onClick={() => handleUserClick(id)}
+                              className="w-full text-left px-3 py-2 rounded-lg bg-white border border-gray-200 hover:border-[#39B7FF] hover:bg-[#F7FAFC] transition-colors group mb-1"
+                            >
+                              <div className="flex items-center justify-between">
+                                <code className="text-sm font-mono text-[#1E1E1E] font-semibold">
+                                  {id}
+                                </code>
+                                <User className="w-3 h-3 text-[#666] group-hover:text-[#39B7FF]" />
+                              </div>
+                              {user && (
+                                <p className="text-xs text-[#666] mt-1 truncate">
+                                  {user.имя} {user.фамилия}
+                                </p>
+                              )}
+                            </button>
                           </div>
-                          {user && (
-                            <p className="text-xs text-[#666] mt-1 truncate">
-                              {user.имя} {user.фамилия}
-                            </p>
-                          )}
-                        </button>
-                      );
-                    })}
-                    {occupiedIds.length === 0 && (
-                      <p className="text-center text-[#999] text-sm py-8">
-                        Нет занятых номеров
-                      </p>
-                    )}
-                  </div>
-                </ScrollArea>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Column 2: Free IDs */}
+              {/* Column 2: Free IDs - 🚀 С ВИРТУАЛИЗАЦИЕЙ */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="font-semibold text-[#1E1E1E]">
@@ -369,43 +497,66 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
                       </div>
                     </div>
                   )}
-                  <ScrollArea className="h-[560px] rounded-xl border border-[#E6E9EE] p-3 bg-green-50">
-                    <div className="space-y-1">
-                      {freeIds.slice(0, 500).map(id => (
-                        <div
-                          key={id}
-                          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-green-200 hover:border-green-400 transition-colors"
-                        >
-                          <Checkbox
-                            checked={selectedFreeIds.includes(id)}
-                            onCheckedChange={() => toggleFreeId(id)}
-                          />
-                          <code className="text-sm font-mono text-[#1E1E1E] flex-1">
-                            {id}
-                          </code>
-                          {id === nextId && (
-                            <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white text-xs">
-                              Следующий
-                            </Badge>
-                          )}
-                        </div>
-                      ))}
-                      {freeIds.length > 500 && (
-                        <p className="text-center text-[#666] text-xs py-2">
-                          ... и ещё {freeIds.length - 500} номеров
-                        </p>
-                      )}
-                      {freeIds.length === 0 && (
-                        <p className="text-center text-[#999] text-sm py-8">
-                          Нет свободных номеров
-                        </p>
-                      )}
-                    </div>
-                  </ScrollArea>
+                  <div 
+                    ref={freeListRef}
+                    className="h-[560px] rounded-xl border border-[#E6E9EE] p-3 bg-green-50 overflow-auto"
+                  >
+                    {freeIds.length === 0 ? (
+                      <p className="text-center text-[#999] text-sm py-8">
+                        Нет свободных номеров
+                      </p>
+                    ) : (
+                      <div
+                        style={{
+                          height: `${freeVirtualizer.getTotalSize()}px`,
+                          width: '100%',
+                          position: 'relative',
+                        }}
+                      >
+                        {freeVirtualizer.getVirtualItems().map((virtualRow) => {
+                          const id = freeIds[virtualRow.index];
+                          return (
+                            <div
+                              key={virtualRow.key}
+                              style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                width: '100%',
+                                transform: `translateY(${virtualRow.start}px)`,
+                              }}
+                            >
+                              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-green-200 hover:border-green-400 transition-colors mb-1">
+                                <Checkbox
+                                  checked={selectedFreeIds.includes(id)}
+                                  onCheckedChange={() => toggleFreeId(id)}
+                                />
+                                <code className="text-sm font-mono text-[#1E1E1E] flex-1">
+                                  {id}
+                                </code>
+                                {id === nextId && (
+                                  <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white text-xs">
+                                    Следующий
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {freeIds.length > 500 && (
+                          <div className="mt-2">
+                            <p className="text-center text-[#666] text-xs py-2">
+                              Показаны первые 500 из {freeIds.length} номеров
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* Column 3: Reserved IDs */}
+              {/* Column 3: Reserved IDs - 🚀 С ВИРТУАЛИЗАЦИЕЙ */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="font-semibold text-[#1E1E1E]">
@@ -413,55 +564,76 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
                   </h3>
                   <Badge variant="secondary">{reservedIds.length}</Badge>
                 </div>
-                <ScrollArea className="h-[600px] rounded-xl border border-[#E6E9EE] p-3 bg-purple-50">
-                  <div className="space-y-2">
-                    {reservedIdsFormatted.map(id => (
-                      <div
-                        key={id}
-                        className="px-3 py-3 rounded-lg bg-white border border-purple-200 hover:border-purple-400 transition-colors"
-                      >
-                        <div className="flex items-center justify-between">
-                          <code className="text-sm font-mono text-[#1E1E1E] font-semibold">
-                            {id}
-                          </code>
-                          <div className="flex gap-1">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => {
-                                    setSelectedReservedId(id);
-                                    setAssignDialogOpen(true);
-                                  }}
-                                  className="h-7 w-7 p-0"
-                                >
-                                  <User className="w-3 h-3" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Присвоить пользователю</p>
-                              </TooltipContent>
-                            </Tooltip>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleUnreserveId(id)}
-                              className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                            >
-                              <X className="w-3 h-3" />
-                            </Button>
+                <div 
+                  ref={reservedListRef}
+                  className="h-[600px] rounded-xl border border-[#E6E9EE] p-3 bg-purple-50 overflow-auto"
+                >
+                  {reservedIds.length === 0 ? (
+                    <p className="text-center text-[#999] text-sm py-8">
+                      Нет зарезервированных номеров
+                    </p>
+                  ) : (
+                    <div
+                      style={{
+                        height: `${reservedVirtualizer.getTotalSize()}px`,
+                        width: '100%',
+                        position: 'relative',
+                      }}
+                    >
+                      {reservedVirtualizer.getVirtualItems().map((virtualRow) => {
+                        const id = reservedIdsFormatted[virtualRow.index];
+                        return (
+                          <div
+                            key={virtualRow.key}
+                            style={{
+                              position: 'absolute',
+                              top: 0,
+                              left: 0,
+                              width: '100%',
+                              transform: `translateY(${virtualRow.start}px)`,
+                            }}
+                          >
+                            <div className="px-3 py-3 rounded-lg bg-white border border-purple-200 hover:border-purple-400 transition-colors mb-2">
+                              <div className="flex items-center justify-between">
+                                <code className="text-sm font-mono text-[#1E1E1E] font-semibold">
+                                  {id}
+                                </code>
+                                <div className="flex gap-1">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => {
+                                          setSelectedReservedId(id);
+                                          setAssignDialogOpen(true);
+                                        }}
+                                        className="h-7 w-7 p-0"
+                                      >
+                                        <User className="w-3 h-3" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Присвоить пользователю</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleUnreserveId(id)}
+                                    className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                    ))}
-                    {reservedIds.length === 0 && (
-                      <p className="text-center text-[#999] text-sm py-8">
-                        Нет зарезервированных номеров
-                      </p>
-                    )}
-                  </div>
-                </ScrollArea>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -472,9 +644,10 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
               </h4>
               <ul className="text-sm text-[#666] space-y-1">
                 <li>• <strong>Занятые</strong> — присвоены пользователям (кликабельны для перехода)</li>
-                <li>• <strong>Свободные</strong> — выдаются по порядку при егистрации</li>
+                <li>• <strong>Свободные</strong> — выдаются по порядку при регистрации</li>
                 <li>• <strong>Зарезервированные</strong> — не выдаются автоматически, можно присвоить вручную</li>
                 <li>• При смене номера старый возвращается в свободные</li>
+                <li>• 🚀 <strong>Виртуализация:</strong> рендерятся только видимые элементы для максимальной производительности</li>
               </ul>
             </div>
           </CardContent>
@@ -511,78 +684,71 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
               />
             </div>
 
-            {/* Filtered Users List */}
+            {/* Filtered Users List - 🚀 С ВИРТУАЛИЗАЦИЕЙ */}
             <div className="border rounded-lg">
-              <ScrollArea className="h-[300px]">
-                <div className="p-2 space-y-1">
-                  {users
-                    .filter(user => {
-                      const query = searchQuery.toLowerCase().trim();
-                      if (!query) return true;
+              <div 
+                ref={usersDialogListRef}
+                className="h-[300px] overflow-auto"
+              >
+                {filteredUsers.length === 0 ? (
+                  <div className="text-center py-8 text-[#999]">
+                    Пользователи не найдены
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      height: `${usersDialogVirtualizer.getTotalSize()}px`,
+                      width: '100%',
+                      position: 'relative',
+                      padding: '8px',
+                    }}
+                  >
+                    {usersDialogVirtualizer.getVirtualItems().map((virtualRow) => {
+                      const user = filteredUsers[virtualRow.index];
                       return (
-                        user.имя.toLowerCase().includes(query) ||
-                        user.фамилия.toLowerCase().includes(query) ||
-                        user.id.includes(query) ||
-                        user.email.toLowerCase().includes(query)
-                      );
-                    })
-                    .sort((a, b) => {
-                      // Sort by relevance if there's a search query
-                      if (searchQuery.trim()) {
-                        const query = searchQuery.toLowerCase();
-                        const aNameMatch = a.имя.toLowerCase().startsWith(query) || a.фамилия.toLowerCase().startsWith(query);
-                        const bNameMatch = b.имя.toLowerCase().startsWith(query) || b.фамилия.toLowerCase().startsWith(query);
-                        if (aNameMatch && !bNameMatch) return -1;
-                        if (!aNameMatch && bNameMatch) return 1;
-                      }
-                      return `${a.имя} ${a.фамилия}`.localeCompare(`${b.имя} ${b.фамилия}`);
-                    })
-                    .map(user => (
-                      <button
-                        key={user.id}
-                        onClick={() => setSelectedUserId(user.id)}
-                        className={`w-full text-left px-4 py-3 rounded-lg transition-all hover:bg-[#F7FAFC] ${
-                          selectedUserId === user.id
-                            ? 'bg-gradient-to-r from-[#39B7FF]/10 to-[#12C9B6]/10 border-2 border-[#39B7FF]'
-                            : 'border-2 border-transparent hover:border-[#E6E9EE]'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-[#1E1E1E]">
-                                {user.имя} {user.фамилия}
-                              </span>
-                              {selectedUserId === user.id && (
-                                <Check className="w-4 h-4 text-[#39B7FF]" />
-                              )}
+                        <div
+                          key={virtualRow.key}
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 8,
+                            right: 8,
+                            transform: `translateY(${virtualRow.start}px)`,
+                          }}
+                        >
+                          <button
+                            onClick={() => setSelectedUserId(user.id)}
+                            className={`w-full text-left px-4 py-3 rounded-lg transition-all hover:bg-[#F7FAFC] mb-1 ${
+                              selectedUserId === user.id
+                                ? 'bg-gradient-to-r from-[#39B7FF]/10 to-[#12C9B6]/10 border-2 border-[#39B7FF]'
+                                : 'border-2 border-transparent hover:border-[#E6E9EE]'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-[#1E1E1E]">
+                                    {user.имя} {user.фамилия}
+                                  </span>
+                                  {selectedUserId === user.id && (
+                                    <Check className="w-4 h-4 text-[#39B7FF]" />
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 mt-1 text-xs text-[#666]">
+                                  <code className="bg-gray-100 px-2 py-0.5 rounded">
+                                    ID: {user.id}
+                                  </code>
+                                  <span>{user.email}</span>
+                                </div>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-2 mt-1 text-xs text-[#666]">
-                              <code className="bg-gray-100 px-2 py-0.5 rounded">
-                                ID: {user.id}
-                              </code>
-                              <span>{user.email}</span>
-                            </div>
-                          </div>
+                          </button>
                         </div>
-                      </button>
-                    ))}
-                  {users.filter(user => {
-                    const query = searchQuery.toLowerCase().trim();
-                    if (!query) return true;
-                    return (
-                      user.имя.toLowerCase().includes(query) ||
-                      user.фамилия.toLowerCase().includes(query) ||
-                      user.id.includes(query) ||
-                      user.email.toLowerCase().includes(query)
-                    );
-                  }).length === 0 && (
-                    <div className="text-center py-8 text-[#999]">
-                      Пользователи не найдены
-                    </div>
-                  )}
-                </div>
-              </ScrollArea>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Selected User Warning */}

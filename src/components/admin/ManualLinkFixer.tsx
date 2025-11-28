@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { Link, Users, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { toast } from 'sonner';
 import * as api from '../../utils/api';
+import { useAllUsers, useInvalidateUsers } from '../../hooks/useAllUsers';
 
 interface ManualLinkFixerProps {
   currentUser: any;
@@ -11,32 +12,14 @@ interface ManualLinkFixerProps {
 }
 
 export function ManualLinkFixer({ currentUser, onSuccess }: ManualLinkFixerProps) {
-  const [loading, setLoading] = useState(false);
-  const [users, setUsers] = useState<any[]>([]);
-  const [issues, setIssues] = useState<any[]>([]);
+  // 🚀 Используем общий хук для загрузки пользователей
+  const { users: allUsers, isLoading, refetch } = useAllUsers();
+  const invalidateUsers = useInvalidateUsers();
+  
+  const [fixing, setFixing] = useState(false);
 
-  useEffect(() => {
-    loadUsers();
-  }, []);
-
-  const loadUsers = async () => {
-    try {
-      setLoading(true);
-      const response = await api.getAllUsers();
-      if (response.success) {
-        const allUsers = response.users || [];
-        setUsers(allUsers);
-        analyzeIssues(allUsers);
-      }
-    } catch (error) {
-      console.error('Failed to load users:', error);
-      toast.error('Ошибка загрузки пользователей');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const analyzeIssues = (allUsers: any[]) => {
+  // Мемоизируем анализ проблем - напрямую используем результат без useState
+  const issues = useMemo(() => {
     const foundIssues: any[] = [];
     const userMap = new Map(allUsers.map(u => [u.id, u]));
 
@@ -113,14 +96,14 @@ export function ManualLinkFixer({ currentUser, onSuccess }: ManualLinkFixerProps
       }
     }
 
-    setIssues(foundIssues);
-  };
+    return foundIssues;
+  }, [allUsers]);
 
   const fixIssue = async (issue: any) => {
     try {
-      setLoading(true);
+      setFixing(true);
       
-      const user = users.find(u => u.id === issue.fix.userId);
+      const user = allUsers.find(u => u.id === issue.fix.userId);
       if (!user) {
         throw new Error('User not found');
       }
@@ -134,7 +117,10 @@ export function ManualLinkFixer({ currentUser, onSuccess }: ManualLinkFixerProps
       
       if (response.success) {
         toast.success('Связь исправлена!');
-        await loadUsers();
+        
+        // Инвалидируем кэш пользователей
+        invalidateUsers();
+        
         if (onSuccess) {
           onSuccess();
         }
@@ -147,9 +133,11 @@ export function ManualLinkFixer({ currentUser, onSuccess }: ManualLinkFixerProps
         description: String(error)
       });
     } finally {
-      setLoading(false);
+      setFixing(false);
     }
   };
+
+  const loading = isLoading || fixing;
 
   return (
     <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
@@ -167,7 +155,7 @@ export function ManualLinkFixer({ currentUser, onSuccess }: ManualLinkFixerProps
           <Button
             variant="outline"
             size="sm"
-            onClick={loadUsers}
+            onClick={() => refetch()}
             disabled={loading}
           >
             {loading ? 'Загрузка...' : 'Обновить'}
@@ -178,15 +166,15 @@ export function ManualLinkFixer({ currentUser, onSuccess }: ManualLinkFixerProps
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4">
           <p className="text-xs text-gray-700 font-medium mb-2">🔍 Отладочная информация:</p>
           <div className="text-xs text-gray-600 space-y-1">
-            <p>Всего пользователей загружено: <strong>{users.length}</strong></p>
+            <p>Всего пользователей загружено: <strong>{allUsers.length}</strong></p>
             <p>Найдено проблем: <strong>{issues.length}</strong></p>
-            {users.length > 0 && (
+            {allUsers.length > 0 && (
               <details className="mt-2">
                 <summary className="cursor-pointer text-blue-600 hover:underline">
                   Показать всех пользователей и их связи
                 </summary>
                 <div className="mt-2 space-y-1 max-h-64 overflow-y-auto bg-white p-2 rounded border">
-                  {users.map(u => (
+                  {allUsers.map(u => (
                     <div key={u.id} className="text-xs border-b pb-1">
                       <strong>{u.id}</strong> ({u.имя}): 
                       sponsorId=<span className={!u.спонсорId ? 'text-red-600 font-bold' : 'text-green-600'}>{u.спонсорId || 'NULL'}</span>,

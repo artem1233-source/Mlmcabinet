@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Wallet, TrendingUp, ArrowDownToLine, Loader2, CheckCircle2, Clock, CheckCircle, XCircle, Edit3 } from 'lucide-react';
+import { Wallet, TrendingUp, ArrowDownToLine, Loader2, CheckCircle2, Clock, CheckCircle, XCircle, Edit3, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -9,6 +9,7 @@ import { Badge } from './ui/badge';
 import { AdminToolbar } from './AdminToolbar';
 import { toast } from 'sonner';
 import * as api from '../utils/api';
+import { exportEarningsToCSV } from '../utils/exportToCSV';
 
 interface BalanceRuProps {
   currentUser: any;
@@ -521,7 +522,27 @@ export function BalanceRu({ currentUser, onRefresh, refreshTrigger }: BalanceRuP
       {/* Withdrawals History */}
       <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
         <CardHeader>
-          <CardTitle className="text-[#1E1E1E]">История выплат</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-[#1E1E1E]">История выплат</CardTitle>
+            {withdrawals.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  // Используем earnings для экспорта (если они есть)
+                  if (earnings.length > 0) {
+                    exportEarningsToCSV(earnings);
+                    toast.success(`📊 Экспортировано ${earnings.length} начислений`);
+                  } else {
+                    toast.info('Нет данных для экспорта');
+                  }
+                }}
+              >
+                <Download size={14} className="mr-1" />
+                Экспорт CSV
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {withdrawals.length === 0 ? (

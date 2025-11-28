@@ -465,6 +465,35 @@ export async function syncTeams() {
   });
 }
 
+export async function clearMetricsCache() {
+  console.log('🗑️ Clearing metrics cache');
+  return apiCall('/metrics/clear-cache', {
+    method: 'POST',
+  });
+}
+
+export async function recalculateMetrics() {
+  console.log('🔄 Recalculating all metrics');
+  return apiCall('/metrics/recalculate', {
+    method: 'POST',
+  });
+}
+
+export async function debugUserRank(userId: string) {
+  console.log(`🔍 Debugging rank for user ${userId}`);
+  return apiCall(`/debug/user-rank/${userId}`);
+}
+
+export async function debugUserData(userId: string) {
+  console.log(`🔍 Getting user data for ${userId}`);
+  return apiCall(`/debug/user-data/${userId}`);
+}
+
+export async function debugUserRaw(userId: string) {
+  console.log(`🔍 Getting RAW data for ${userId}`);
+  return apiCall(`/debug/user-raw/${userId}`);
+}
+
 export async function changeUserId(oldId: string, newId: string) {
   return apiCall('/admin/change-user-id', {
     method: 'POST',
