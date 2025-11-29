@@ -45,16 +45,16 @@ export function AdvancedFiltersPanel({
     balanceTo !== '';
 
   return (
-    <Card className="mb-4">
-      <CardContent className="p-4">
+    <Card className="mb-2.5">
+      <CardContent className="!px-2.5 !pt-2.5 !pb-2.5">
         {/* Верхний ряд - Фильтры */}
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2.5 flex-wrap">
           <Filter className="w-5 h-5 text-[#666] shrink-0" />
           
           {/* 🏆 Rank Filter */}
-          <div className="flex items-center gap-2 bg-gradient-to-r from-orange-50 to-orange-100/50 px-4 py-2.5 rounded-lg border border-orange-200">
+          <div className="flex items-center gap-2.5 bg-gradient-to-r from-orange-50 to-orange-100/50 px-2.5 py-2.5 rounded-lg border border-orange-200">
             <Award className="w-4 h-4 text-orange-600 shrink-0" />
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5">
               <div className="flex items-center gap-2">
                 <Checkbox
                   id="rankExact"
@@ -119,9 +119,9 @@ export function AdvancedFiltersPanel({
           </div>
 
           {/* 💰 Balance Filter */}
-          <div className="flex items-center gap-2 bg-gradient-to-r from-blue-50 to-blue-100/50 px-4 py-2.5 rounded-lg border border-blue-200">
+          <div className="flex items-center gap-2.5 bg-gradient-to-r from-blue-50 to-blue-100/50 px-2.5 py-2.5 rounded-lg border border-blue-200">
             <Wallet className="w-4 h-4 text-blue-600 shrink-0" />
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5">
               <div className="flex items-center gap-2">
                 <span className="text-sm text-blue-700 whitespace-nowrap">От:</span>
                 <Input
@@ -159,8 +159,8 @@ export function AdvancedFiltersPanel({
           )}
 
           {/* 📊 Results count */}
-          <div className="ml-auto h-9 flex items-center text-sm text-[#666] bg-gradient-to-r from-gray-50 to-gray-100 px-4 rounded-lg border border-[#E6E9EE]">
-            Найдено: <span className="ml-1.5 font-semibold text-[#1E1E1E]">{totalResults}</span>
+          <div className="ml-auto h-9 flex items-center text-sm text-[#666] bg-gradient-to-r from-gray-50 to-gray-100 px-2.5 rounded-lg border border-[#E6E9EE]">
+            Найдено: <span className="ml-2.5 font-semibold text-[#1E1E1E]">{totalResults}</span>
           </div>
         </div>
       </CardContent>

@@ -299,3 +299,31 @@ export function useConversionFunnel(team: any[]) {
     };
   }, [team]);
 }
+
+/**
+ * Хук для загрузки всех пользователей (только для админа)
+ */
+export function useAllUsers(isAdmin: boolean) {
+  return useQuery({
+    queryKey: ['allUsers'],
+    queryFn: async () => {
+      console.log('🔄 useDashboardData: Loading all users for filtering');
+      const response = await api.getAllUsers();
+      
+      if (!response.success) {
+        throw new Error('Failed to load users');
+      }
+      
+      console.log('✅ useDashboardData: Loaded', response.users?.length || 0, 'users');
+      return response.users || [];
+    },
+    enabled: isAdmin,
+    staleTime: 60000, // 1 минута
+    cacheTime: 300000, // 5 минут
+    retry: 2,
+    onError: (error) => {
+      console.error('❌ useDashboardData: Error loading users:', error);
+      toast.error('Не удалось загрузить пользователей');
+    },
+  });
+}

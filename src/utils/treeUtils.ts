@@ -11,6 +11,12 @@ export interface TreeNode {
   isExpanded: boolean;
   parentId: string | null;
   path: string[]; // Путь от корня до узла (массив ID)
+  // 🆕 Информация о siblings (братьях)
+  isFirstSibling: boolean;   // Первый ли среди братьев
+  isLastSibling: boolean;    // Последний ли среди братьев
+  isOnlySibling: boolean;    // Единственный ли ребёнок
+  totalSiblings: number;     // Общее количество братьев
+  siblingIndex: number;      // Индекс среди братьев (0-based)
 }
 
 /**
@@ -57,7 +63,9 @@ export function flattenTree(
     userId: string, 
     depth: number, 
     parentId: string | null,
-    path: string[]
+    path: string[],
+    siblingIndex: number = 0,
+    totalSiblings: number = 1
   ) => {
     const user = userMap.get(userId);
     if (!user || user.isAdmin) return;
@@ -70,6 +78,11 @@ export function flattenTree(
     // Проверяем совпадение с фильтром рангов (поиск не фильтрует, только подсвечивает)
     const matchesRank = matchesRankFilter(userId);
     
+    // 🆕 Вычисляем информацию о siblings
+    const isOnlySibling = totalSiblings === 1;
+    const isFirstSibling = siblingIndex === 0;
+    const isLastSibling = siblingIndex === totalSiblings - 1;
+    
     // Добавляем узел только если он соответствует фильтру рангов
     if (matchesRank) {
       flatList.push({
@@ -81,13 +94,20 @@ export function flattenTree(
         isExpanded,
         parentId,
         path: [...path, userId],
+        // 🆕 Информация о siblings
+        isFirstSibling,
+        isLastSibling,
+        isOnlySibling,
+        totalSiblings,
+        siblingIndex,
       });
     }
     
     // Если узел раскрыт, добавляем детей
-    if (isExpanded) {
-      childrenIds.forEach((childId: string) => {
-        traverse(childId, depth + 1, userId, [...path, userId]);
+    if (isExpanded && childrenIds.length > 0) {
+      const childCount = childrenIds.length;
+      childrenIds.forEach((childId: string, index: number) => {
+        traverse(childId, depth + 1, userId, [...path, userId], index, childCount);
       });
     }
   };
@@ -95,9 +115,9 @@ export function flattenTree(
   // Находим корневые узлы (без спонсора)
   const rootUsers = allUsers.filter(u => !u.спонсорId && !u.isAdmin);
   
-  // Обходим каждый корневой узел
-  rootUsers.forEach(rootUser => {
-    traverse(rootUser.id, 0, null, []);
+  // Обходим каждый корневой узел (корневые узлы не имеют siblings между собой)
+  rootUsers.forEach((rootUser, index) => {
+    traverse(rootUser.id, 0, null, [], index, rootUsers.length);
   });
   
   return flatList;

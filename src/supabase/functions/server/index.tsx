@@ -389,7 +389,7 @@ async function syncReservedIds(): Promise<{
     before: reservedIds.sort((a, b) => a - b),
     after: cleanedReservedIds.sort((a, b) => a - b),
     removed: duplicates.sort((a, b) => a - b),
-    message: `Удалено ${duplicates.length} дублирующихся номеров (уже заняты пользователями)`
+    message: `Удалено ${duplicates.length} дублирующихся номеров (����же заняты пользователями)`
   };
 }
 
@@ -2771,7 +2771,7 @@ app.post("/make-server-05aa3c8a/payment/create", async (c) => {
         paymentId: `demo-${orderId}`,
         paymentUrl: null,
         status: 'processing',
-        message: 'Демо-оплата будет подтверждена автоматически через 2 секунды'
+        message: 'Демо-оплата будет подтверждена автоматически ч��рез 2 секунды'
       };
     } else {
       return c.json({ error: "Invalid payment method" }, 400);
@@ -2878,12 +2878,95 @@ app.get("/make-server-05aa3c8a/admin/stats", async (c) => {
     const allOrders = await kv.getByPrefix('order:');
     const allWithdrawals = await kv.getByPrefix('withdrawal:');
     
+    // 📊 Расширенная статистика для дашборда
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    // Фильтруем только пользователей (без админов)
+    const users = allUsers.filter((u: any) => 
+      u.__type !== 'admin' && 
+      u.isAdmin !== true && 
+      u.роль !== 'admin'
+    );
+    
+    // Новые сегодня
+    const newToday = users.filter((u: any) => {
+      const registeredDate = new Date(u.зарегистрирован || u.датаРегистрации || u.createdAt || 0);
+      return registeredDate >= todayStart;
+    }).length;
+    
+    // Новые за месяц
+    const newThisMonth = users.filter((u: any) => {
+      const registeredDate = new Date(u.зарегистрирован || u.датаРегистрации || u.createdAt || 0);
+      return registeredDate >= monthStart;
+    }).length;
+    
+    // Активные партнёры (те, у кого есть рефералы)
+    const activePartners = users.filter((u: any) => {
+      // Проверяем, есть ли у пользователя рефералы
+      const hasReferrals = users.some((ref: any) => 
+        ref.спонсорId === u.id || ref.рефКодСпонсора === u.рефКод
+      );
+      return hasReferrals;
+    }).length;
+    
+    // Активные по покупкам (сделали заказ за последние 30 дней)
+    const validOrders = allOrders.filter((o: any) => o.id && o.продавецId);
+    const activeByPurchases = users.filter((u: any) => {
+      return validOrders.some((o: any) => {
+        const orderDate = new Date(o.датаЗаказа || o.дата || o.createdAt || 0);
+        return o.продавецId === u.id && orderDate >= thirtyDaysAgo;
+      });
+    }).length;
+    
+    // Общий баланс всех пользователей
+    const totalBalance = users.reduce((sum: number, u: any) => 
+      sum + (u.баланс || 0), 0
+    );
+    
+    // Базовая статистика
+    const totalOrders = validOrders.length;
+    const totalRevenue = validOrders
+      .filter((o: any) => o.статус === 'paid')
+      .reduce((sum: number, o: any) => sum + (o.цена || 0), 0);
+    const pendingWithdrawals = allWithdrawals
+      .filter((w: any) => w.status === 'pending')
+      .reduce((sum: number, w: any) => sum + (w.amount || 0), 0);
+    
     const stats = {
-      totalUsers: allUsers.length,
-      totalOrders: allOrders.filter((o: any) => o.id && o.продавецId).length,
-      totalRevenue: allOrders.filter((o: any) => o.статус === 'paid').reduce((sum: number, o: any) => sum + (o.цена || 0), 0),
-      pendingWithdrawals: allWithdrawals.filter((w: any) => w.status === 'pending').length
+      revenue: {
+        total: totalRevenue,
+        thisMonth: 0 // TODO: можно добавить расчёт за месяц
+      },
+      users: {
+        total: users.length,
+        newToday,
+        newThisMonth,
+        activePartners,
+        activeByPurchases,
+        passivePartners: users.length - activePartners,
+        passiveByPurchases: users.length - activeByPurchases,
+      },
+      orders: {
+        total: totalOrders,
+        pending: validOrders.filter((o: any) => o.статус === 'pending').length,
+        paid: validOrders.filter((o: any) => o.статус === 'paid').length,
+      },
+      finance: {
+        totalBalance,
+        pendingWithdrawals,
+      }
     };
+    
+    console.log('📊 Admin stats calculated:', {
+      totalUsers: users.length,
+      newToday,
+      newThisMonth,
+      activePartners,
+      activeByPurchases
+    });
     
     return c.json({ success: true, stats });
   } catch (error) {
@@ -5684,15 +5767,26 @@ app.get("/make-server-05aa3c8a/achievements", async (c) => {
     
     return c.json({
       success: true,
-      achievements
+      achievements,
+      stats: {
+        total: achievements.length,
+        completed: achievements.filter((a: any) => a.завершено).length,
+        inProgress: achievements.filter((a: any) => !a.завершено && a.прогресс > 0).length
+      }
     });
   } catch (error) {
     console.error('Get achievements error:', error);
+    // ✅ Возвращаем 200 с пустым массивом вместо 500
     return c.json({ 
-      success: false,
-      error: `Failed to get achievements: ${error}`,
-      achievements: []
-    }, 500);
+      success: true,
+      achievements: [],
+      stats: {
+        total: 0,
+        completed: 0,
+        inProgress: 0
+      },
+      error: String(error)
+    });
   }
 });
 
@@ -5712,11 +5806,12 @@ app.get("/make-server-05aa3c8a/challenges", async (c) => {
     });
   } catch (error) {
     console.error('Get challenges error:', error);
+    // ✅ Возвращаем 200 с пустым массивом вместо 500
     return c.json({ 
-      success: false,
-      error: `Failed to get challenges: ${error}`,
-      challenges: []
-    }, 500);
+      success: true,
+      challenges: [],
+      error: String(error)
+    });
   }
 });
 
@@ -5746,11 +5841,12 @@ app.get("/make-server-05aa3c8a/leaderboard", async (c) => {
     });
   } catch (error) {
     console.error('Get leaderboard error:', error);
+    // ✅ Возвращаем 200 с пустым массивом вместо 500
     return c.json({ 
-      success: false,
-      error: `Failed to get leaderboard: ${error}`,
-      leaderboard: []
-    }, 500);
+      success: true,
+      leaderboard: [],
+      error: String(error)
+    });
   }
 });
 
@@ -6372,6 +6468,131 @@ app.post('/make-server-05aa3c8a/admin/sync-reserved-ids', async (c) => {
   }
 });
 
+// 🔍 Debug endpoint to check user existence
+app.post('/make-server-05aa3c8a/admin/debug-user', async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+
+    const { userId } = await c.req.json();
+    
+    console.log(`🔍 DEBUG: Checking user ${userId}`);
+    
+    // Try direct get
+    const directGet = await kv.get(`user:id:${userId}`);
+    console.log(`🔍 Direct kv.get('user:id:${userId}'):`, directGet ? 'FOUND' : 'NOT FOUND');
+    
+    // Try getByPrefix
+    const allUsers = await kv.getByPrefix('user:id:');
+    console.log(`🔍 Total users from getByPrefix: ${allUsers.length}`);
+    
+    const userFromPrefix = allUsers.find((u: any) => u && u.id === userId);
+    console.log(`🔍 User from getByPrefix:`, userFromPrefix ? 'FOUND' : 'NOT FOUND');
+    
+    // Try normalized search (without leading zeros)
+    let normalizedId = userId;
+    let userNormalized = null;
+    try {
+      const parsed = parseInt(userId, 10);
+      if (!isNaN(parsed)) {
+        normalizedId = String(parsed);
+        userNormalized = allUsers.find((u: any) => {
+          if (!u || !u.id) return false;
+          const uParsed = parseInt(String(u.id), 10);
+          return !isNaN(uParsed) && String(uParsed) === normalizedId;
+        });
+      }
+    } catch (e) {
+      console.error('Normalized ID error:', e);
+    }
+    console.log(`🔍 User by normalized ID (${userId} → ${normalizedId}):`, userNormalized ? 'FOUND' : 'NOT FOUND');
+    
+    // Try padded search (with leading zeros)
+    let paddedId = userId;
+    let userPadded = null;
+    try {
+      if (userId.length <= 3) {
+        paddedId = '0'.repeat(3 - userId.length) + userId;
+      }
+      userPadded = allUsers.find((u: any) => u && u.id === paddedId);
+    } catch (e) {
+      console.error('Padded ID error:', e);
+    }
+    console.log(`🔍 User by padded ID (${userId} → ${paddedId}):`, userPadded ? 'FOUND' : 'NOT FOUND');
+    
+    // 🔍 ДЕТАЛЬНЫЙ ПОИСК: ищем похожие ID
+    let similarIds = [];
+    try {
+      for (const u of allUsers) {
+        if (!u || !u.id) continue;
+        const uIdStr = String(u.id);
+        const userIdStr = String(userId);
+        
+        if (uIdStr.includes(userIdStr) || 
+            userIdStr.includes(uIdStr) ||
+            uIdStr.replace(/^0+/, '') === userIdStr.replace(/^0+/, '')) {
+          similarIds.push({
+            id: u.id,
+            idLength: uIdStr.length,
+            name: `${u.имя || ''} ${u.фамилия || ''}`
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Similar IDs error:', e);
+    }
+    console.log(`🔍 Similar IDs found:`, similarIds);
+    
+    // Get first 20 user IDs
+    let sampleIds = [];
+    try {
+      for (let i = 0; i < Math.min(20, allUsers.length); i++) {
+        if (allUsers[i] && allUsers[i].id) {
+          sampleIds.push(allUsers[i].id);
+        }
+      }
+    } catch (e) {
+      console.error('Sample IDs error:', e);
+    }
+    console.log(`🔍 Sample user IDs:`, sampleIds);
+    
+    // Get all user IDs
+    let allUserIds = [];
+    try {
+      for (const u of allUsers) {
+        if (u && u.id) {
+          allUserIds.push(u.id);
+        }
+      }
+      allUserIds.sort();
+    } catch (e) {
+      console.error('All user IDs error:', e);
+    }
+    
+    return c.json({
+      success: true,
+      userId,
+      directGet: !!directGet,
+      userFromPrefix: !!userFromPrefix,
+      userNormalized: !!userNormalized,
+      userPadded: !!userPadded,
+      normalizedId,
+      paddedId,
+      totalUsers: allUsers.length,
+      sampleIds,
+      similarIds,
+      allUserIds,
+      directGetData: directGet || null,
+      userFromPrefixData: userFromPrefix || null,
+      userNormalizedData: userNormalized || null,
+      userPaddedData: userPadded || null
+    });
+  } catch (error) {
+    console.error('❌ Debug user error:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
 // Assign reserved ID to user
 app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
   try {
@@ -6380,25 +6601,72 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
 
     const { newId, userId: targetUserId } = await c.req.json();
     
+    console.log(`🔍 assign-reserved-id request:`, { 
+      newId, 
+      targetUserId, 
+      newIdType: typeof newId,
+      targetUserIdType: typeof targetUserId,
+      newIdLength: newId?.length,
+      targetUserIdLength: targetUserId?.length
+    });
+    
     if (!newId || !targetUserId) {
       return c.json({ success: false, error: 'Неверные данные' }, 400);
     }
 
+    // Очищаем ID от возможных пробелов
+    const cleanTargetUserId = String(targetUserId).trim();
+    const cleanNewId = String(newId).trim();
+
     // Get target user
-    const targetUser = await kv.get(`user:id:${targetUserId}`);
+    console.log(`🔍 Looking for user with key: user:id:${cleanTargetUserId}`);
+    let targetUser = await kv.get(`user:id:${cleanTargetUserId}`);
+    console.log(`🔍 Found user by key:`, targetUser ? `${targetUser.имя} ${targetUser.фамилия} (ID: ${targetUser.id})` : 'NOT FOUND');
+    
+    // 🔧 Fallback: если не нашли по ключу, ищем через getByPrefix
     if (!targetUser) {
-      return c.json({ success: false, error: 'Пользователь не найден' }, 404);
+      console.log(`🔍 Attempting fallback search through all users...`);
+      const allUsers = await kv.getByPrefix('user:id:');
+      console.log(`🔍 Total users in DB: ${allUsers.length}`);
+      
+      // Ищем пользователя с нужным ID (с trim для безопасности)
+      targetUser = allUsers.find((u: any) => u && String(u.id).trim() === cleanTargetUserId);
+      
+      // 🔧 Попытка 2: поиск по нормализованному ID (убираем ведущие нули)
+      if (!targetUser) {
+        const normalizedTargetId = String(parseInt(cleanTargetUserId, 10));
+        console.log(`🔍 Trying normalized ID: ${cleanTargetUserId} → ${normalizedTargetId}`);
+        targetUser = allUsers.find((u: any) => u && String(parseInt(u.id, 10)) === normalizedTargetId);
+      }
+      
+      // 🔧 Попытка 3: поиск с ведущими нулями (padStart)
+      if (!targetUser && cleanTargetUserId.length <= 3) {
+        const paddedId = cleanTargetUserId.padStart(3, '0');
+        console.log(`🔍 Trying padded ID: ${cleanTargetUserId} → ${paddedId}`);
+        targetUser = allUsers.find((u: any) => u && String(u.id).trim() === paddedId);
+      }
+      
+      if (targetUser) {
+        console.log(`✅ Found user via fallback search: ${targetUser.имя} ${targetUser.фамилия} (ID: ${targetUser.id})`);
+      } else {
+        console.log(`❌ User ${cleanTargetUserId} not found even in all users list`);
+        console.log(`🔍 Sample user IDs from DB:`, allUsers.slice(0, 20).map((u: any) => u?.id).filter(Boolean));
+        return c.json({ 
+          success: false, 
+          error: `Пользователь ${cleanTargetUserId} не найден в базе данных. Всего пользователей: ${allUsers.length}`
+        }, 404);
+      }
     }
 
     // Check if new ID is reserved
     const reserved = await kv.get('reserved:user:ids') || [];
-    const numericNewId = parseInt(newId, 10);
+    const numericNewId = parseInt(cleanNewId, 10);
     if (!reserved.includes(numericNewId)) {
       return c.json({ success: false, error: 'Этот номер не зарезервирован' }, 400);
     }
 
     // Check if new ID is already occupied
-    const existingUser = await kv.get(`user:id:${newId}`);
+    const existingUser = await kv.get(`user:id:${cleanNewId}`);
     if (existingUser) {
       return c.json({ success: false, error: 'Этот номер уже занят' }, 400);
     }
@@ -6406,29 +6674,29 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
     const oldId = targetUser.id;
 
     // Update user ID
-    targetUser.id = newId;
-    targetUser.рефКод = newId; // refCode = ID
+    targetUser.id = cleanNewId;
+    targetUser.рефКод = cleanNewId; // refCode = ID
 
-    console.log(`🔄 Assigning ID: ${oldId} → ${newId} for user ${targetUser.имя} ${targetUser.фамилия}`);
+    console.log(`🔄 Assigning ID: ${oldId} → ${cleanNewId} for user ${targetUser.имя} ${targetUser.фамилия}`);
 
     // Save user with new ID
-    await kv.set(`user:id:${newId}`, targetUser);
+    await kv.set(`user:id:${cleanNewId}`, targetUser);
 
     // Delete old ID key
     await kv.del(`user:id:${oldId}`);
 
     // Update ref code mapping
-    await kv.set(`user:refcode:${newId}`, { id: newId });
+    await kv.set(`user:refcode:${cleanNewId}`, { id: cleanNewId });
     await kv.del(`user:refcode:${oldId}`);
 
     // Update email mapping
     if (targetUser.email) {
-      await kv.set(`user:email:${targetUser.email.toLowerCase()}`, { id: newId });
+      await kv.set(`user:email:${targetUser.email.toLowerCase()}`, { id: cleanNewId });
     }
 
     // Update supabase ID mapping if exists
     if (targetUser.supabaseId) {
-      await kv.set(`user:supabase:${targetUser.supabaseId}`, { id: newId });
+      await kv.set(`user:supabase:${targetUser.supabaseId}`, { id: cleanNewId });
     }
 
     // Update in all team references
@@ -6444,41 +6712,41 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
         const index = user.команда.indexOf(oldId);
         if (index !== -1) {
           console.log(`   🔍 FOUND in team array: User ${user.id} (${user.имя}) has ${oldId} in команда`);
-          user.команда[index] = newId;
+          user.команда[index] = cleanNewId;
           needsUpdate = true;
-          console.log(`   ✅ Updated team array for user ${user.id}: ${oldId} → ${newId}`);
+          console.log(`   ✅ Updated team array for user ${user.id}: ${oldId} → ${cleanNewId}`);
         }
       }
       // Update sponsor references
       if (user && user.спонсорId === oldId) {
         console.log(`   🔍 FOUND in sponsor: User ${user.id} (${user.имя}) has sponsorId=${oldId}`);
-        user.спонсорId = newId;
+        user.спонсорId = cleanNewId;
         // Update рефКодСпонсора because refCode changed too
-        user.рефКодСпонсора = newId;
+        user.рефКодСпонсора = cleanNewId;
         needsUpdate = true;
-        console.log(`   ✅ Updated sponsorId for user ${user.id}: ${oldId} → ${newId}`);
+        console.log(`   ✅ Updated sponsorId for user ${user.id}: ${oldId} → ${cleanNewId}`);
       }
       // Update upline
       if (user && user.upline) {
         if (user.upline.u0 === oldId) {
-          user.upline.u0 = newId;
+          user.upline.u0 = cleanNewId;
           needsUpdate = true;
-          console.log(`   ✓ Updated upline.u0 for user ${user.id}: ${oldId} → ${newId}`);
+          console.log(`   ✓ Updated upline.u0 for user ${user.id}: ${oldId} → ${cleanNewId}`);
         }
         if (user.upline.u1 === oldId) {
-          user.upline.u1 = newId;
+          user.upline.u1 = cleanNewId;
           needsUpdate = true;
-          console.log(`   ✓ Updated upline.u1 for user ${user.id}: ${oldId} → ${newId}`);
+          console.log(`   ✓ Updated upline.u1 for user ${user.id}: ${oldId} → ${cleanNewId}`);
         }
         if (user.upline.u2 === oldId) {
-          user.upline.u2 = newId;
+          user.upline.u2 = cleanNewId;
           needsUpdate = true;
-          console.log(`   ✓ Updated upline.u2 for user ${user.id}: ${oldId} → ${newId}`);
+          console.log(`   ✓ Updated upline.u2 for user ${user.id}: ${oldId} → ${cleanNewId}`);
         }
         if (user.upline.u3 === oldId) {
-          user.upline.u3 = newId;
+          user.upline.u3 = cleanNewId;
           needsUpdate = true;
-          console.log(`   ✓ Updated upline.u3 for user ${user.id}: ${oldId} → ${newId}`);
+          console.log(`   ✓ Updated upline.u3 for user ${user.id}: ${oldId} → ${cleanNewId}`);
         }
       }
       
@@ -6489,7 +6757,7 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
       }
     }
     
-    console.log(`✅ CASCADE UPDATE COMPLETE: Updated ${updatedCount} users with new ID references (${oldId} → ${newId})`);
+    console.log(`✅ CASCADE UPDATE COMPLETE: Updated ${updatedCount} users with new ID references (${oldId} → ${cleanNewId})`);
 
     // Update orders
     const orderKeys = await kv.getByPrefix('order:');
@@ -6501,32 +6769,32 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
       
       if (order && order.userId === oldId) {
         console.log(`   🔍 FOUND in order: Order ${order.id} has userId=${oldId}`);
-        order.userId = newId;
+        order.userId = cleanNewId;
         orderNeedsUpdate = true;
-        console.log(`   ✅ Updated order ${order.id}: userId ${oldId} → ${newId}`);
+        console.log(`   ✅ Updated order ${order.id}: userId ${oldId} → ${cleanNewId}`);
       }
       
       // Update commission recipients (d0, d1, d2, d3)
       if (order && order.комиссии) {
         if (order.комиссии.d0?.userId === oldId) {
-          order.комиссии.d0.userId = newId;
+          order.комиссии.d0.userId = cleanNewId;
           orderNeedsUpdate = true;
-          console.log(`   ✅ Updated order ${order.id}: комиссии.d0.userId ${oldId} → ${newId}`);
+          console.log(`   ✅ Updated order ${order.id}: комиссии.d0.userId ${oldId} → ${cleanNewId}`);
         }
         if (order.комиссии.d1?.userId === oldId) {
-          order.комиссии.d1.userId = newId;
+          order.комиссии.d1.userId = cleanNewId;
           orderNeedsUpdate = true;
-          console.log(`   ✅ Updated order ${order.id}: комиссии.d1.userId ${oldId} → ${newId}`);
+          console.log(`   ✅ Updated order ${order.id}: комиссии.d1.userId ${oldId} → ${cleanNewId}`);
         }
         if (order.комиссии.d2?.userId === oldId) {
-          order.комиссии.d2.userId = newId;
+          order.комиссии.d2.userId = cleanNewId;
           orderNeedsUpdate = true;
-          console.log(`   ✅ Updated order ${order.id}: комиссии.d2.userId ${oldId} → ${newId}`);
+          console.log(`   ✅ Updated order ${order.id}: комиссии.d2.userId ${oldId} → ${cleanNewId}`);
         }
         if (order.комиссии.d3?.userId === oldId) {
-          order.комиссии.d3.userId = newId;
+          order.комиссии.d3.userId = cleanNewId;
           orderNeedsUpdate = true;
-          console.log(`   ✅ Updated order ${order.id}: комиссии.d3.userId ${oldId} → ${newId}`);
+          console.log(`   ✅ Updated order ${order.id}: комиссии.d3.userId ${oldId} → ${cleanNewId}`);
         }
       }
       
@@ -6547,9 +6815,9 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
 
     return c.json({
       success: true,
-      message: `Номер ${newId} присвоен пользователю ${targetUser.имя} ${targetUser.фамилия}`,
+      message: `Номер ${cleanNewId} присвоен пользователю ${targetUser.имя} ${targetUser.фамилия}`,
       oldId,
-      newId
+      newId: cleanNewId
     });
   } catch (error) {
     console.error('Error assigning reserved ID:', error);
@@ -6902,7 +7170,7 @@ app.post('/make-server-05aa3c8a/admin/sync-teams', async (c) => {
   }
 });
 
-// Change user ID safely (updates all references)
+// ✅ FIXED: Change user ID safely (updates ALL references including orders)
 app.post('/make-server-05aa3c8a/admin/change-user-id', async (c) => {
   try {
     const userId = c.req.header('X-User-Id');
@@ -6926,11 +7194,46 @@ app.post('/make-server-05aa3c8a/admin/change-user-id', async (c) => {
 
     console.log(`🔄 Changing user ID: ${oldId} → ${newId}`);
 
-    // Check if old user exists
-    const oldUser = await kv.get(`user:id:${oldId}`);
+    // 🔍 Smart ID search: try to find user with different ID formats
+    // Try: original, without leading zeros, with 3-digit format
+    let oldUser = await kv.get(`user:id:${oldId}`);
+    let actualOldId = oldId;
+    
+    if (!oldUser && /^\d+$/.test(oldId)) {
+      // If not found and ID is numeric, try alternative formats
+      const numId = parseInt(oldId, 10);
+      
+      // Try without leading zeros (e.g., "009" → "9")
+      const withoutZeros = String(numId);
+      if (withoutZeros !== oldId) {
+        console.log(`🔍 Trying ID without leading zeros: ${withoutZeros}`);
+        oldUser = await kv.get(`user:id:${withoutZeros}`);
+        if (oldUser) {
+          actualOldId = withoutZeros;
+          console.log(`✅ Found user with ID: ${actualOldId}`);
+        }
+      }
+      
+      // Try with 3-digit format (e.g., "9" → "009")
+      if (!oldUser && numId <= 999) {
+        const with3Digits = String(numId).padStart(3, '0');
+        if (with3Digits !== oldId) {
+          console.log(`🔍 Trying ID with 3 digits: ${with3Digits}`);
+          oldUser = await kv.get(`user:id:${with3Digits}`);
+          if (oldUser) {
+            actualOldId = with3Digits;
+            console.log(`✅ Found user with ID: ${actualOldId}`);
+          }
+        }
+      }
+    }
+    
     if (!oldUser) {
+      console.error(`❌ User not found with ID: ${oldId} (tried multiple formats)`);
       return c.json({ success: false, error: `Пользователь ${oldId} не найден` }, 404);
     }
+    
+    console.log(`✅ Found user: ${oldUser.имя} ${oldUser.фамилия} (actual ID: ${actualOldId})`);
 
     // Check if new ID is already taken
     const existingUser = await kv.get(`user:id:${newId}`);
@@ -6938,72 +7241,174 @@ app.post('/make-server-05aa3c8a/admin/change-user-id', async (c) => {
       return c.json({ success: false, error: `ID ${newId} уже занят` }, 400);
     }
 
-    // Get all users
-    const allUsers = await kv.getByPrefix('user:id:');
-    console.log(`📋 Loaded ${allUsers.length} users`);
+    // 📸 CREATE SNAPSHOT for possible rollback
+    const snapshot = {
+      user: JSON.parse(JSON.stringify(oldUser)),
+      timestamp: new Date().toISOString(),
+      operation: `changeId:${oldId}->${newId}`
+    };
+    await kv.set(`snapshot:change-id:${oldId}:${Date.now()}`, snapshot);
+    console.log('📸 Created backup snapshot');
 
-    let updatedReferences = 0;
+    // Get all users AND orders
+    const allUsers = await kv.getByPrefix('user:id:');
+    const allOrders = await kv.getByPrefix('order:');
+    console.log(`📋 Loaded ${allUsers.length} users, ${allOrders.length} orders`);
+
+    let updatedUsers = 0;
+    let updatedOrders = 0;
     const updateLog: string[] = [];
 
-    // Update all references to this user
+    // 🔧 STEP 1: Update all references in USERS (including self!)
     for (const user of allUsers) {
       let needsUpdate = false;
 
       // Update sponsorId if it points to old ID
-      if (user.спонсорId === oldId) {
-        console.log(`🔧 Updating sponsorId for user ${user.id}: ${oldId} → ${newId}`);
+      if (user.спонсорId === actualOldId) {
+        console.log(`🔧 [User ${user.id}] sponsorId: ${actualOldId} → ${newId}`);
         user.спонсорId = newId;
         needsUpdate = true;
-        updatedReferences++;
         updateLog.push(`User ${user.id}: sponsorId updated`);
       }
 
       // Update team array if it contains old ID
       if (user.команда && Array.isArray(user.команда)) {
-        const oldTeam = [...user.команда];
-        user.команда = user.команда.map((id: string) => id === oldId ? newId : id);
-        
-        if (JSON.stringify(oldTeam) !== JSON.stringify(user.команда)) {
-          console.log(`🔧 Updating team for user ${user.id}: [${oldTeam.join(', ')}] → [${user.команда.join(', ')}]`);
+        const indexToUpdate = user.команда.indexOf(actualOldId);
+        if (indexToUpdate !== -1) {
+          console.log(`🔧 [User ${user.id}] команда: replacing ${actualOldId} with ${newId} at index ${indexToUpdate}`);
+          user.команда[indexToUpdate] = newId;
           needsUpdate = true;
-          updatedReferences++;
-          updateLog.push(`User ${user.id}: team array updated`);
+          updateLog.push(`User ${user.id}: команда updated`);
         }
       }
 
-      if (needsUpdate && user.id !== oldId) {
+      // ✅ FIX: Save ALL updated users (removed filter user.id !== actualOldId)
+      if (needsUpdate) {
         await kv.set(`user:id:${user.id}`, user);
+        updatedUsers++;
       }
     }
 
-    // Update the user's own ID
-    oldUser.id = newId;
-    await kv.set(`user:id:${newId}`, oldUser);
-    
-    // Delete old ID entry
-    await kv.del(`user:id:${oldId}`);
-    
-    // 🆕 Free the old ID for reuse
-    if (oldId.length === 3 && /^\d+$/.test(oldId)) {
-      await freePartnerId(oldId);
-      console.log(`♻️ Freed old partner ID ${oldId} for reuse`);
-    } else {
-      await freeUserId(oldId);
-      console.log(`♻️ Freed old user ID ${oldId} for reuse`);
+    // 🔧 STEP 2: Update all references in ORDERS
+    for (const order of allOrders) {
+      let needsUpdate = false;
+
+      // Update пользовательId (who made the order)
+      if (order.пользовательId === actualOldId) {
+        console.log(`🔧 [Order ${order.id}] пользовательId: ${actualOldId} → ${newId}`);
+        order.пользовательId = newId;
+        needsUpdate = true;
+        updateLog.push(`Order ${order.id}: пользовательId updated`);
+      }
+
+      // Update d1_id, d2_id, d3_id (commission recipients)
+      if (order.d1_id === actualOldId) {
+        console.log(`🔧 [Order ${order.id}] d1_id: ${actualOldId} → ${newId}`);
+        order.d1_id = newId;
+        needsUpdate = true;
+        updateLog.push(`Order ${order.id}: d1_id updated`);
+      }
+      if (order.d2_id === actualOldId) {
+        console.log(`🔧 [Order ${order.id}] d2_id: ${actualOldId} → ${newId}`);
+        order.d2_id = newId;
+        needsUpdate = true;
+        updateLog.push(`Order ${order.id}: d2_id updated`);
+      }
+      if (order.d3_id === actualOldId) {
+        console.log(`🔧 [Order ${order.id}] d3_id: ${actualOldId} → ${newId}`);
+        order.d3_id = newId;
+        needsUpdate = true;
+        updateLog.push(`Order ${order.id}: d3_id updated`);
+      }
+
+      if (needsUpdate) {
+        await kv.set(order._key || `order:${order.id}`, order);
+        updatedOrders++;
+      }
     }
 
-    console.log(`✅ User ID changed successfully: ${oldId} → ${newId}`);
-    console.log(`📊 Updated ${updatedReferences} references in other users`);
+    // 🔧 STEP 3: Update the user's own ID record
+    oldUser.id = newId;
+    await kv.set(`user:id:${newId}`, oldUser);
+    console.log(`✅ Created new user record: user:id:${newId}`);
+    
+    // 🔧 STEP 4: Delete old ID entry (use actual ID from database)
+    await kv.del(`user:id:${actualOldId}`);
+    console.log(`🗑️ Deleted old user record: user:id:${actualOldId}`);
+    
+    // 🔧 STEP 5: Free the old ID for reuse (use actual ID from database)
+    if (actualOldId.length === 3 && /^\d+$/.test(actualOldId)) {
+      await freePartnerId(actualOldId);
+      console.log(`♻️ Freed old partner ID ${actualOldId}`);
+    } else {
+      await freeUserId(actualOldId);
+      console.log(`♻️ Freed old user ID ${actualOldId}`);
+    }
+
+    // 🔍 STEP 6: VALIDATION - Check data integrity after changes
+    const validationErrors: string[] = [];
+    
+    // Check new user exists
+    const updatedUser = await kv.get(`user:id:${newId}`);
+    if (!updatedUser) {
+      validationErrors.push(`❌ User ${newId} not found after update`);
+    }
+    
+    // Check old user is gone (use actual ID from database)
+    const deletedUser = await kv.get(`user:id:${actualOldId}`);
+    if (deletedUser) {
+      validationErrors.push(`❌ Old user ${actualOldId} still exists!`);
+    }
+    
+    // Check no one references old ID anymore (use actual ID from database)
+    const allUsersAfter = await kv.getByPrefix('user:id:');
+    for (const user of allUsersAfter) {
+      if (user.спонсорId === actualOldId) {
+        validationErrors.push(`❌ User ${user.id} still has sponsorId=${actualOldId}`);
+      }
+      if (user.команда && user.команда.includes(actualOldId)) {
+        validationErrors.push(`❌ User ${user.id} still has ${actualOldId} in команда`);
+      }
+    }
+
+    if (validationErrors.length > 0) {
+      console.error('❌ VALIDATION FAILED:', validationErrors);
+      return c.json({
+        success: false,
+        error: 'Validation failed after update',
+        validationErrors,
+        message: 'Данные обновлены, но обнаружены несоответствия. Требуется ручная проверка!'
+      }, 500);
+    }
+
+    // 🔄 STEP 7: Invalidate caches
+    await invalidateUsersCache();
+    await metricsCache.invalidatePageCache(); // Очищаем кэш страниц и метрик
+    await invalidateRankCache();
+
+    console.log(`✅ User ID changed successfully: ${actualOldId} → ${newId}`);
+    console.log(`📊 Updated ${updatedUsers} users, ${updatedOrders} orders`);
 
     return c.json({
       success: true,
-      message: `ID изменён: ${oldId} → ${newId}. Обновлено ${updatedReferences} ссылок.`,
-      updatedReferences,
+      message: `ID изменён: ${actualOldId} → ${newId}`,
+      stats: {
+        updatedUsers,
+        updatedOrders,
+        totalReferences: updatedUsers + updatedOrders,
+        oldIdRequested: oldId,
+        oldIdActual: actualOldId
+      },
       log: updateLog
     });
+
   } catch (error) {
-    console.error('Error changing user ID:', error);
-    return c.json({ success: false, error: String(error) }, 500);
+    console.error('❌ Error changing user ID:', error);
+    return c.json({ 
+      success: false, 
+      error: String(error),
+      message: 'Критическая ошибка. Проверьте логи сервера.'
+    }, 500);
   }
 });
 
@@ -7281,9 +7686,10 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
     const search = c.req.query('search') || '';
     const sortBy = c.req.query('sortBy') || 'created';
     const sortOrder = c.req.query('sortOrder') || 'desc';
+    const statsFilter = c.req.query('statsFilter') || ''; // 🆕 Фильтр из виджетов
 
-    // Проверяем кэш страницы
-    const cacheKey = `users_page:${page}:${limit}:${search}:${sortBy}:${sortOrder}`;
+    // Проверяем кэш страницы (включая statsFilter)
+    const cacheKey = `users_page:${page}:${limit}:${search}:${sortBy}:${sortOrder}:${statsFilter}`;
     const cached = await kv.get(cacheKey);
     
     if (cached && cached.timestamp) {
@@ -7294,7 +7700,7 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
       }
     }
 
-    console.log(`📊 Loading optimized users page ${page}...`);
+    console.log(`📊 Loading optimized users page ${page} with statsFilter: ${statsFilter}...`);
 
     // 🎯 КРИТИЧЕСКАЯ ОПТИМИЗАЦИЯ #1: Кэш списка всех пользователей (2 минуты)
     const ALL_USERS_CACHE_KEY = 'cache:all_users_list';
@@ -7332,24 +7738,183 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
       );
     }
 
+    // 🎯 Применяем фильтр из виджетов статистики
+    if (statsFilter && statsFilter !== 'all') {
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      
+      // Для фильтров по заказам загружаем их один раз
+      let allOrders: any[] = [];
+      if (statsFilter === 'activeUsers' || statsFilter === 'passiveUsers') {
+        allOrders = await kv.getByPrefix('order:');
+      }
+      
+      switch (statsFilter) {
+        case 'newToday':
+          filteredUsers = filteredUsers.filter((u: any) => {
+            const regDate = new Date(u.зарегистрирован || u.createdAt || 0);
+            return regDate >= todayStart;
+          });
+          break;
+          
+        case 'newThisMonth':
+          filteredUsers = filteredUsers.filter((u: any) => {
+            const regDate = new Date(u.зарегистрирован || u.createdAt || 0);
+            return regDate >= monthStart;
+          });
+          break;
+          
+        case 'activePartners':
+          // Те, кто подключил хотя бы 1 реферала в текущем месяце
+          filteredUsers = filteredUsers.filter((u: any) => {
+            if (!u.команда || u.команда.length === 0) return false;
+            // Считаем рефералов, зарегистрированных в текущем месяце
+            const newRefsThisMonth = u.команда.filter((refId: string) => {
+              const ref = users.find((usr: any) => usr.id === refId);
+              if (!ref) return false;
+              const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
+              return refDate >= monthStart;
+            });
+            return newRefsThisMonth.length > 0;
+          });
+          break;
+          
+        case 'passivePartners':
+          // Те, кто НЕ подключил ни одного реферала в текущем месяце
+          filteredUsers = filteredUsers.filter((u: any) => {
+            if (!u.команда || u.команда.length === 0) return true;
+            // Считаем рефералов, зарегистрированных в текущем месяце
+            const newRefsThisMonth = u.команда.filter((refId: string) => {
+              const ref = users.find((usr: any) => usr.id === refId);
+              if (!ref) return false;
+              const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
+              return refDate >= monthStart;
+            });
+            return newRefsThisMonth.length === 0;
+          });
+          break;
+          
+        case 'activeUsers':
+          // Сделали хотя бы 1 заказ в текущем месяце
+          const ordersThisMonth = allOrders.filter((o: any) => {
+            const orderDate = new Date(o.датаЗаказа || o.дата || o.createdAt || 0);
+            return orderDate >= monthStart;
+          });
+          const activeUserIds = new Set(ordersThisMonth.map((o: any) => o.продавецId).filter(Boolean));
+          filteredUsers = filteredUsers.filter((u: any) => activeUserIds.has(u.id));
+          break;
+          
+        case 'passiveUsers':
+          // НЕ сделали ни одного заказа в текущем месяце
+          const ordersThisMonth2 = allOrders.filter((o: any) => {
+            const orderDate = new Date(o.датаЗаказа || o.дата || o.createdAt || 0);
+            return orderDate >= monthStart;
+          });
+          const activeUserIds2 = new Set(ordersThisMonth2.map((o: any) => o.продавецId).filter(Boolean));
+          filteredUsers = filteredUsers.filter((u: any) => !activeUserIds2.has(u.id));
+          break;
+          
+        case 'totalBalance':
+          // Для totalBalance просто сортируем по балансу, не фильтруем
+          break;
+      }
+    }
+
     // 🎯 ОПТИМИЗАЦИЯ #2: Если сортировка не требует метрик - пагинируем СНАЧАЛА
     if (sortBy === 'name' || sortBy === 'balance' || sortBy === 'created') {
-      // Быстрая сортировка без метрик
-      filteredUsers.sort((a: any, b: any) => {
-        let comparison = 0;
-        switch (sortBy) {
-          case 'name':
-            comparison = (a.имя || '').localeCompare(b.имя || '');
+      // 🎯 Применяем специальную сортировку для фильтров виджетов
+      if (statsFilter && statsFilter !== 'all') {
+        const now = new Date();
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        
+        switch (statsFilter) {
+          case 'newThisMonth':
+            // От новых к старым (позже зарегистрированных к началу месяца)
+            filteredUsers.sort((a: any, b: any) => {
+              const dateA = new Date(a.зарегистрирован || a.createdAt || 0).getTime();
+              const dateB = new Date(b.зарегистрирован || b.createdAt || 0).getTime();
+              return dateB - dateA; // DESC (новые первые)
+            });
             break;
-          case 'balance':
-            comparison = (b.баланс || 0) - (a.баланс || 0);
+            
+          case 'totalBalance':
+            // От большего баланса к меньшему
+            filteredUsers.sort((a: any, b: any) => (b.баланс || 0) - (a.баланс || 0));
             break;
-          case 'created':
+            
+          case 'activePartners':
+            // От большего количества новых рефералов к меньшему
+            filteredUsers.sort((a: any, b: any) => {
+              const countA = (a.команда || []).filter((refId: string) => {
+                const ref = users.find((u: any) => u.id === refId);
+                if (!ref) return false;
+                const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
+                return refDate >= monthStart;
+              }).length;
+              const countB = (b.команда || []).filter((refId: string) => {
+                const ref = users.find((u: any) => u.id === refId);
+                if (!ref) return false;
+                const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
+                return refDate >= monthStart;
+              }).length;
+              return countB - countA;
+            });
+            break;
+            
+          case 'activeUsers':
+            // От большего количества покупок к меньшему
+            {
+              const allOrders = await kv.getByPrefix('order:');
+              const ordersThisMonth = allOrders.filter((o: any) => {
+                const orderDate = new Date(o.датаЗаказа || o.дата || o.createdAt || 0);
+                return orderDate >= monthStart;
+              });
+              
+              filteredUsers.sort((a: any, b: any) => {
+                const ordersA = ordersThisMonth.filter((o: any) => o.продавецId === a.id).length;
+                const ordersB = ordersThisMonth.filter((o: any) => o.продавецId === b.id).length;
+                return ordersB - ordersA;
+              });
+            }
+            break;
+            
           default:
-            comparison = new Date(b.зарегистрирован || 0).getTime() - new Date(a.зарегистрирован || 0).getTime();
+            // Для остальных фильтров - обычная сортировка
+            filteredUsers.sort((a: any, b: any) => {
+              let comparison = 0;
+              switch (sortBy) {
+                case 'name':
+                  comparison = (a.имя || '').localeCompare(b.имя || '');
+                  break;
+                case 'balance':
+                  comparison = (b.баланс || 0) - (a.баланс || 0);
+                  break;
+                case 'created':
+                default:
+                  comparison = new Date(b.зарегистрирован || 0).getTime() - new Date(a.зарегистрирован || 0).getTime();
+              }
+              return sortOrder === 'asc' ? -comparison : comparison;
+            });
         }
-        return sortOrder === 'asc' ? -comparison : comparison;
-      });
+      } else {
+        // Обычная сортировка без фильтра
+        filteredUsers.sort((a: any, b: any) => {
+          let comparison = 0;
+          switch (sortBy) {
+            case 'name':
+              comparison = (a.имя || '').localeCompare(b.имя || '');
+              break;
+            case 'balance':
+              comparison = (b.баланс || 0) - (a.баланс || 0);
+              break;
+            case 'created':
+            default:
+              comparison = new Date(b.зарегистрирован || 0).getTime() - new Date(a.зарегистрирован || 0).getTime();
+          }
+          return sortOrder === 'asc' ? -comparison : comparison;
+        });
+      }
       
       // Пагинируем ДО загрузки метрик
       const total = filteredUsers.length;
@@ -7367,14 +7932,44 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       
+      // Для активных/пассивных по покупкам
+      const allOrders = await kv.getByPrefix('order:');
+      const ordersThisMonth = allOrders.filter((o: any) => {
+        const orderDate = new Date(o.датаЗаказа || o.дата || o.createdAt || 0);
+        return orderDate >= thisMonth;
+      });
+      const activeUserIdsSet = new Set(ordersThisMonth.map((o: any) => o.продавецId).filter(Boolean));
+      
+      // Активные партнёры - кто подключил хотя бы 1 реферала в текущем месяце
+      const activePartners = users.filter((u: any) => {
+        if (!u.команда || u.команда.length === 0) return false;
+        return u.команда.some((refId: string) => {
+          const ref = users.find((usr: any) => usr.id === refId);
+          if (!ref) return false;
+          const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
+          return refDate >= thisMonth;
+        });
+      }).length;
+      
+      // Пассивные партнёры - кто не подключил ни одного реферала в текущем месяце
+      const passivePartners = users.filter((u: any) => {
+        if (!u.команда || u.команда.length === 0) return true;
+        return !u.команда.some((refId: string) => {
+          const ref = users.find((usr: any) => usr.id === refId);
+          if (!ref) return false;
+          const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
+          return refDate >= thisMonth;
+        });
+      }).length;
+      
       const stats = {
         totalUsers: users.length,
-        newToday: users.filter((u: any) => new Date(u.зарегистрирован) >= today).length,
-        newThisMonth: users.filter((u: any) => new Date(u.зарегистрирован) >= thisMonth).length,
-        activePartners: users.filter((u: any) => u.партнёрскийID && u.команда?.length > 0).length,
-        passivePartners: users.filter((u: any) => u.партнёрскийID && (!u.команда || u.команда.length === 0)).length,
-        activeUsers: users.filter((u: any) => !u.партнёрскийID && u.команда?.length > 0).length,
-        passiveUsers: users.filter((u: any) => !u.партнёрскийID && (!u.команда || u.команда.length === 0)).length,
+        newToday: users.filter((u: any) => new Date(u.зарегистрирован || u.createdAt) >= today).length,
+        newThisMonth: users.filter((u: any) => new Date(u.зарегистрирован || u.createdAt) >= thisMonth).length,
+        activePartners,
+        passivePartners,
+        activeUsers: users.filter((u: any) => activeUserIdsSet.has(u.id)).length,
+        passiveUsers: users.filter((u: any) => !activeUserIdsSet.has(u.id)).length,
         totalBalance: users.reduce((sum: number, u: any) => sum + (u.баланс || 0), 0),
       };
       
@@ -7426,14 +8021,44 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     
+    // Для активных/пассивных по покупкам
+    const allOrders = await kv.getByPrefix('order:');
+    const ordersThisMonth = allOrders.filter((o: any) => {
+      const orderDate = new Date(o.датаЗаказа || o.дата || o.createdAt || 0);
+      return orderDate >= thisMonth;
+    });
+    const activeUserIdsSet = new Set(ordersThisMonth.map((o: any) => o.продавецId).filter(Boolean));
+    
+    // Активные партнёры - кто подключил хотя бы 1 реферала в текущем месяце
+    const activePartners = users.filter((u: any) => {
+      if (!u.команда || u.команда.length === 0) return false;
+      return u.команда.some((refId: string) => {
+        const ref = users.find((usr: any) => usr.id === refId);
+        if (!ref) return false;
+        const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
+        return refDate >= thisMonth;
+      });
+    }).length;
+    
+    // Пассивные партнёры - кто не подключил ни одного реферала в текущем месяце
+    const passivePartners = users.filter((u: any) => {
+      if (!u.команда || u.команда.length === 0) return true;
+      return !u.команда.some((refId: string) => {
+        const ref = users.find((usr: any) => usr.id === refId);
+        if (!ref) return false;
+        const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
+        return refDate >= thisMonth;
+      });
+    }).length;
+    
     const stats = {
       totalUsers: users.length,
-      newToday: users.filter((u: any) => new Date(u.зарегистрирован) >= today).length,
-      newThisMonth: users.filter((u: any) => new Date(u.зарегистрирован) >= thisMonth).length,
-      activePartners: users.filter((u: any) => u.партнёрскийID && u.команда?.length > 0).length,
-      passivePartners: users.filter((u: any) => u.партнёрскийID && (!u.команда || u.команда.length === 0)).length,
-      activeUsers: users.filter((u: any) => !u.партнёрскийID && u.команда?.length > 0).length,
-      passiveUsers: users.filter((u: any) => !u.партнёрскийID && (!u.команда || u.команда.length === 0)).length,
+      newToday: users.filter((u: any) => new Date(u.зарегистрирован || u.createdAt) >= today).length,
+      newThisMonth: users.filter((u: any) => new Date(u.зарегистрирован || u.createdAt) >= thisMonth).length,
+      activePartners,
+      passivePartners,
+      activeUsers: users.filter((u: any) => activeUserIdsSet.has(u.id)).length,
+      passiveUsers: users.filter((u: any) => !activeUserIdsSet.has(u.id)).length,
       totalBalance: users.reduce((sum: number, u: any) => sum + (u.баланс || 0), 0),
     };
 

@@ -33,6 +33,16 @@ export function VirtualizedTreeView({
 }: VirtualizedTreeViewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   
+  // 🎨 Цвет линий в зависимости от ранга
+  const getLineColor = (rank: number) => {
+    if (rank >= 50) return '#E9D5FF'; // purple-200
+    if (rank >= 20) return '#FBCFE8'; // rose-200
+    if (rank >= 10) return '#B8E0FF'; // blue-200
+    if (rank >= 5) return '#A7F3D0'; // emerald-200
+    if (rank >= 1) return '#FED7AA'; // orange-200
+    return '#E2E8F0'; // slate-200
+  };
+  
   // 🎯 Состояния
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
     // По умолчанию раскрываем первые 2 уровня
@@ -489,6 +499,63 @@ export function VirtualizedTreeView({
               position: 'relative',
             }}
           >
+            {/* 🔗 СЛОЙ СОЕДИНИТЕЛЬНЫХ ЛИНИЙ - рисуем ОДНУ линию для каждой группы siblings */}
+            {(() => {
+              const virtualItems = virtualizer.getVirtualItems();
+              const lines: JSX.Element[] = [];
+              const processedGroups = new Set<string>();
+              
+              // Группируем siblings по parentId + depth
+              virtualItems.forEach((virtualItem) => {
+                const node = flatList[virtualItem.index];
+                
+                if (node.depth === 0 || node.isOnlySibling) return;
+                
+                const groupKey = `${node.parentId}_${node.depth}`;
+                if (processedGroups.has(groupKey)) return;
+                
+                // Это первый sibling в группе - найдем последнего
+                if (node.isFirstSibling) {
+                  processedGroups.add(groupKey);
+                  
+                  // Найти последнего sibling в ВИДИМЫХ элементах
+                  const lastSiblingVirtual = virtualItems.find(vi => {
+                    const n = flatList[vi.index];
+                    return n.parentId === node.parentId && n.depth === node.depth && n.isLastSibling;
+                  });
+                  
+                  if (lastSiblingVirtual) {
+                    const lastNode = flatList[lastSiblingVirtual.index];
+                    const rank = userRanks.get(node.user.id) ?? node.user.уровень ?? 0;
+                    
+                    // Позиция вертикальной линии - там, где начинаются горизонтальные отводы
+                    const lineLeft = 16 + node.depth * 24; // px-4 (16px) + полный отступ глубины
+                    
+                    // Середина карточки: py-1 (4px сверху) + примерно 45px до середины
+                    const cardMiddleOffset = 49; 
+                    
+                    // Рисуем ОДНУ вертикальную линию от середины первого до середины последнего
+                    lines.push(
+                      <div
+                        key={groupKey}
+                        className="absolute pointer-events-none"
+                        style={{
+                          left: `${lineLeft}px`,
+                          top: `${virtualItem.start + cardMiddleOffset}px`,
+                          height: `${lastSiblingVirtual.start - virtualItem.start}px`,
+                          width: '2px',
+                          borderLeft: `2px dashed ${getLineColor(rank)}`,
+                          opacity: 0.5,
+                        }}
+                      />
+                    );
+                  }
+                }
+              });
+              
+              return lines;
+            })()}
+            
             {virtualizer.getVirtualItems().map((virtualItem) => {
               const node = flatList[virtualItem.index];
               const isHighlighted = highlightedUserId === node.id;
@@ -505,11 +572,27 @@ export function VirtualizedTreeView({
                     width: '100%',
                     transform: `translateY(${virtualItem.start}px)`,
                   }}
-                  className={`px-4 py-1 transition-all duration-300 ${
-                    isHighlighted ? 'bg-amber-50/50 ring-2 ring-amber-200 rounded-xl' : ''
-                  }`}
+                  className={`transition-all duration-300`}
                 >
-                  <UserTreeRenderer
+                  {/* 🔗 Горизонтальный отвод от вертикальной линии к карточке */}
+                  {node.depth > 0 && (
+                    <div
+                      className="absolute pointer-events-none"
+                      style={{
+                        left: `${16 + node.depth * 24}px`, // Позиция вертикальной линии siblings
+                        top: 'calc(50% + 4px)', // Середина карточки с учетом py-1
+                        width: `${24}px`, // Фиксированная длина отвода до карточки
+                        height: '2px',
+                        borderTop: `2px dashed ${getLineColor(userRanks.get(node.user.id) ?? node.user.уровень ?? 0)}`,
+                        opacity: 0.5,
+                      }}
+                    />
+                  )}
+                  
+                  <div className={`px-4 py-1 ${
+                    isHighlighted ? 'bg-amber-50/50 ring-2 ring-amber-200 rounded-xl' : ''
+                  }`}>
+                    <UserTreeRenderer
                     user={node.user}
                     allUsers={allUsers}
                     depth={node.depth}
@@ -522,7 +605,11 @@ export function VirtualizedTreeView({
                     childrenCount={node.childrenCount}
                     onExpandTree={() => expandUserTree(node.id)}
                     onCollapseTree={() => collapseUserTree(node.id)}
+                    isFirstSibling={node.isFirstSibling}
+                    isLastSibling={node.isLastSibling}
+                    isOnlySibling={node.isOnlySibling}
                   />
+                  </div>
                 </div>
               );
             })}

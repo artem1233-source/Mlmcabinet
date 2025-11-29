@@ -163,6 +163,17 @@ export function UserManagementDialogs({
               />
             </div>
 
+            {/* Date of Birth */}
+            <div className="space-y-2">
+              <Label htmlFor="датаРождения">Дата рождения</Label>
+              <Input
+                id="датаРождения"
+                type="date"
+                value={editFormData.датаРождения}
+                onChange={(e) => setEditFormData({ ...editFormData, датаРождения: e.target.value })}
+              />
+            </div>
+
             {/* Social Media */}
             <div className="space-y-3 pt-2 border-t">
               <Label className="flex items-center gap-2 text-sm font-semibold">

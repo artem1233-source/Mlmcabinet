@@ -82,11 +82,11 @@ export function StatsWidgets({ stats, activeFilter, onFilterClick }: StatsWidget
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 mb-2.5">
       {widgets.map((widget) => {
         const Icon = widget.icon;
         const isActive = activeFilter === widget.id;
-        const isClickable = widget.id !== 'totalBalance'; // Баланс не кликабельный
+        const isClickable = true; // Все виджеты кликабельные
         
         return (
           <button
@@ -94,7 +94,7 @@ export function StatsWidgets({ stats, activeFilter, onFilterClick }: StatsWidget
             onClick={() => isClickable && onFilterClick(widget.id)}
             disabled={!isClickable}
             className={`
-              bg-white rounded-lg p-3 border transition-all duration-200
+              bg-white rounded-lg p-2.5 border transition-all duration-200
               ${isActive 
                 ? 'border-[#39B7FF] shadow-lg ring-2 ring-[#39B7FF]/30 scale-[1.02]' 
                 : 'border-[#E6E9EE] shadow-sm'
@@ -102,13 +102,13 @@ export function StatsWidgets({ stats, activeFilter, onFilterClick }: StatsWidget
               ${isClickable ? 'hover:shadow-md hover:border-[#39B7FF]/40 cursor-pointer' : 'cursor-default'}
             `}
           >
-            <div className="flex items-center gap-2">
-              <div className={`w-9 h-9 bg-gradient-to-br ${widget.gradient} rounded-lg flex items-center justify-center shrink-0`}>
-                <Icon className="w-5 h-5 text-white" />
+            <div className="flex items-center gap-2.5">
+              <div className={`w-8 h-8 bg-gradient-to-br ${widget.gradient} rounded-lg flex items-center justify-center shrink-0`}>
+                <Icon className="w-4 h-4 text-white" />
               </div>
               <div className="flex-1 min-w-0 text-left">
-                <p className="text-[11px] text-[#666] mb-1 truncate leading-tight">{widget.label}</p>
-                <p className="text-xl font-bold text-[#1E1E1E] leading-none">
+                <p className="text-[11px] text-[#666] mb-2.5 truncate leading-tight">{widget.label}</p>
+                <p className="text-lg font-bold text-[#1E1E1E] leading-none">
                   {widget.isCurrency && widget.prefix}
                   {widget.value.toLocaleString('ru-RU')}
                   {!widget.isCurrency && widget.prefix ? ` ${widget.prefix}` : ''}

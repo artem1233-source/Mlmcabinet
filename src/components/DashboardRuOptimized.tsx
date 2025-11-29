@@ -12,13 +12,14 @@
  * Результат: 94-99% улучшение производительности
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { TrendingUp, ShoppingBag, Users, Wallet, Loader2, RefreshCw, DollarSign, Package, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { AdminToolbar } from './AdminToolbar';
 import { AchievementsWidget } from './AchievementsWidget';
 import { AdvancedAnalytics } from './AdvancedAnalytics';
+import { StatsWidgets } from './StatsWidgets';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { toast } from 'sonner';
@@ -53,7 +54,7 @@ interface DashboardRuProps {
 }
 
 export function DashboardRuOptimized({ currentUser, onRefresh, refreshTrigger }: DashboardRuProps) {
-  console.log('🎯 DashboardRuOptimized: Rendering with optimized hooks');
+  console.log('🎯 DashboardRuOptimized: Rendering with optimized hooks (v2)');
 
   // 🔐 Проверка прав администратора
   const isAdmin = currentUser?.isAdmin === true || 
@@ -65,6 +66,8 @@ export function DashboardRuOptimized({ currentUser, onRefresh, refreshTrigger }:
 
   // 💾 Сохраняем выбранный период в localStorage
   const [selectedPeriod, setSelectedPeriod] = useLocalStorage<'7d' | '30d' | '90d' | '1y'>('dashboard_period', '30d');
+  
+  // 📊 Виджеты статистики (только информационные)
 
   // ⚡ ОПТИМИЗИРОВАННЫЕ ХУКИ С КЭШИРОВАНИЕМ
   const { data: orders = [], isLoading: ordersLoading, error: ordersError } = useOrders(!!effectiveUserId);
@@ -78,7 +81,7 @@ export function DashboardRuOptimized({ currentUser, onRefresh, refreshTrigger }:
   const teamGrowthData = useTeamGrowthData(team, selectedPeriod);
   const conversionFunnel = useConversionFunnel(team);
 
-  // 📊 Вычисляем статистику
+  // 📊 Вычисляем статистику для личного дашборда
   const stats = {
     totalEarnings: earnings.reduce((sum, e) => sum + (e.сумма || e.amount || 0), 0),
     monthEarnings: earnings
@@ -91,6 +94,44 @@ export function DashboardRuOptimized({ currentUser, onRefresh, refreshTrigger }:
     activeOrders: orders.filter(o => o.статус === 'pending' || o.status === 'pending').length,
     teamSize: team.length
   };
+
+  // 📊 Вычисляем статистику для админских виджетов (StatsWidgets)
+  const widgetsStats = useMemo(() => {
+    if (!isAdmin || !adminStatsData) return null;
+
+    // Данные пользователей из adminStats
+    const users = adminStatsData.users || {};
+    const totalUsers = users.total || 0;
+    const newToday = users.newToday || 0;
+    const newThisMonth = users.newThisMonth || 0;
+    const activePartners = users.activePartners || 0;
+    const passivePartners = users.passivePartners || (totalUsers - activePartners);
+    const activeUsers = users.activeByPurchases || 0;
+    const passiveUsers = users.passiveByPurchases || (totalUsers - activeUsers);
+    const totalBalance = adminStatsData.finance?.totalBalance || 0;
+
+    console.log('📊 Widgets stats calculated:', {
+      totalUsers,
+      newToday,
+      newThisMonth,
+      activePartners,
+      passivePartners,
+      activeUsers,
+      passiveUsers,
+      totalBalance,
+    });
+
+    return {
+      totalUsers,
+      newToday,
+      newThisMonth,
+      activePartners,
+      passivePartners,
+      activeUsers,
+      passiveUsers,
+      totalBalance,
+    };
+  }, [isAdmin, adminStatsData]);
 
   // 🔄 Функция обновления данных
   const refreshDashboard = useRefreshDashboard();
@@ -281,6 +322,21 @@ export function DashboardRuOptimized({ currentUser, onRefresh, refreshTrigger }:
           </div>
 
           <div className="mb-4">
+            <h2 className="text-[#1E1E1E] mb-4" style={{ fontSize: '18px', fontWeight: '700' }}>
+              📊 Детальная статистика пользователей
+            </h2>
+          </div>
+          
+          {/* StatsWidgets - только информация, без кликабельности */}
+          {widgetsStats && (
+            <StatsWidgets
+              stats={widgetsStats}
+              activeFilter=""
+              onFilterClick={() => {}}
+            />
+          )}
+
+          <div className="mb-4 mt-8">
             <h2 className="text-[#1E1E1E] mb-4" style={{ fontSize: '18px', fontWeight: '700' }}>
               👤 Личная статистика
             </h2>

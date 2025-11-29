@@ -22,6 +22,10 @@ interface UserTreeRendererProps {
   // 🌳 Массовое управление деревом
   onExpandTree?: () => void;
   onCollapseTree?: () => void;
+  // 🆕 Информация о siblings (братьях) для визуальных линий
+  isFirstSibling?: boolean;
+  isLastSibling?: boolean;
+  isOnlySibling?: boolean;
 }
 
 export function UserTreeRenderer({ 
@@ -37,6 +41,9 @@ export function UserTreeRenderer({
   childrenCount: childrenCountProp,
   onExpandTree,
   onCollapseTree,
+  isFirstSibling = false,
+  isLastSibling = false,
+  isOnlySibling = false,
 }: UserTreeRendererProps) {
   // 🔄 Поддержка двух режимов: рекурсивный (старый) и виртуализированный (новый)
   const [expandedInternal, setExpandedInternal] = useState(depth < 2);
@@ -91,21 +98,20 @@ export function UserTreeRenderer({
     return 'border-slate-100';
   };
 
+  // 🎨 Цвет линий в зависимости от ранга
+  const getLineColor = (rank: number) => {
+    if (rank >= 50) return '#E9D5FF'; // purple-200
+    if (rank >= 20) return '#FBCFE8'; // rose-200
+    if (rank >= 10) return '#B8E0FF'; // blue-200
+    if (rank >= 5) return '#A7F3D0'; // emerald-200
+    if (rank >= 1) return '#FED7AA'; // orange-200
+    return '#E2E8F0'; // slate-200
+  };
+
   return (
     <div className="relative">
-      {/* 🌿 Тонкая воздушная линия связи с родителем */}
-      {depth > 0 && (
-        <div 
-          className="absolute left-0 top-0 w-8 h-8 border-l border-b rounded-bl-xl transition-colors opacity-40"
-          style={{ 
-            marginLeft: `${(depth - 1) * 40}px`,
-            borderColor: rank >= 10 ? '#B8E0FF' : '#E8EDF2'
-          }}
-        />
-      )}
-      
       <div 
-        className={`mb-2 transition-all duration-200 ${depth > 0 ? 'ml-6' : ''}`}
+        className={`transition-all duration-200 ${depth > 0 ? 'ml-6' : ''}`}
         style={{ 
           marginLeft: depth > 0 ? `${depth * 24}px` : '0',
         }}
@@ -164,26 +170,41 @@ export function UserTreeRenderer({
               <div className="w-7 shrink-0"></div>
             )}
             
-            {/* 🎨 Аватар с рангом - пастельный */}
+            {/* 🎨 Аватар с изображением */}
             <div className="relative shrink-0">
               <div className={`
-                w-11 h-11 rounded-2xl flex items-center justify-center text-white shadow-md shadow-blue-100/50 transition-transform group-hover:scale-105
+                w-11 h-11 rounded-2xl flex items-center justify-center text-white shadow-md shadow-blue-100/50 transition-transform group-hover:scale-105 overflow-hidden relative
                 ${user.isAdmin ? 'bg-gradient-to-br from-purple-300 to-purple-400' : `bg-gradient-to-br ${getRankColor(rank)}`}
               `}>
-                {user.isAdmin ? <Shield className="w-5 h-5" /> : <Users className="w-5 h-5" />}
+                {user.аватарка ? (
+                  <img 
+                    src={user.аватарка} 
+                    alt={user.имя}
+                    className="w-full h-full object-cover absolute inset-0"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                ) : null}
+                <span className={user.аватарка ? 'hidden' : ''}>
+                  {user.isAdmin ? <Shield className="w-5 h-5" /> : <Users className="w-5 h-5" />}
+                </span>
               </div>
-              {!user.isAdmin && (
-                <div className="absolute -bottom-0.5 -right-0.5 bg-white rounded-full px-1.5 py-0.5 shadow-sm border border-slate-100">
-                  <span className="text-[9px] font-bold text-slate-600">R{rank}</span>
-                </div>
-              )}
             </div>
 
             {/* 📝 Информация - воздушная */}
             <div className="flex-1 min-w-0">
-              <p className="text-slate-700 truncate font-semibold text-sm mb-0.5">
-                {user.имя} {user.фамилия}
-              </p>
+              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                <p className="text-slate-700 truncate font-semibold text-sm">
+                  {user.имя} {user.фамилия}
+                </p>
+                {!user.isAdmin && (
+                  <Badge className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-1.5 py-0 text-xs flex items-center gap-1">
+                    <Award className="w-2.5 h-2.5" />
+                    Ранг {rank}
+                  </Badge>
+                )}
+              </div>
               <div className="flex items-center gap-2 text-[10px] text-slate-400">
                 <span className="bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">ID: {user.id}</span>
                 {user.email && <span className="truncate">✉️ {user.email.split('@')[0]}</span>}

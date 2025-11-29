@@ -1,15 +1,19 @@
-import { User, Copy, Check, Award, Calendar } from 'lucide-react';
+import { User, Copy, Check, Award, Calendar, Edit2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
+import { Input } from './ui/input';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
 interface ProfileProps {
   user: any;
+  onUpdateUser?: (updatedUser: any) => void;
 }
 
-export function Profile({ user }: ProfileProps) {
+export function Profile({ user, onUpdateUser }: ProfileProps) {
   const [copied, setCopied] = useState(false);
+  const [isEditingBirthDate, setIsEditingBirthDate] = useState(false);
+  const [birthDate, setBirthDate] = useState(user.dateOfBirth || '');
   
   const levelLabels = ['Starter', 'Curator', 'Mentor', 'Leader'];
   const levelColors = ['#3FB7FF', '#22C55E', '#F59E0B', '#EF4444'];
@@ -22,6 +26,14 @@ export function Profile({ user }: ProfileProps) {
       description: 'Share this link to grow your network.'
     });
     setTimeout(() => setCopied(false), 2000);
+  };
+  
+  const handleSaveBirthDate = () => {
+    if (onUpdateUser) {
+      onUpdateUser({ ...user, dateOfBirth: birthDate });
+      toast.success('Date of birth updated successfully!');
+    }
+    setIsEditingBirthDate(false);
   };
   
   return (
@@ -53,7 +65,7 @@ export function Profile({ user }: ProfileProps) {
                     </div>
                   </div>
                   
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-3 gap-4">
                     <div>
                       <label className="text-[#666]">User ID</label>
                       <div className="text-[#222] mt-1" style={{ fontWeight: '600' }}>
@@ -66,6 +78,43 @@ export function Profile({ user }: ProfileProps) {
                       <div className="text-[#222] mt-1" style={{ fontWeight: '600' }}>
                         January 2025
                       </div>
+                    </div>
+                    
+                    <div>
+                      <label className="text-[#666] flex items-center gap-2">
+                        Date of Birth
+                        {!isEditingBirthDate && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setIsEditingBirthDate(true)}
+                            className="h-5 w-5 p-0 hover:bg-gray-100"
+                          >
+                            <Edit2 size={12} className="text-[#39B7FF]" />
+                          </Button>
+                        )}
+                      </label>
+                      {isEditingBirthDate ? (
+                        <div className="flex gap-2 mt-1">
+                          <Input
+                            type="date"
+                            value={birthDate}
+                            onChange={(e) => setBirthDate(e.target.value)}
+                            className="text-sm"
+                          />
+                          <Button
+                            size="sm"
+                            onClick={handleSaveBirthDate}
+                            className="bg-[#39B7FF] hover:bg-[#2A9FE8] text-white px-3"
+                          >
+                            <Check size={14} />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="text-[#222] mt-1" style={{ fontWeight: '600' }}>
+                          {user.dateOfBirth ? new Date(user.dateOfBirth).toLocaleDateString('ru-RU') : 'Not specified'}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

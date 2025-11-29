@@ -20,6 +20,11 @@ export function ManualLinkFixer({ currentUser, onSuccess }: ManualLinkFixerProps
 
   // Мемоизируем анализ проблем - напрямую используем результат без useState
   const issues = useMemo(() => {
+    if (!Array.isArray(allUsers)) {
+      console.warn('⚠️ allUsers is not an array in ManualLinkFixer');
+      return [];
+    }
+    
     const foundIssues: any[] = [];
     const userMap = new Map(allUsers.map(u => [u.id, u]));
 

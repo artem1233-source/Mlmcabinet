@@ -65,6 +65,8 @@ import {
   UserX,
   MoreVertical,
   Check,
+  ChevronsDown,
+  ChevronsUp,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -98,11 +100,7 @@ import { exportAllUsersToCSV } from '../utils/exportToCSV';
 import * as api from '../utils/api';
 import { UserManagementDialogs } from './UserManagementDialogs';
 import * as userActions from './UsersManagementOptimizedActions';
-import { IdManager } from './admin/IdManager';
-import { ChangeUserId } from './admin/ChangeUserId';
-import { ManualLinkFixer } from './admin/ManualLinkFixer';
-import { ManualSponsorAssign } from './admin/ManualSponsorAssign';
-import { OrphanUsersManager } from './admin/OrphanUsersManager';
+import { IdManagementOptimized } from './admin/IdManagementOptimized';
 import { UserTreeRenderer } from './UserTreeRenderer';
 import { AdvancedFiltersPanel } from './AdvancedFiltersPanel';
 import { VirtualizedTreeView } from './VirtualizedTreeView';
@@ -118,7 +116,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [sortBy, setSortBy] = useState<'created' | 'name' | 'balance' | 'rank' | 'teamSize'>('created');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const limit = 50;
+  const [limit, setLimit] = useState(20); // 🔧 Настраиваемый лимит записей на странице (20/50/100)
 
   // 🆕 Фильтры
   const [balanceFrom, setBalanceFrom] = useState<string>('');
@@ -144,6 +142,19 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       }
       return newSet;
     });
+  };
+  
+  // 🆕 Раскрыть все карточки
+  const expandAllCards = () => {
+    const allUserIds = new Set(users.map((u: any) => u.id));
+    setExpandedCards(allUserIds);
+    toast.success(`Раскрыто ${allUserIds.size} карточек`);
+  };
+  
+  // 🆕 Свернуть все карточки
+  const collapseAllCards = () => {
+    setExpandedCards(new Set());
+    toast.success('Все карточки свернуты');
   };
 
   // 📊 Статистика
@@ -184,6 +195,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
     facebook: '',
     instagram: '',
     vk: '',
+    датаРождения: '',
   });
   const [originalBalances, setOriginalBalances] = useState({ баланс: 0, доступныйБаланс: 0 });
   const [originalUserData, setOriginalUserData] = useState<any>(null);
@@ -218,7 +230,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
   const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ['users-optimized', page, limit, debouncedSearch, sortBy, sortOrder, balanceFrom, balanceTo, rankFrom, rankTo, activityFilter, activeStatsFilter],
     queryFn: async () => {
-      const userId = localStorage.getItem('userId');
+      const userId = currentUser?.id || localStorage.getItem('userId') || '';
       const params = new URLSearchParams({
         page: page.toString(),
         limit: limit.toString(),
@@ -239,7 +251,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
-            'X-User-Id': userId || '',
+            'X-User-Id': userId,
           },
         }
       );
@@ -250,6 +262,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
 
       return response.json();
     },
+    enabled: !!currentUser, // ✅ Загружаем только когда currentUser доступен
     staleTime: 5 * 60 * 1000, // 5 минут - данные считаются свежими
     gcTime: 30 * 60 * 1000, // 30 минут - время жизни в кэше
     retry: false, // Не повторять запрос при ошибке
@@ -259,6 +272,13 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
 
   const users = data?.users || [];
   const pagination = data?.pagination || { page: 1, total: 0, totalPages: 0, hasMore: false };
+
+  // ✅ Принудительная загрузка при монтировании компонента
+  useEffect(() => {
+    if (currentUser && !isLoading && !data) {
+      refetch();
+    }
+  }, [currentUser]);
 
   // 🌳 Загрузка всех пользователей для режима "Дерево"
   const { data: allUsersData, isLoading: treeLoading, refetch: allUsersRefetch } = useQuery({
@@ -574,11 +594,11 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       const user = users[index];
       const hasExpandedContent = expandedCards.has(user?.id);
       const hasSocial = user?.instagram || user?.telegram || user?.facebook || user?.vk;
-      // Базовая высота свернутой: 68px
-      // Развернутая БЕЗ социальных сетей: ~240px (воздушные плашки с space-y)
-      // Развернутая С социальными сетями: ~340px
-      if (!hasExpandedContent) return 68;
-      return hasSocial ? 340 : 240;
+      // Базовая высота свернутой: 68px + 8px (pb-2) = 76px
+      // Развернутая БЕЗ социальных сетей: ~161px + 8px = 169px
+      // Развернутая С социальными сетями: ~246px + 8px = 254px
+      if (!hasExpandedContent) return 76;
+      return hasSocial ? 254 : 169;
     },
     overscan: 10, // Рендерим 10 дополнительных элементов сверху и снизу для плавной прокрутки
   });
@@ -603,6 +623,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       facebook: user.facebook || user.socialMedia?.facebook || '',
       instagram: user.instagram || user.socialMedia?.instagram || '',
       vk: user.vk || user.socialMedia?.vk || '',
+      датаРождения: user.датаРождения || '',
     });
     setOriginalBalances({ 
       баланс: user.баланс || 0, 
@@ -618,6 +639,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       facebook: user.facebook || user.socialMedia?.facebook || '',
       instagram: user.instagram || user.socialMedia?.instagram || '',
       vk: user.vk || user.socialMedia?.vk || '',
+      датаРождения: user.датаРождения || '',
     });
     // setUserDetailsOpen(false); // Убрали - диалог должен оставаться открытым
     setEditDialogOpen(true);
@@ -638,7 +660,8 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       editFormData.telegram !== originalUserData.telegram ||
       editFormData.facebook !== originalUserData.facebook ||
       editFormData.instagram !== originalUserData.instagram ||
-      editFormData.vk !== originalUserData.vk;
+      editFormData.vk !== originalUserData.vk ||
+      editFormData.датаРождения !== originalUserData.датаРождения;
 
     if (balanceChanged) {
       setBalanceConfirmOpen(true);
@@ -960,14 +983,16 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
 
     return (
       <div 
-        className={`border rounded-lg p-2.5 bg-white hover:shadow-md transition-all duration-150 cursor-pointer ${
+        className={`border rounded-lg bg-white hover:shadow-md transition-all duration-150 cursor-pointer ${
+          expandedCards.has(user.id) ? 'p-2.5 pb-0' : 'p-2.5'
+        } ${
           isSelected 
             ? 'border-green-500 bg-green-50' 
             : 'border-[#E6E9EE] hover:border-[#39B7FF]/40'
         }`}
         onClick={() => toggleCard(user.id)}
       >
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-2.5">
           {/* User Info */}
           <div className="flex items-center gap-2.5 flex-1 min-w-0">
             {/* Avatar с поддержкой изображения */}
@@ -990,7 +1015,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
             
             {/* Info */}
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+              <div className="flex items-center gap-2.5 mb-2.5 flex-wrap">
                 <h3 className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '14px' }}>
                   {user.имя} {user.фамилия}
                 </h3>
@@ -998,7 +1023,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                 <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white px-1.5 py-0 text-xs">
                   ID: {user.id}
                 </Badge>
-                <Badge className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-1.5 py-0 text-xs flex items-center gap-1">
+                <Badge className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-1.5 py-0 text-xs flex items-center gap-2.5">
                   <Award className="w-2.5 h-2.5" />
                   Ранг {userRanks.get(user.id) ?? metrics.rank ?? 0}
                 </Badge>
@@ -1006,35 +1031,30 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
               
               <div className="flex items-center gap-2.5 text-[#666] flex-wrap" style={{ fontSize: '11px' }}>
                 {/* ✅ ИСПРАВЛЕНО: Activity Status БЕЗ иконки часов */}
-                <span className="flex items-center gap-1.5 shrink-0">
+                <span className="flex items-center gap-2.5 shrink-0">
                   <span className={`w-1.5 h-1.5 rounded-full ${activityStatus.color} animate-pulse`}></span>
                   <span className={activityStatus.textColor}>{activityStatus.text}</span>
                 </span>
                 
                 {/* Email */}
-                <span className="flex items-center gap-1 truncate">
+                <span className="flex items-center gap-2.5 truncate">
                   <Mail className="w-3 h-3 shrink-0 text-[#39B7FF]" />
                   <span className="truncate">{user.email}</span>
                 </span>
                 
                 {/* Телефон */}
                 {user.телефон && (
-                  <span className="flex items-center gap-1 shrink-0">
+                  <span className="flex items-center gap-2.5 shrink-0">
                     <Phone className="w-3 h-3 shrink-0 text-[#12C9B6]" />
                     <span>{user.телефон}</span>
                   </span>
                 )}
-                
-                {/* ✅ ИСПРАВЛЕНО: Счетчик только email + телефон */}
-                <span className="text-[#999]">
-                  (всего: {[user.email, user.телефон].filter(Boolean).length})
-                </span>
               </div>
             </div>
           </div>
 
           {/* Stats & Actions */}
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2.5 shrink-0">
             {/* Balance */}
             <div className="text-right">
               <p className="text-[#1E1E1E]" style={{ fontWeight: '700', fontSize: '14px' }}>
@@ -1046,7 +1066,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
             </div>
             
             {/* Action Buttons - Info, Edit, Delete */}
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-2.5 shrink-0">
               <Button
                 variant="ghost"
                 size="sm"
@@ -1106,18 +1126,18 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
           </div>
         </div>
         
-        {/* ✅ ИСПРАВЛЕНО: Expanded Details - МАКСИМАЛЬНО ВОЗДУШНЫЙ ДИЗАЙН КАК В ОРИГИНАЛЕ */}
+        {/* ✅ ИСПРАВЛЕНО: Expanded Details - КОМПАКТНЫЙ ДИЗАЙН БЕЗ ЛИШНИХ ОТСТУПОВ */}
         {expandedCards.has(user.id) && (
-          <div className="mt-3 px-3 pb-3 pt-3 border-t border-[#E6E9EE]">
+          <div className="mt-2 px-3 pb-2 pt-2 border-t border-[#E6E9EE]">
             {/* Основная информация - 4 колонки в одну строку с пастельными цветами */}
-            <div className="grid grid-cols-4 gap-2 mb-3">
+            <div className="grid grid-cols-4 gap-2.5 mb-2.5">
               {/* Регистрация - светло-голубой */}
               <div className="px-2.5 py-2 rounded-lg" style={{ backgroundColor: '#EFF6FF' }}>
                 <p className="text-[#999] mb-1" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Регис��рация
+                  Регистрация
                 </p>
                 <p className="text-[#1E1E1E]" style={{ fontSize: '12px', fontWeight: '600' }}>
-                  {user.датаСоздания ? new Date(user.датаСоздания).toLocaleDateString('ru-RU') : 'N/A'}
+                  {user.зарегистрирован ? new Date(user.зарегистрирован).toLocaleDateString('ru-RU') : '-'}
                 </p>
               </div>
               
@@ -1136,21 +1156,21 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                 <p className="text-[#999] mb-1" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Команда
                 </p>
-                <p className="text-[#1E1E1E]" style={{ fontSize: '12px', fontWeight: '600' }}>
+                <p className="font-bold" style={{ color: '#1E1E1E', fontSize: '12px' }}>
                   Первая линия: {user.команда?.length || 0}
                 </p>
-                <p className="text-[#666]" style={{ fontSize: '10px' }}>
+                <p className="font-bold" style={{ color: '#1E1E1E', fontSize: '12px' }}>
                   Вся структура: {calculateTotalTeam(user.id) || metrics.totalTeamSize || 0}
                 </p>
               </div>
               
-              {/* Реф-код - светло-зеленый */}
-              <div className="px-2.5 py-2 rounded-lg" style={{ backgroundColor: '#F0FDF4' }}>
+              {/* Дата рождения - светло-желтый */}
+              <div className="px-2.5 py-2 rounded-lg" style={{ backgroundColor: '#FFFBEB' }}>
                 <p className="text-[#999] mb-1" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Реф код
+                  Дата рождения
                 </p>
                 <p className="text-[#1E1E1E]" style={{ fontSize: '12px', fontWeight: '600' }}>
-                  {user.рефКод || 'N/A'}
+                  {user.датаРождения ? new Date(user.датаРождения).toLocaleDateString('ru-RU') : 'Не указана'}
                 </p>
               </div>
             </div>
@@ -1158,10 +1178,10 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
             {/* Социальные сети - GRID-COLS-2 горизонтально с цветами */}
             {(user.instagram || user.telegram || user.facebook || user.vk) && (
               <div>
-                <p className="text-[#999] mb-2" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                <p className="text-[#999] mb-2.5" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Социальные сети
                 </p>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-4 gap-2.5">
                   {user.telegram && (
                     <a 
                       href={`https://t.me/${user.telegram.replace('@', '')}`}
@@ -1171,7 +1191,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                       style={{ backgroundColor: '#EFF6FF' }}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <div className="flex items-center gap-1.5 mb-1">
+                      <div className="flex items-center gap-2.5 mb-2.5">
                         <Send className="w-3 h-3 text-[#3B82F6]" />
                         <p className="text-[#3B82F6]" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase' }}>
                           Telegram
@@ -1192,7 +1212,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                       style={{ backgroundColor: '#EFF6FF' }}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <div className="flex items-center gap-1.5 mb-1">
+                      <div className="flex items-center gap-2.5 mb-2.5">
                         <MessageCircle className="w-3 h-3 text-[#1877F2]" />
                         <p className="text-[#1877F2]" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase' }}>
                           Facebook
@@ -1212,7 +1232,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                       style={{ backgroundColor: '#FDF2F8' }}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <div className="flex items-center gap-1.5 mb-1">
+                      <div className="flex items-center gap-2.5 mb-2.5">
                         <Instagram className="w-3 h-3 text-[#EC4899]" />
                         <p className="text-[#EC4899]" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase' }}>
                           Instagram
@@ -1232,7 +1252,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                       style={{ backgroundColor: '#EFF6FF' }}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <div className="flex items-center gap-1.5 mb-1">
+                      <div className="flex items-center gap-2.5 mb-2.5">
                         <MessageCircle className="w-3 h-3 text-[#0077FF]" />
                         <p className="text-[#0077FF]" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase' }}>
                           VK
@@ -1258,14 +1278,14 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
   }
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto">
+    <div className="p-2.5 max-w-[1400px] mx-auto">
       {/* Header */}
-      <div className="mb-6">
+      <div className="mb-2.5">
         <div>
-          <h1 className="text-[#1E1E1E] mb-2" style={{ fontSize: '28px', fontWeight: '700' }}>
+          <h1 className="text-[#1E1E1E] mb-2.5" style={{ fontSize: '24px', fontWeight: '700' }}>
             Управление пользователями
           </h1>
-          <p className="text-[#666]" style={{ fontSize: '14px' }}>
+          <p className="text-[#666]" style={{ fontSize: '13px' }}>
             🚀 Оптимизированная версия для больших объёмов данных
           </p>
         </div>
@@ -1279,7 +1299,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       />
 
       {/* 🗂️ Tabs - Вкладки управления */}
-      <Tabs defaultValue="users" className="space-y-3">
+      <Tabs defaultValue="users" className="!gap-2.5">
         <TabsList className="bg-white border border-[#E6E9EE] p-1.5 rounded-xl shadow-sm">
           <TabsTrigger 
             value="users" 
@@ -1303,11 +1323,11 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
         </TabsList>
 
         {/* 👥 Users Tab */}
-        <TabsContent value="users" className="space-y-4">
+        <TabsContent value="users" className="space-y-2.5">
           {/* Filters - Базовые */}
-          <Card className="mb-4">
-        <CardContent className="p-4">
-          <div className="flex items-center gap-3">
+          <Card className="mb-2.5">
+        <CardContent className="!px-2.5 !pt-2.5 !pb-2.5">
+          <div className="flex items-center gap-2.5">
             {/* Search */}
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#999]" />
@@ -1456,34 +1476,89 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       />
 
       {/* Кнопки управления: Режимы + Утилиты + Экспорт */}
-      <Card className="mb-4">
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            {/* Переключение режимов */}
-            <div className="flex gap-2 items-center">
-              <div className="flex items-center gap-1 mr-2">
-                <span className="text-[#666]" style={{ fontSize: '13px', fontWeight: '600' }}>Режим:</span>
+      <Card className="mb-2.5">
+        <CardContent className="!px-2.5 !pt-2.5 !pb-2.5">
+          <div className="flex items-center justify-between flex-wrap gap-2.5 min-h-[36px]">
+            {/* Группа 1: Режимы просмотра + Пагинация */}
+            <div className="flex items-center gap-2.5">
+              {/* Кнопки режимов */}
+              <div className="flex items-center gap-2.5">
+                <Button
+                  variant={viewMode === 'list' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setViewMode('list')}
+                  className={`h-9 ${viewMode === 'list' ? 'bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white shadow-md' : 'hover:bg-gray-100'}`}
+                  title="Режим списка"
+                >
+                  <List className="w-4 h-4 mr-2" />
+                  Список
+                </Button>
+                <Button
+                  variant={viewMode === 'tree' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setViewMode('tree')}
+                  className={`h-9 ${viewMode === 'tree' ? 'bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white shadow-md' : 'hover:bg-gradient-to-r hover:from-[#39B7FF]/10 hover:to-[#12C9B6]/10 border-2 border-[#39B7FF]/30'}`}
+                  title="Режим дерева - древовидная структура"
+                >
+                  <Network className="w-4 h-4 mr-2" />
+                  Дерево
+                </Button>
               </div>
-              <Button
-                variant={viewMode === 'list' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setViewMode('list')}
-                className={viewMode === 'list' ? 'bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white shadow-md' : 'hover:bg-gray-100'}
-              >
-                <List className="w-4 h-4 mr-2" />
-                Список
-              </Button>
-              <Button
-                variant={viewMode === 'tree' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setViewMode('tree')}
-                className={viewMode === 'tree' ? 'bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white shadow-md' : 'hover:bg-gradient-to-r hover:from-[#39B7FF]/10 hover:to-[#12C9B6]/10 border-2 border-[#39B7FF]/30'}
-                title="Переключиться на древовидное отображение структуры"
-              >
-                <Network className="w-4 h-4 mr-2" />
-                🌳 Дерево
-              </Button>
-              <div className="w-px h-6 bg-[#E6E9EE] mx-1"></div>
+              
+              {/* Разделитель */}
+              <div className="w-px h-7 bg-[#E6E9EE] mx-1"></div>
+              
+              {/* 🆕 Кнопки "Раскрыть все" / "Свернуть все" - только для режима списка */}
+              {viewMode === 'list' && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={expandAllCards}
+                    className="h-9 border-[#12C9B6] hover:bg-[#12C9B6] text-[#12C9B6] hover:text-white transition-all hover:shadow-md"
+                    title="Раскрыть все карточки"
+                  >
+                    <ChevronsDown className="w-4 h-4 mr-2" />
+                    Раскрыть все
+                  </Button>
+                  
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={collapseAllCards}
+                    className="h-9 border-slate-300 hover:bg-slate-50 text-slate-600 hover:border-slate-400"
+                    title="Свернуть все карточки"
+                  >
+                    <ChevronsUp className="w-4 h-4 mr-2" />
+                    Свернуть все
+                  </Button>
+                  
+                  {/* Разделитель */}
+                  <div className="w-px h-7 bg-[#E6E9EE] mx-1"></div>
+                </>
+              )}
+              
+              {/* Селектор количества на странице - компактный */}
+              {viewMode === 'list' && (
+                <div className="flex items-center gap-2.5">
+                  <Users className="w-4 h-4 text-[#39B7FF]" title="Количество на странице" />
+                  <Select value={limit.toString()} onValueChange={(val) => { setLimit(Number(val)); setPage(1); }}>
+                    <SelectTrigger className="w-[70px] h-9 border-[#39B7FF]/30">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="20">20</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                      <SelectItem value="100">100</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              
+              {/* Разделитель */}
+              <div className="w-px h-7 bg-[#E6E9EE] mx-1"></div>
+              
+              {/* Экспорт в Google Sheets */}
               <Button 
                 variant="outline" 
                 size="sm"
@@ -1531,21 +1606,23 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                     toast.error('Ошибка экспорта данных');
                   }
                 }}
-                className="border-green-200 hover:bg-green-50 text-green-700 hover:border-green-300"
+                className="h-9 border-green-200 hover:bg-green-50 text-green-700 hover:border-green-300"
+                title="Экспортировать данные в Google Sheets"
               >
                 <Download className="w-4 h-4 mr-2" />
                 Экспорт в Google Sheets
               </Button>
             </div>
             
-            {/* Меню утилит */}
+            {/* Группа 2: Утилиты (только для режима списка) */}
             {viewMode === 'list' && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button 
                     variant="outline" 
                     size="sm"
-                    className="border-[#E6E9EE] hover:bg-gray-50"
+                    className="h-9 border-[#E6E9EE] hover:bg-gray-50"
+                    title="Утилиты и дополнительные функции"
                   >
                     <Wrench className="w-4 h-4 mr-2" />
                     Утилиты
@@ -1747,17 +1824,17 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
           {viewMode === 'tree' ? (
             // 🌳 Древовидный режим
             treeLoading ? (
-              <div className="flex items-center justify-center py-20">
+              <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-8 h-8 animate-spin text-[#39B7FF]" />
                 <span className="ml-3 text-[#666]">Загрузка структуры...</span>
               </div>
             ) : allUsers.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-[#999]">
-                <Network className="w-16 h-16 mb-4 text-[#E6E9EE]" />
-                <p className="text-[#666] mb-2" style={{ fontSize: '16px', fontWeight: '600' }}>
+              <div className="flex flex-col items-center justify-center py-12 text-[#999]">
+                <Network className="w-12 h-12 mb-2.5 text-[#E6E9EE]" />
+                <p className="text-[#666] mb-2.5" style={{ fontSize: '16px', fontWeight: '600' }}>
                   Нет данных для построения дерева
                 </p>
-                <p className="text-[#999] mb-4" style={{ fontSize: '14px' }}>
+                <p className="text-[#999] mb-2.5" style={{ fontSize: '14px' }}>
                   Добавьте пользователей для отображения структуры команды
                 </p>
                 <Button
@@ -1786,24 +1863,24 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
           ) : (
             // 📋 Режим списка с виртуализацией
             isLoading ? (
-              <div className="flex items-center justify-center py-20">
+              <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-8 h-8 animate-spin text-[#39B7FF]" />
                 <span className="ml-3 text-[#666]">Загрузка пользователей...</span>
               </div>
             ) : error ? (
-              <div className="flex items-center justify-center py-20 text-red-600">
+              <div className="flex items-center justify-center py-12 text-red-600">
                 Ошибка загрузки данных
               </div>
             ) : users.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-[#999]">
-                <Users className="w-16 h-16 mb-4 text-[#E6E9EE]" />
-                <p className="text-[#666] mb-2" style={{ fontSize: '16px', fontWeight: '600' }}>
+              <div className="flex flex-col items-center justify-center py-12 text-[#999]">
+                <Users className="w-12 h-12 mb-2.5 text-[#E6E9EE]" />
+                <p className="text-[#666] mb-2.5" style={{ fontSize: '16px', fontWeight: '600' }}>
                   Пользователи не найдены
                 </p>
-                <p className="text-[#999] mb-4" style={{ fontSize: '14px' }}>
+                <p className="text-[#999] mb-2.5" style={{ fontSize: '14px' }}>
                   Попробуйте изменить фильтры или очистить поиск
                 </p>
-                <div className="flex gap-2">
+                <div className="flex gap-2.5">
                   <Button
                     variant="outline"
                     size="sm"
@@ -1831,11 +1908,14 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                 </div>
               </div>
             ) : (
-            <div
-              ref={parentRef}
-              className="h-[2000px] overflow-auto"
-              style={{ contain: 'strict' }}
-            >
+            <>
+
+              {/* 📋 Виртуализированный список */}
+              <div
+                ref={parentRef}
+                className="h-[2000px] overflow-auto pt-1.5"
+                style={{ contain: 'strict' }}
+              >
               <div
                 style={{
                   height: `${rowVirtualizer.getTotalSize()}px`,
@@ -1857,7 +1937,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                         transform: `translateY(${virtualRow.start}px)`,
                       }}
                     >
-                      <div className="px-3 py-1.5">
+                      <div className="px-3 pb-2">
                         {renderUserCard(user)}
                       </div>
                     </div>
@@ -1865,6 +1945,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                 })}
               </div>
             </div>
+            </>
             )
           )}
         </CardContent>
@@ -1872,12 +1953,28 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
 
       {/* Pagination - только для режима списка */}
       {viewMode === 'list' && (
-      <div className="mt-4 flex items-center justify-between">
-        <p className="text-[#666]" style={{ fontSize: '14px' }}>
-          Показано {users.length} из {pagination.total}
-        </p>
+      <div className="mt-2.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2.5">
+          <p className="text-[#666]" style={{ fontSize: '14px' }}>
+            Показано {users.length} из {pagination.total}
+          </p>
+          
+          <div className="flex items-center gap-2.5">
+            <span className="text-[#666]" style={{ fontSize: '14px' }}>На странице:</span>
+            <Select value={limit.toString()} onValueChange={(val) => { setLimit(Number(val)); setPage(1); }}>
+              <SelectTrigger className="w-20 h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="20">20</SelectItem>
+                <SelectItem value="50">50</SelectItem>
+                <SelectItem value="100">100</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <Button
             variant="outline"
             onClick={() => setPage(p => Math.max(1, p - 1))}
@@ -1886,7 +1983,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
             Предыдущая
           </Button>
           
-          <span className="px-4 py-2 text-[#1E1E1E]" style={{ fontSize: '14px' }}>
+          <span className="px-3 py-1.5 text-[#1E1E1E]" style={{ fontSize: '14px' }}>
             Страница {page} из {pagination.totalPages}
           </span>
           
@@ -1903,33 +2000,32 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
         </TabsContent>
 
         {/* 🛡️ ID Management Tab */}
-        <TabsContent value="ids" className="space-y-6">
-          <IdManager currentUser={currentUser} onDataChange={() => queryClient.invalidateQueries({ queryKey: ['users-optimized'] })} />
-          <ChangeUserId />
-          <ManualLinkFixer />
-          <ManualSponsorAssign />
-          <OrphanUsersManager />
+        <TabsContent value="ids">
+          <IdManagementOptimized 
+            currentUser={currentUser} 
+            onSuccess={() => queryClient.invalidateQueries({ queryKey: ['users-optimized'] })} 
+          />
         </TabsContent>
       </Tabs>
 
       {/* 👁️ User Details Modal */}
       <Dialog open={userDetailsOpen} onOpenChange={setUserDetailsOpen}>
         <DialogContent className="w-[1200px] max-w-[95vw] h-[85vh] max-h-[85vh] flex flex-col overflow-hidden">
-          <DialogHeader className="shrink-0 pb-4 border-b border-[#E6E9EE]">
-            <DialogTitle className="flex items-center gap-3">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+          <DialogHeader className="shrink-0 pb-3 border-b border-[#E6E9EE]">
+            <DialogTitle className="flex items-center gap-2.5">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
                 selectedUserForDetails?.isAdmin 
                   ? 'bg-gradient-to-br from-purple-500 to-purple-700' 
                   : 'bg-gradient-to-br from-[#39B7FF] to-[#12C9B6]'
               }`}>
                 {selectedUserForDetails?.isAdmin ? (
-                  <Shield className="w-6 h-6 text-white" />
+                  <Shield className="w-5 h-5 text-white" />
                 ) : (
-                  <Users className="w-6 h-6 text-white" />
+                  <Users className="w-5 h-5 text-white" />
                 )}
               </div>
               <div className="flex-1">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                   <span>{selectedUserForDetails?.имя} {selectedUserForDetails?.фамилия}</span>
                   {selectedUserForDetails?.isAdmin && (
                     <Badge className="bg-purple-100 text-purple-700">Admin</Badge>
@@ -1941,7 +2037,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
               </div>
               
               {/* Quick Action Icons */}
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-2.5 shrink-0">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -1995,12 +2091,12 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
           {selectedUserForDetails && (
             <div className="flex-1 overflow-y-auto py-2 px-1">
               {/* Быстрые действия */}
-              <div className="flex flex-wrap gap-2 mb-4 pb-4 border-b border-[#E6E9EE]">
+              <div className="flex flex-wrap gap-2.5 mb-2.5 pb-2.5 border-b border-[#E6E9EE]">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => openEditDialog(selectedUserForDetails)}
-                  className="flex items-center gap-1.5 bg-[#39B7FF] text-white hover:bg-[#2da5ed] border-[#39B7FF]"
+                  className="flex items-center gap-2.5 bg-[#39B7FF] text-white hover:bg-[#2da5ed] border-[#39B7FF]"
                 >
                   <Edit className="w-3.5 h-3.5" />
                   Редактировать
@@ -2009,7 +2105,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   variant="outline"
                   size="sm"
                   onClick={() => openNotificationDialog(selectedUserForDetails)}
-                  className="flex items-center gap-1.5"
+                  className="flex items-center gap-2.5"
                 >
                   <Bell className="w-3.5 h-3.5" />
                   Уведомление
@@ -2018,7 +2114,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   variant="outline"
                   size="sm"
                   onClick={() => handleExportUserToPDF(selectedUserForDetails)}
-                  className="flex items-center gap-1.5"
+                  className="flex items-center gap-2.5"
                 >
                   <Download className="w-3.5 h-3.5" />
                   Экспорт PDF
@@ -2030,7 +2126,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                     navigator.clipboard.writeText(selectedUserForDetails.рефКод || '');
                     toast.success('Реф-код скопирован');
                   }}
-                  className="flex items-center gap-1.5"
+                  className="flex items-center gap-2.5"
                 >
                   <Copy className="w-3.5 h-3.5" />
                   Реф-код
@@ -2043,7 +2139,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                     navigator.clipboard.writeText(refLink);
                     toast.success('Реф-ссылка скопирована');
                   }}
-                  className="flex items-center gap-1.5"
+                  className="flex items-center gap-2.5"
                 >
                   <Link2 className="w-3.5 h-3.5" />
                   Реф-ссылка
@@ -2052,7 +2148,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   variant="outline"
                   size="sm"
                   onClick={() => userActions.toggleAdmin(selectedUserForDetails, queryClient, onRefresh)}
-                  className="flex items-center gap-1.5"
+                  className="flex items-center gap-2.5"
                 >
                   <Shield className="w-3.5 h-3.5" />
                   {selectedUserForDetails.isAdmin ? 'Убрать админа' : 'Сделать админом'}
@@ -2061,7 +2157,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   variant="outline"
                   size="sm"
                   onClick={() => userActions.deleteUser(selectedUserForDetails, queryClient, onRefresh, setUserDetailsOpen)}
-                  className="flex items-center gap-1.5 text-red-600 border-red-200 hover:bg-red-50"
+                  className="flex items-center gap-2.5 text-red-600 border-red-200 hover:bg-red-50"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   Удалить
@@ -2070,7 +2166,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
 
               {/* Tabs */}
               <Tabs defaultValue="general" className="w-full">
-                <TabsList className="grid w-full grid-cols-5 mb-4">
+                <TabsList className="grid w-full grid-cols-5 mb-2.5">
                   <TabsTrigger value="general">Общее</TabsTrigger>
                   <TabsTrigger value="team">Команда</TabsTrigger>
                   <TabsTrigger value="sales">Продажи</TabsTrigger>
@@ -2079,35 +2175,35 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                 </TabsList>
 
                 {/* 📋 Вкладка: Общее */}
-                <TabsContent value="general" className="space-y-4">
+                <TabsContent value="general" className="space-y-2.5">
                   {/* Основные метрики */}
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    <div className="bg-orange-50 p-3 rounded-lg">
-                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>РАНГ</p>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
+                    <div className="bg-orange-50 p-2.5 rounded-lg">
+                      <p className="text-[#999] mb-2.5" style={{ fontSize: '10px', fontWeight: '600' }}>РАНГ</p>
                       <p className="text-[#1E1E1E]" style={{ fontSize: '13px', fontWeight: '600' }}>
                         {userRanks.get(selectedUserForDetails.id) ?? selectedUserForDetails._metrics?.rank ?? 0}
                       </p>
                     </div>
-                    <div className="bg-blue-50 p-3 rounded-lg">
-                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>РЕГИСТРАЦИЯ</p>
+                    <div className="bg-blue-50 p-2.5 rounded-lg">
+                      <p className="text-[#999] mb-2.5" style={{ fontSize: '10px', fontWeight: '600' }}>РЕГИСТРАЦИЯ</p>
                       <p className="text-[#1E1E1E]" style={{ fontSize: '13px', fontWeight: '600' }}>
                         {selectedUserForDetails.зарегистрирован ? new Date(selectedUserForDetails.зарегистрирован).toLocaleDateString('ru-RU') : '-'}
                       </p>
                     </div>
-                    <div className="bg-purple-50 p-3 rounded-lg">
-                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>СПОНСОР</p>
+                    <div className="bg-purple-50 p-2.5 rounded-lg">
+                      <p className="text-[#999] mb-2.5" style={{ fontSize: '10px', fontWeight: '600' }}>СПОНСОР</p>
                       <p className="text-[#1E1E1E]" style={{ fontSize: '13px', fontWeight: '600' }}>
                         {selectedUserForDetails.спонсорId ? `ID: ${selectedUserForDetails.спонсорId}` : 'Нет'}
                       </p>
                     </div>
-                    <div className="bg-teal-50 p-3 rounded-lg">
-                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>КОМАНДА</p>
+                    <div className="bg-teal-50 p-2.5 rounded-lg">
+                      <p className="text-[#999] mb-2.5" style={{ fontSize: '10px', fontWeight: '600' }}>КОМАНДА</p>
                       <p className="text-[#1E1E1E]" style={{ fontSize: '13px', fontWeight: '600' }}>
                         {calculateTotalTeam(selectedUserForDetails.id)} чел
                       </p>
                     </div>
-                    <div className="bg-green-50 p-3 rounded-lg">
-                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>РЕФ КОД</p>
+                    <div className="bg-green-50 p-2.5 rounded-lg">
+                      <p className="text-[#999] mb-2.5" style={{ fontSize: '10px', fontWeight: '600' }}>РЕФ КОД</p>
                       <p className="text-[#1E1E1E] font-mono" style={{ fontSize: '12px', fontWeight: '600' }}>
                         {selectedUserForDetails.рефКод || '-'}
                       </p>
@@ -2115,15 +2211,15 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   </div>
 
                   {/* Контактная информация */}
-                  <div className="bg-[#F7FAFC] p-4 rounded-lg" data-user-info-section>
-                    <h3 className="text-[#1E1E1E] mb-4 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                  <div className="bg-[#F7FAFC] p-3 rounded-lg" data-user-info-section>
+                    <h3 className="text-[#1E1E1E] mb-2.5 flex items-center gap-2.5" style={{ fontSize: '14px', fontWeight: '600' }}>
                       <Mail className="w-4 h-4 text-[#39B7FF]" />
                       Контактная информация
                     </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                       {/* Email Card */}
-                      <div className="bg-white p-4 rounded-lg border border-gray-200 hover:border-[#39B7FF] transition-all flex flex-col">
-                        <div className="flex items-center gap-2 mb-2">
+                      <div className="bg-white p-3 rounded-lg border border-gray-200 hover:border-[#39B7FF] transition-all flex flex-col">
+                        <div className="flex items-center gap-2.5 mb-2.5">
                           <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
                             <Mail className="w-4 h-4 text-[#39B7FF]" />
                           </div>
@@ -2131,7 +2227,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                         </div>
                         <a 
                           href={`mailto:${selectedUserForDetails.email}`}
-                          className="text-[#1E1E1E] hover:text-[#39B7FF] transition-colors block mb-3 flex-grow"
+                          className="text-[#1E1E1E] hover:text-[#39B7FF] transition-colors block mb-2.5 flex-grow"
                           style={{ fontSize: '13px', fontWeight: '600' }}
                         >
                           {selectedUserForDetails.email}
@@ -2152,17 +2248,17 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
 
                       {/* Phone Card */}
                       {selectedUserForDetails.телефон && (
-                        <div className="bg-white p-4 rounded-lg border border-gray-200 hover:border-[#12C9B6] transition-all flex flex-col">
-                          <div className="flex items-center gap-2 mb-2">
+                        <div className="bg-white p-3 rounded-lg border border-gray-200 hover:border-[#12C9B6] transition-all flex flex-col">
+                          <div className="flex items-center gap-2.5 mb-2.5">
                             <div className="w-8 h-8 bg-teal-100 rounded-full flex items-center justify-center">
                               <Phone className="w-4 h-4 text-[#12C9B6]" />
                             </div>
                             <span className="text-[#999]" style={{ fontSize: '11px', fontWeight: '600' }}>ТЕЛЕФОН</span>
                           </div>
-                          <div className="text-[#1E1E1E] mb-3 flex-grow" style={{ fontSize: '13px', fontWeight: '600' }}>
+                          <div className="text-[#1E1E1E] mb-2.5 flex-grow" style={{ fontSize: '13px', fontWeight: '600' }}>
                             {selectedUserForDetails.телефон}
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex gap-2.5">
                             <Button
                               variant="outline"
                               size="sm"
@@ -2202,11 +2298,11 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   {/* Социальные сети */}
                   {(selectedUserForDetails.telegram || selectedUserForDetails.facebook || selectedUserForDetails.instagram || selectedUserForDetails.vk || selectedUserForDetails.socialMedia) && (
                     <div>
-                      <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                      <h3 className="text-[#1E1E1E] mb-2.5 flex items-center gap-2.5" style={{ fontSize: '14px', fontWeight: '600' }}>
                         <MessageCircle className="w-4 h-4 text-[#39B7FF]" />
                         Социальные сети
                       </h3>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
                         {(selectedUserForDetails.telegram || selectedUserForDetails.socialMedia?.telegram) && (
                           <a
                             href={`https://t.me/${(selectedUserForDetails.telegram || selectedUserForDetails.socialMedia?.telegram).replace(/^@/, '')}`}
@@ -2214,7 +2310,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                             rel="noopener noreferrer"
                             className="bg-blue-50 hover:bg-blue-100 p-3 rounded-lg transition-colors cursor-pointer block"
                           >
-                            <div className="flex items-center gap-2 mb-1">
+                            <div className="flex items-center gap-2.5 mb-2.5">
                               <Send className="w-4 h-4 text-blue-600" />
                               <p className="text-[#999]" style={{ fontSize: '10px', fontWeight: '600' }}>TELEGRAM</p>
                             </div>
@@ -2231,7 +2327,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                             rel="noopener noreferrer"
                             className="bg-blue-50 hover:bg-blue-100 p-3 rounded-lg transition-colors cursor-pointer block"
                           >
-                            <div className="flex items-center gap-2 mb-1">
+                            <div className="flex items-center gap-2.5 mb-2.5">
                               <MessageCircle className="w-4 h-4 text-blue-600" />
                               <p className="text-[#999]" style={{ fontSize: '10px', fontWeight: '600' }}>FACEBOOK</p>
                             </div>
@@ -2247,7 +2343,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                             rel="noopener noreferrer"
                             className="bg-pink-50 hover:bg-pink-100 p-3 rounded-lg transition-colors cursor-pointer block"
                           >
-                            <div className="flex items-center gap-2 mb-1">
+                            <div className="flex items-center gap-2.5 mb-2.5">
                               <Instagram className="w-4 h-4 text-pink-600" />
                               <p className="text-[#999]" style={{ fontSize: '10px', fontWeight: '600' }}>INSTAGRAM</p>
                             </div>
@@ -2263,7 +2359,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                             rel="noopener noreferrer"
                             className="bg-indigo-50 hover:bg-indigo-100 p-3 rounded-lg transition-colors cursor-pointer block"
                           >
-                            <div className="flex items-center gap-2 mb-1">
+                            <div className="flex items-center gap-2.5 mb-2.5">
                               <Facebook className="w-4 h-4 text-indigo-600" />
                               <p className="text-[#999]" style={{ fontSize: '10px', fontWeight: '600' }}>VK</p>
                             </div>
@@ -2278,16 +2374,16 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                 </TabsContent>
 
                 {/* 👥 Вкладка: Команда */}
-                <TabsContent value="team" className="space-y-4">
+                <TabsContent value="team" className="space-y-2.5">
                   {/* Структура команды */}
-                  <div className="grid grid-cols-4 gap-3">
-                    <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg">
-                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>1 ЛИНИЯ</p>
+                  <div className="grid grid-cols-4 gap-2.5">
+                    <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-3 rounded-lg">
+                      <p className="text-[#999] mb-2.5" style={{ fontSize: '10px', fontWeight: '600' }}>1 ЛИНИЯ</p>
                       <p className="text-[#1E1E1E] text-2xl font-bold">{selectedUserForDetails.команда?.length || 0}</p>
                       <p className="text-xs text-[#666] mt-1">Прямые партнёры</p>
                     </div>
-                    <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-lg">
-                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>2 ЛИНИЯ</p>
+                    <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-3 rounded-lg">
+                      <p className="text-[#999] mb-2.5" style={{ fontSize: '10px', fontWeight: '600' }}>2 ЛИНИЯ</p>
                       <p className="text-[#1E1E1E] text-2xl font-bold">
                         {(() => {
                           if (!selectedUserForDetails.команда) return 0;
@@ -2308,8 +2404,8 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                       </p>
                       <p className="text-xs text-[#666] mt-1">Партнёры 2 уровня</p>
                     </div>
-                    <div className="bg-gradient-to-br from-pink-50 to-pink-100 p-4 rounded-lg">
-                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>3 ЛИНИЯ</p>
+                    <div className="bg-gradient-to-br from-pink-50 to-pink-100 p-3 rounded-lg">
+                      <p className="text-[#999] mb-2.5" style={{ fontSize: '10px', fontWeight: '600' }}>3 ЛИНИЯ</p>
                       <p className="text-[#1E1E1E] text-2xl font-bold">
                         {(() => {
                           if (!selectedUserForDetails.команда) return 0;
@@ -2336,17 +2432,17 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                       </p>
                       <p className="text-xs text-[#666] mt-1">Партнёры 3 уровня</p>
                     </div>
-                    <div className="bg-gradient-to-br from-teal-50 to-teal-100 p-4 rounded-lg">
-                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>ВСЕГО</p>
+                    <div className="bg-gradient-to-br from-teal-50 to-teal-100 p-3 rounded-lg">
+                      <p className="text-[#999] mb-2.5" style={{ fontSize: '10px', fontWeight: '600' }}>ВСЕГО</p>
                       <p className="text-[#1E1E1E] text-2xl font-bold">{calculateTotalTeam(selectedUserForDetails.id)}</p>
                       <p className="text-xs text-[#666] mt-1">Вся структура</p>
                     </div>
                   </div>
 
                   {/* Топ партнёров */}
-                  <div className="bg-white border border-[#E6E9EE] p-4 rounded-lg">
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="text-[#1E1E1E] flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                  <div className="bg-white border border-[#E6E9EE] p-3 rounded-lg">
+                    <div className="flex items-center justify-between mb-2.5">
+                      <h3 className="text-[#1E1E1E] flex items-center gap-2.5" style={{ fontSize: '14px', fontWeight: '600' }}>
                         <TrendingUp className="w-4 h-4 text-[#39B7FF]" />
                         Топ партнёров
                       </h3>
@@ -2383,7 +2479,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                           return (
                             <div 
                               key={partner.id}
-                              className="flex items-center gap-3 p-2 hover:bg-[#F7FAFC] rounded-lg transition-colors cursor-pointer border border-transparent hover:border-[#39B7FF]"
+                              className="flex items-center gap-2.5 p-2 hover:bg-[#F7FAFC] rounded-lg transition-colors cursor-pointer border border-transparent hover:border-[#39B7FF]"
                               onClick={() => {
                                 setSelectedUserForDetails(partner);
                                 setUserDetailsOpen(true);
@@ -2401,13 +2497,13 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                               
                               {/* Информация */}
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-0.5">
+                                <div className="flex items-center gap-2.5 mb-2.5">
                                   <p className="text-xs font-medium text-[#1E1E1E] truncate">
                                     {partner.имя} {partner.фамилия}
                                   </p>
                                   <div className={`w-1.5 h-1.5 rounded-full ${activity.color} shrink-0`} title={activity.text}></div>
                                 </div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2.5">
                                   <Badge className="bg-gradient-to-r from-orange-100 to-orange-200 text-orange-700 text-[10px] px-1.5 py-0">
                                     Ранг {rank}
                                   </Badge>
@@ -2432,7 +2528,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                     
                     {/* Показать всех */}
                     {selectedUserForDetails.команда && selectedUserForDetails.команда.length > 10 && (
-                      <div className="mt-3 pt-3 border-t border-[#E6E9EE]">
+                      <div className="mt-2.5 pt-2.5 border-t border-[#E6E9EE]">
                         <button className="w-full text-xs text-[#39B7FF] hover:underline font-medium">
                           Показать всех партнёров ({selectedUserForDetails.команда.length})
                         </button>
@@ -2442,40 +2538,40 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                 </TabsContent>
 
                 {/* 🛒 Вкладка: Продажи */}
-                <TabsContent value="sales" className="space-y-4">
+                <TabsContent value="sales" className="space-y-2.5">
                   {/* Статистика продаж */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-lg">
-                      <div className="flex items-center justify-between mb-2">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+                    <div className="bg-gradient-to-br from-green-50 to-green-100 p-3 rounded-lg">
+                      <div className="flex items-center justify-between mb-2.5">
                         <ShoppingBag className="w-5 h-5 text-green-600" />
                         <TrendingUp className="w-4 h-4 text-green-600" />
                       </div>
-                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>ЛИЧНЫЕ ПРОДАЖИ</p>
+                      <p className="text-[#999] mb-2.5" style={{ fontSize: '10px', fontWeight: '600' }}>ЛИЧНЫЕ ПРОДАЖИ</p>
                       <p className="text-[#1E1E1E] text-xl font-bold">₽{(selectedUserForDetails._metrics?.personalSales || 0).toLocaleString()}</p>
                       <p className="text-xs text-green-600 mt-1">За последний месяц</p>
                     </div>
-                    <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg">
-                      <div className="flex items-center justify-between mb-2">
+                    <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-3 rounded-lg">
+                      <div className="flex items-center justify-between mb-2.5">
                         <ShoppingBag className="w-5 h-5 text-blue-600" />
                         <TrendingUp className="w-4 h-4 text-blue-600" />
                       </div>
-                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>ПРОДАЖИ КОМАНДЫ</p>
+                      <p className="text-[#999] mb-2.5" style={{ fontSize: '10px', fontWeight: '600' }}>ПРОДАЖИ КОМАНДЫ</p>
                       <p className="text-[#1E1E1E] text-xl font-bold">₽{(selectedUserForDetails._metrics?.teamSales || 0).toLocaleString()}</p>
                       <p className="text-xs text-blue-600 mt-1">За последний месяц</p>
                     </div>
-                    <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-lg">
-                      <div className="flex items-center justify-between mb-2">
+                    <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-3 rounded-lg">
+                      <div className="flex items-center justify-between mb-2.5">
                         <Award className="w-5 h-5 text-purple-600" />
                       </div>
-                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>ЗАКАЗОВ</p>
+                      <p className="text-[#999] mb-2.5" style={{ fontSize: '10px', fontWeight: '600' }}>ЗАКАЗОВ</p>
                       <p className="text-[#1E1E1E] text-xl font-bold">{selectedUserForDetails._metrics?.ordersCount || 0}</p>
                       <p className="text-xs text-[#666] mt-1">За последний месяц</p>
                     </div>
-                    <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-lg">
-                      <div className="flex items-center justify-between mb-2">
+                    <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-3 rounded-lg">
+                      <div className="flex items-center justify-between mb-2.5">
                         <Target className="w-5 h-5 text-orange-600" />
                       </div>
-                      <p className="text-[#999] mb-1" style={{ fontSize: '10px', fontWeight: '600' }}>СРЕДНИЙ ЧЕК</p>
+                      <p className="text-[#999] mb-2.5" style={{ fontSize: '10px', fontWeight: '600' }}>СРЕДНИЙ ЧЕК</p>
                       <p className="text-[#1E1E1E] text-xl font-bold">
                         ₽{Math.round((selectedUserForDetails._metrics?.personalSales || 0) / Math.max(selectedUserForDetails._metrics?.ordersCount || 1, 1)).toLocaleString()}
                       </p>
@@ -2484,29 +2580,29 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   </div>
 
                   {/* График продаж - упрощенная версия */}
-                  <div className="bg-[#F7FAFC] p-4 rounded-lg">
-                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                  <div className="bg-[#F7FAFC] p-3 rounded-lg">
+                    <h3 className="text-[#1E1E1E] mb-2.5 flex items-center gap-2.5" style={{ fontSize: '14px', fontWeight: '600' }}>
                       <TrendingUp className="w-4 h-4 text-[#39B7FF]" />
                       Динамика продаж (30 дней)
                     </h3>
-                    <div className="text-sm text-[#999] text-center py-8">
+                    <div className="text-sm text-[#999] text-center py-4">
                       График продаж доступен в полной версии
                     </div>
                   </div>
                 </TabsContent>
 
                 {/* 💰 Вкладка: Финансы */}
-                <TabsContent value="finance" className="space-y-4">
+                <TabsContent value="finance" className="space-y-2.5">
                   {/* Балансы */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-gradient-to-br from-[#39B7FF]/20 to-[#12C9B6]/20 p-4 rounded-lg border border-[#39B7FF]/30">
-                      <p className="text-[#999] mb-2" style={{ fontSize: '10px', fontWeight: '600' }}>ОБЩИЙ БАЛАНС</p>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="bg-gradient-to-br from-[#39B7FF]/20 to-[#12C9B6]/20 p-3 rounded-lg border border-[#39B7FF]/30">
+                      <p className="text-[#999] mb-2.5" style={{ fontSize: '10px', fontWeight: '600' }}>ОБЩИЙ БАЛАНС</p>
                       <p className="text-[#1E1E1E] text-3xl font-bold">
                         ₽{selectedUserForDetails.баланс?.toLocaleString() || 0}
                       </p>
                     </div>
-                    <div className="bg-gradient-to-br from-green-100 to-green-200 p-4 rounded-lg border border-green-300">
-                      <p className="text-[#999] mb-2" style={{ fontSize: '10px', fontWeight: '600' }}>ДОСТУПНЫЙ БАЛАНС</p>
+                    <div className="bg-gradient-to-br from-green-100 to-green-200 p-3 rounded-lg border border-green-300">
+                      <p className="text-[#999] mb-2.5" style={{ fontSize: '10px', fontWeight: '600' }}>ДОСТУПНЫЙ БАЛАНС</p>
                       <p className="text-green-700 text-3xl font-bold">
                         ₽{selectedUserForDetails.доступныйБаланс?.toLocaleString() || 0}
                       </p>
@@ -2514,35 +2610,35 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   </div>
 
                   {/* Доходы по линиям */}
-                  <div className="bg-white border border-[#E6E9EE] p-4 rounded-lg">
-                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                  <div className="bg-white border border-[#E6E9EE] p-3 rounded-lg">
+                    <h3 className="text-[#1E1E1E] mb-2.5 flex items-center gap-2.5" style={{ fontSize: '14px', fontWeight: '600' }}>
                       <DollarSign className="w-4 h-4 text-[#39B7FF]" />
                       Доходы по линиям (комиссии)
                     </h3>
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="bg-blue-50 p-3 rounded-lg text-center">
-                        <p className="text-blue-600 text-xs mb-1 font-semibold">D1 (1 линия)</p>
+                    <div className="grid grid-cols-3 gap-2.5">
+                      <div className="bg-blue-50 p-2.5 rounded-lg text-center">
+                        <p className="text-blue-600 text-xs mb-2.5 font-semibold">D1 (1 линия)</p>
                         <p className="text-[#1E1E1E] text-lg font-bold">₽0</p>
                       </div>
-                      <div className="bg-purple-50 p-3 rounded-lg text-center">
-                        <p className="text-purple-600 text-xs mb-1 font-semibold">D2 (2 линия)</p>
+                      <div className="bg-purple-50 p-2.5 rounded-lg text-center">
+                        <p className="text-purple-600 text-xs mb-2.5 font-semibold">D2 (2 линия)</p>
                         <p className="text-[#1E1E1E] text-lg font-bold">₽0</p>
                       </div>
-                      <div className="bg-teal-50 p-3 rounded-lg text-center">
-                        <p className="text-teal-600 text-xs mb-1 font-semibold">D3 (3 линия)</p>
+                      <div className="bg-teal-50 p-2.5 rounded-lg text-center">
+                        <p className="text-teal-600 text-xs mb-2.5 font-semibold">D3 (3 линия)</p>
                         <p className="text-[#1E1E1E] text-lg font-bold">₽0</p>
                       </div>
                     </div>
                   </div>
 
                   {/* Прогресс к следующему уровню */}
-                  <div className="bg-gradient-to-br from-orange-50 to-yellow-50 p-4 rounded-lg border border-orange-200">
-                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                  <div className="bg-gradient-to-br from-orange-50 to-yellow-50 p-3 rounded-lg border border-orange-200">
+                    <h3 className="text-[#1E1E1E] mb-2.5 flex items-center gap-2.5" style={{ fontSize: '14px', fontWeight: '600' }}>
                       <TrendingUp className="w-4 h-4 text-orange-600" />
                       Прогресс к следующему рангу
                     </h3>
-                    <div className="mb-3">
-                      <div className="flex items-center justify-between mb-2">
+                    <div className="mb-2.5">
+                      <div className="flex items-center justify-between mb-2.5">
                         <span className="text-sm text-[#666]">
                           Ранг {userRanks.get(selectedUserForDetails.id) ?? selectedUserForDetails._metrics?.rank ?? 0} → Ранг {(userRanks.get(selectedUserForDetails.id) ?? selectedUserForDetails._metrics?.rank ?? 0) + 1}
                         </span>
@@ -2558,29 +2654,29 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   </div>
 
                   {/* История транзакций */}
-                  <div className="bg-white border border-[#E6E9EE] p-4 rounded-lg">
-                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                  <div className="bg-white border border-[#E6E9EE] p-3 rounded-lg">
+                    <h3 className="text-[#1E1E1E] mb-2.5 flex items-center gap-2.5" style={{ fontSize: '14px', fontWeight: '600' }}>
                       <Wallet className="w-4 h-4 text-[#39B7FF]" />
                       Последние транзакции
                     </h3>
-                    <div className="text-sm text-[#999] text-center py-6">
+                    <div className="text-sm text-[#999] text-center py-4">
                       Транзакций пока нет
                     </div>
                   </div>
                 </TabsContent>
 
                 {/* ⏱️ Вкладка: Активность */}
-                <TabsContent value="activity" className="space-y-4">
+                <TabsContent value="activity" className="space-y-2.5">
                   {/* Статус активности */}
-                  <div className="bg-[#F7FAFC] p-4 rounded-lg border-2 border-[#E6E9EE]">
-                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                  <div className="bg-[#F7FAFC] p-3 rounded-lg border-2 border-[#E6E9EE]">
+                    <h3 className="text-[#1E1E1E] mb-2.5 flex items-center gap-2.5" style={{ fontSize: '14px', fontWeight: '600' }}>
                       <Clock className="w-4 h-4 text-[#39B7FF]" />
                       Текущий статус
                     </h3>
                     {(() => {
                       const activityStatus = getActivityStatus(selectedUserForDetails);
                       return (
-                        <div className="flex items-center gap-3 p-3 bg-white rounded-lg">
+                        <div className="flex items-center gap-2.5 p-2.5 bg-white rounded-lg">
                           <span className={`w-4 h-4 rounded-full ${activityStatus.color} animate-pulse`}></span>
                           <div className="flex-1">
                             <p className={`${activityStatus.textColor} font-semibold`}>{activityStatus.text}</p>
@@ -2599,14 +2695,14 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   </div>
 
                   {/* Последние действия */}
-                  <div className="bg-white border border-[#E6E9EE] p-4 rounded-lg">
-                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                  <div className="bg-white border border-[#E6E9EE] p-3 rounded-lg">
+                    <h3 className="text-[#1E1E1E] mb-2.5 flex items-center gap-2.5" style={{ fontSize: '14px', fontWeight: '600' }}>
                       <Activity className="w-4 h-4 text-[#39B7FF]" />
                       Последние действия
                     </h3>
-                    <div className="space-y-2">
+                    <div className="space-y-2.5">
                       {/* Заглушка для истории */}
-                      <div className="flex items-start gap-3 p-3 bg-[#F7FAFC] rounded-lg">
+                      <div className="flex items-start gap-2.5 p-2.5 bg-[#F7FAFC] rounded-lg">
                         <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center shrink-0">
                           <CheckCircle2 className="w-4 h-4 text-green-600" />
                         </div>
@@ -2626,12 +2722,12 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   </div>
 
                   {/* Последние заказы */}
-                  <div className="bg-white border border-[#E6E9EE] p-4 rounded-lg">
-                    <h3 className="text-[#1E1E1E] mb-3 flex items-center gap-2" style={{ fontSize: '14px', fontWeight: '600' }}>
+                  <div className="bg-white border border-[#E6E9EE] p-3 rounded-lg">
+                    <h3 className="text-[#1E1E1E] mb-2.5 flex items-center gap-2.5" style={{ fontSize: '14px', fontWeight: '600' }}>
                       <ShoppingBag className="w-4 h-4 text-[#39B7FF]" />
                       Последние заказы
                     </h3>
-                    <div className="text-sm text-[#999] text-center py-6">
+                    <div className="text-sm text-[#999] text-center py-4">
                       Заказов пока нет
                     </div>
                   </div>

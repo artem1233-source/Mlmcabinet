@@ -42,6 +42,7 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
     instagram: currentUser?.socialMedia?.instagram || currentUser?.instagram || '',
     vk: currentUser?.socialMedia?.vk || currentUser?.vk || '',
     аватарка: currentUser?.аватарка || '',
+    датаРождения: currentUser?.датаРождения || '',
   });
   
   // Настройки приватности
@@ -69,6 +70,7 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
         instagram: currentUser.socialMedia?.instagram || currentUser.instagram || '',
         vk: currentUser.socialMedia?.vk || currentUser.vk || '',
         аватарка: currentUser.аватарка || '',
+        датаРождения: currentUser.датаРождения || '',
       });
       setPrivacySettings({
         showPhone: currentUser.privacySettings?.showPhone !== false,
@@ -124,10 +126,12 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
       имя: currentUser.имя || '',
       телефон: currentUser.телефон || '',
       telegram: currentUser.socialMedia?.telegram || currentUser.telegram || '',
+      whatsapp: currentUser.socialMedia?.whatsapp || currentUser.whatsapp || '',
       facebook: currentUser.socialMedia?.facebook || currentUser.facebook || '',
       instagram: currentUser.socialMedia?.instagram || currentUser.instagram || '',
       vk: currentUser.socialMedia?.vk || currentUser.vk || '',
       аватарка: currentUser.аватарка || '',
+      датаРождения: currentUser.датаРождения || '',
     });
     setIsEditing(true);
   };
@@ -152,6 +156,11 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
         телефон: formData.телефон,
         аватарка: formData.аватарка,
       };
+      
+      // Добавляем дату рождения если она указана
+      if (formData.датаРождения) {
+        normalizedData.датаРождения = formData.датаРождения;
+      }
       
       // Добавляем соц сети только если они заполнены
       const telegram = formData.telegram.replace(/^@/, '').trim();
@@ -440,6 +449,20 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                         </div>
                       </div>
                       
+                      <div className="flex items-center gap-3 p-3 bg-[#F7FAFC] rounded-xl min-w-0">
+                        <Calendar size={20} className="text-[#666] flex-shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[#666]" style={{ fontSize: '12px' }}>Дата рождения</div>
+                          <div className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '13px' }}>
+                            {currentUser.датаРождения ? new Date(currentUser.датаРождения).toLocaleDateString('ru-RU', {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric'
+                            }) : 'Не указана'}
+                          </div>
+                        </div>
+                      </div>
+                      
                       {/* 🆕 Ранг партнёра */}
                       {!currentUser.isAdmin && (
                         <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl min-w-0 border border-orange-200">
@@ -557,6 +580,17 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                         onChange={(e) => setFormData(prev => ({ ...prev, телефон: e.target.value }))}
                         className="mt-1"
                         placeholder="+7 (999) 123-45-67"
+                      />
+                    </div>
+                    
+                    <div>
+                      <Label htmlFor="birthDate" className="text-[#666]">Дата рождения</Label>
+                      <Input
+                        id="birthDate"
+                        type="date"
+                        value={formData.датаРождения}
+                        onChange={(e) => setFormData(prev => ({ ...prev, датаРождения: e.target.value }))}
+                        className="mt-1"
                       />
                     </div>
                     

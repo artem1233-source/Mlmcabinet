@@ -25,6 +25,7 @@ export function ManualSponsorAssign({ currentUser, onSuccess }: ManualSponsorAss
   const loading = isLoading || assigning;
 
   const findUser = (id: string) => {
+    if (!Array.isArray(users)) return undefined;
     return users.find(u => u.id === id);
   };
 

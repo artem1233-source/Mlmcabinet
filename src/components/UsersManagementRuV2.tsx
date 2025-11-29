@@ -2058,9 +2058,9 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
           <TabsContent value="ids" className="space-y-6">
             <IdManager currentUser={currentUser} onDataChange={loadUsers} />
             <ChangeUserId />
-            <ManualLinkFixer />
-            <ManualSponsorAssign />
-            <OrphanUsersManager />
+            <ManualLinkFixer currentUser={currentUser} />
+            <ManualSponsorAssign currentUser={currentUser} />
+            <OrphanUsersManager currentUser={currentUser} />
           </TabsContent>
         </Tabs>
       </div>
