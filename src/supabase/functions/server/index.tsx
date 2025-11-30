@@ -994,7 +994,7 @@ app.post("/make-server-05aa3c8a/auth/login", async (c) => {
     const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
     
     // Sign in with Supabase Auth using email
-    const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({
+    let { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({
       email: userEmail,
       password: password,
     });
@@ -1010,26 +1010,71 @@ app.post("/make-server-05aa3c8a/auth/login", async (c) => {
       
       // More specific error messages
       if (authError.message.includes('Invalid login credentials')) {
-        return c.json({ 
-          error: "Неверный пароль или пользователь не найден в Supabase Auth. Проверьте пароль или зарегистрируйтесь заново.",
-          details: authError.message 
-        }, 401);
-      }
-      
-      if (authError.message.includes('Email not confirmed')) {
+        // 🔧 FIX: Если пользователь есть в KV, но нет в Supabase Auth, создаем его там
+        console.log(`⚠️ User exists in KV but not in Supabase Auth. Attempting to migrate...`);
+        
+        try {
+          // Create user in Supabase Auth with the provided password
+          const { data: newAuthData, error: createError } = await supabase.auth.admin.createUser({
+            email: userEmail,
+            password: password,
+            user_metadata: { 
+              firstName: userData.имя?.split(' ')[0] || '',
+              lastName: userData.фамилия || userData.имя?.split(' ').slice(1).join(' ') || '',
+              migratedFromKV: true
+            },
+            email_confirm: true // Auto-confirm since user already exists in our system
+          });
+          
+          if (createError) {
+            console.error(`❌ Failed to migrate user to Supabase Auth:`, createError);
+            return c.json({ 
+              error: "Неверный пароль или ошибка миграции учетной записи",
+              details: createError.message 
+            }, 401);
+          }
+          
+          console.log(`✅ Successfully migrated user ${userEmail} to Supabase Auth`);
+          
+          // Now try to sign in again
+          const { data: retryAuthData, error: retryError } = await supabaseClient.auth.signInWithPassword({
+            email: userEmail,
+            password: password,
+          });
+          
+          if (retryError || !retryAuthData.session) {
+            console.error(`❌ Failed to sign in after migration:`, retryError);
+            return c.json({ 
+              error: "Ошибка входа после миграции",
+              details: retryError?.message 
+            }, 401);
+          }
+          
+          // Success! Continue with the migrated user
+          authData = retryAuthData;
+          authError = null;
+          
+        } catch (migrationError) {
+          console.error(`❌ Migration error:`, migrationError);
+          return c.json({ 
+            error: "Ошибка миграции учетной записи. Попробуйте сбросить пароль.",
+            details: migrationError instanceof Error ? migrationError.message : String(migrationError)
+          }, 401);
+        }
+      } else if (authError.message.includes('Email not confirmed')) {
         return c.json({ 
           error: "Email не подтверждён. Проверьте почту или обратитесь к администратору.",
           details: authError.message 
         }, 401);
+      } else {
+        return c.json({ 
+          error: `Ошибка авторизации: ${authError.message}`,
+          details: authError.message 
+        }, 401);
       }
-      
-      return c.json({ 
-        error: `Ошибка авторизации: ${authError.message}`,
-        details: authError.message 
-      }, 401);
     }
     
-    if (!authData.session || !authData.user) {
+    if (!authData || !authData.session || !authData.user) {
       return c.json({ error: "Неверные учетные данные" }, 401);
     }
     

@@ -443,7 +443,9 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
         </header>
         
         <main className="flex-1 overflow-y-auto">
-          {renderSection()}
+          <div className="max-w-7xl mx-auto w-full">
+            {renderSection()}
+          </div>
         </main>
       </div>
     </div>

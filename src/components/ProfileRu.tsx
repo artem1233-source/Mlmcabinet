@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { User, Mail, Calendar, Copy, Share2, Award, TrendingUp, Edit2, Save, X, Phone, MessageCircle, Instagram, Facebook, Eye, EyeOff, Lock, Globe, LogOut } from 'lucide-react';
+import { User, Mail, Calendar, Copy, Share2, Award, TrendingUp, Edit2, Save, X, Phone, MessageCircle, Instagram, Facebook, Eye, EyeOff, Lock, Globe, LogOut, CalendarIcon, Send } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -7,9 +7,15 @@ import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Badge } from './ui/badge';
 import { Label } from './ui/label';
 import { Switch } from './ui/switch';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { Calendar as CalendarComponent } from './ui/calendar';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { toast } from 'sonner';
 import * as api from '../utils/api';
 import { AvatarCropDialog } from './AvatarCropDialog';
+import { RankBadge } from './RankBadge';
+import { format } from 'date-fns';
+import { ru } from 'date-fns/locale';
 
 interface ProfileProps {
   currentUser: any;
@@ -28,13 +34,10 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
   const [cropDialogOpen, setCropDialogOpen] = useState(false);
   const [imageToCrop, setImageToCrop] = useState<string>('');
   
-  // 🆕 Состояние для ранга
-  const [userRank, setUserRank] = useState<number | null>(null);
-  const [rankLoading, setRankLoading] = useState(true);
-  
   // Редактируемые поля
   const [formData, setFormData] = useState({
-    имя: currentUser?.имя || '',
+    имя: currentUser?.имя?.split(' ')[0] || '', // Только имя (первое слово)
+    фамилия: currentUser?.имя?.split(' ').slice(1).join(' ') || '', // Фамилия и отчество (остальное)
     телефон: currentUser?.телефон || '',
     telegram: currentUser?.socialMedia?.telegram || currentUser?.telegram || '',
     whatsapp: currentUser?.socialMedia?.whatsapp || currentUser?.whatsapp || '',
@@ -62,7 +65,8 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
   useEffect(() => {
     if (currentUser) {
       setFormData({
-        имя: currentUser.имя || '',
+        имя: currentUser.имя?.split(' ')[0] || '',
+        фамилия: currentUser.имя?.split(' ').slice(1).join(' ') || '',
         телефон: currentUser.телефон || '',
         telegram: currentUser.socialMedia?.telegram || currentUser.telegram || '',
         whatsapp: currentUser.socialMedia?.whatsapp || currentUser.whatsapp || '',
@@ -86,30 +90,6 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
     }
   }, [currentUser]);
   
-  // 🆕 Загружаем ранг при монтировании
-  useEffect(() => {
-    const loadRank = async () => {
-      if (!currentUser?.id || currentUser.isAdmin) {
-        setRankLoading(false);
-        return;
-      }
-      
-      try {
-        setRankLoading(true);
-        const response = await api.getUserRank(currentUser.id, true);
-        if (response.success) {
-          setUserRank(response.rank);
-        }
-      } catch (error) {
-        console.error('Failed to load user rank:', error);
-      } finally {
-        setRankLoading(false);
-      }
-    };
-    
-    loadRank();
-  }, [currentUser?.id]);
-  
   // Guard clause
   if (!currentUser || !currentUser.имя) {
     return (
@@ -123,7 +103,8 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
   
   const handleEdit = () => {
     setFormData({
-      имя: currentUser.имя || '',
+      имя: currentUser.имя?.split(' ')[0] || '',
+      фамилия: currentUser.имя?.split(' ').slice(1).join(' ') || '',
       телефон: currentUser.телефон || '',
       telegram: currentUser.socialMedia?.telegram || currentUser.telegram || '',
       whatsapp: currentUser.socialMedia?.whatsapp || currentUser.whatsapp || '',
@@ -150,14 +131,17 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
         return;
       }
       
+      // Объединяем имя и фамилию для отправки
+      const fullName = `${formData.имя.trim()} ${formData.фамилия.trim()}`.trim();
+      
       // Подготовка данных: отправляем только непустые поля (чтобы не стереть существующие данные)
       const normalizedData: any = {
-        имя: formData.имя,
+        имя: fullName,
         телефон: formData.телефон,
         аватарка: formData.аватарка,
       };
       
-      // Добавляем дату рождения если она указана
+      // Добавляем дату рождния если она указана
       if (formData.датаРождения) {
         normalizedData.датаРождения = formData.датаРождения;
       }
@@ -180,7 +164,7 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
       console.log('📥 Received profile response:', response);
       
       if (response.success) {
-        toast.success('Профиль обновлён!');
+        toast.success('Профиь обновлён!');
         setIsEditing(false);
         
         // Обновляем данные в родительском компоненте
@@ -320,17 +304,17 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
       <div className="space-y-4 lg:space-y-6 max-w-full">
         <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
           <CardHeader>
-            <CardTitle className="text-[#1E1E1E]">Личная информация</CardTitle>
+            <CardTitle className="text-[#1E1E1E]\">Личная информация</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-6">
-              <div className="relative">
-                <Avatar className="w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0">
+            <div className="flex flex-col sm:flex-row items-start gap-3">
+              <div className="relative flex flex-col items-center gap-2">
+                <Avatar className="w-32 h-32 flex-shrink-0">
                   {(isEditing ? formData.аватарка : currentUser.аватарка) ? (
                     <AvatarImage src={isEditing ? formData.аватарка : currentUser.аватарка} />
                   ) : null}
                   <AvatarFallback 
-                    className="text-white text-2xl"
+                    className="text-white text-3xl"
                     style={{ 
                       background: `linear-gradient(135deg, ${цветаУровней[currentUser.уровень]} 0%, ${цветаУровней[currentUser.уровень]}CC 100%)`,
                       fontWeight: '700'
@@ -351,11 +335,51 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                     <Button
                       onClick={() => fileInputRef.current?.click()}
                       size="sm"
-                      className="absolute bottom-0 right-0 rounded-full w-8 h-8 p-0 bg-[#39B7FF] hover:bg-[#2A9FE8] text-white"
+                      className="absolute top-0 right-0 rounded-full w-8 h-8 p-0 bg-[#39B7FF] hover:bg-[#2A9FE8] text-white"
                     >
                       <Edit2 size={14} />
                     </Button>
                   </>
+                )}
+                
+                {/* 🎨 ЗНАЧОК РАНГА ПОД АВАТАРКОЙ */}
+                {!currentUser.isAdmin && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div>
+                          <RankBadge rank={currentUser.уровень} />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs p-4 bg-blue-50/95 backdrop-blur-sm border-blue-200/50 rounded-2xl shadow-lg" side="right">
+                        <div className="space-y-2">
+                          <div className="font-semibold text-sm text-blue-900">
+                            Ваш ранг: {currentUser.уровень}
+                          </div>
+                          <p className="text-xs text-blue-700/80">
+                            Ранг определяется глубиной вашей партнерской структуры. Чем больше уровней в вашей команде, тем выше ранг.
+                          </p>
+                          <div className="text-xs border-t border-blue-200/50 pt-2 mt-2">
+                            {currentUser.уровень === 1 && (
+                              <p className="text-blue-600 leading-relaxed">
+                                🔹 <strong>Уровень 1</strong> — У вас есть прямые партнеры (1 линия)
+                              </p>
+                            )}
+                            {currentUser.уровень === 2 && (
+                              <p className="text-purple-600 leading-relaxed">
+                                🔸 <strong>Уровень 2</strong> — Ваши партнеры привели своих партнеров (2 линии)
+                              </p>
+                            )}
+                            {currentUser.уровень === 3 && (
+                              <p className="text-amber-600 leading-relaxed">
+                                🔶 <strong>Уровень 3</strong> — Максимальная глубина структуры (3 линии)
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 )}
               </div>
               
@@ -367,15 +391,6 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                         <h2 className="text-[#1E1E1E] truncate" style={{ fontSize: '20px', fontWeight: '700' }}>
                           {currentUser.имя}
                         </h2>
-                        <Badge 
-                          className="border-0 text-white self-start sm:self-auto"
-                          style={{ 
-                            backgroundColor: цветаУровней[currentUser.уровень],
-                            fontWeight: '600'
-                          }}
-                        >
-                          Уровень {currentUser.уровень}
-                        </Badge>
                       </div>
                     </div>
                     
@@ -463,26 +478,14 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                         </div>
                       </div>
                       
-                      {/* 🆕 Ранг партнёра */}
-                      {!currentUser.isAdmin && (
-                        <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl min-w-0 border border-orange-200">
-                          <Award size={20} className="text-orange-600 flex-shrink-0" />
-                          <div className="min-w-0 flex-1">
-                            <div className="text-[#666]" style={{ fontSize: '12px' }}>Ранг партнёра</div>
-                            <div className="text-orange-600 flex items-center gap-2" style={{ fontWeight: '700', fontSize: '16px' }}>
-                              {rankLoading ? '...' : userRank ?? 0}
-                              <span className="text-xs text-[#999] font-normal">уровней глубины</span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                      {/* 🗑️ УДАЛЕНО: Блок "Глубина структуры" - дублирует ранг из бейджа */}
                     </div>
                     
                     <div className="pt-2">
                       <div className="text-[#666] mb-2" style={{ fontSize: '12px' }}>Соц. сети</div>
                       <div 
                         data-social-container="true"
-                        className="grid grid-cols-1 sm:grid-cols-2 gap-2"
+                        className="flex flex-wrap gap-2"
                       >
                         {currentUser.telegram && (
                           <a 
@@ -491,10 +494,10 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                             href={`https://t.me/${String(currentUser.telegram).replace(/^@/, '').trim()}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center gap-2 p-3 bg-[#0088cc] text-white rounded-xl hover:opacity-90 transition-opacity"
+                            className="inline-flex items-center justify-center gap-2 min-w-[140px] px-4 py-2.5 bg-[#0088cc] text-white rounded-lg hover:opacity-90 transition-opacity text-sm font-medium"
                           >
-                            <MessageCircle size={16} className="flex-shrink-0" />
-                            <span className="text-sm truncate">@{String(currentUser.telegram).replace(/^@/, '').trim()}</span>
+                            <Send size={16} className="flex-shrink-0" />
+                            <span>Telegram</span>
                           </a>
                         )}
                         
@@ -505,10 +508,10 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                             href={`https://wa.me/${String(currentUser.whatsapp).replace(/[^0-9]/g, '')}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center gap-2 p-3 bg-[#25D366] text-white rounded-xl hover:opacity-90 transition-opacity"
+                            className="inline-flex items-center justify-center gap-2 min-w-[140px] px-4 py-2.5 bg-[#25D366] text-white rounded-lg hover:opacity-90 transition-opacity text-sm font-medium"
                           >
-                            <Phone size={16} className="flex-shrink-0" />
-                            <span className="text-sm truncate">{String(currentUser.whatsapp).trim()}</span>
+                            <MessageCircle size={16} className="flex-shrink-0" />
+                            <span>WhatsApp</span>
                           </a>
                         )}
                         
@@ -519,10 +522,10 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                             href={`https://facebook.com/${String(currentUser.facebook).replace(/^@/, '').trim()}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center gap-2 p-3 bg-[#1877F2] text-white rounded-xl hover:opacity-90 transition-opacity"
+                            className="inline-flex items-center justify-center gap-2 min-w-[140px] px-4 py-2.5 bg-[#1877F2] text-white rounded-lg hover:opacity-90 transition-opacity text-sm font-medium"
                           >
-                            <MessageCircle size={16} className="flex-shrink-0" />
-                            <span className="text-sm truncate">{String(currentUser.facebook).trim()}</span>
+                            <Facebook size={16} className="flex-shrink-0" />
+                            <span>Facebook</span>
                           </a>
                         )}
                         
@@ -533,13 +536,13 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                             href={`https://instagram.com/${String(currentUser.instagram).replace(/^@/, '').trim()}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center gap-2 p-3 rounded-xl text-white hover:opacity-90 transition-opacity"
+                            className="inline-flex items-center justify-center gap-2 min-w-[140px] px-4 py-2.5 rounded-lg text-white hover:opacity-90 transition-opacity text-sm font-medium"
                             style={{
                               background: 'linear-gradient(to right, #f09433 0%, #e6683c 50%, #bc1888 100%)'
                             }}
                           >
                             <Instagram size={16} className="flex-shrink-0" />
-                            <span className="text-sm truncate">@{String(currentUser.instagram).replace(/^@/, '').trim()}</span>
+                            <span>Instagram</span>
                           </a>
                         )}
                         
@@ -550,10 +553,10 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                             href={`https://vk.com/${String(currentUser.vk).replace(/^@/, '').trim()}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center gap-2 p-3 bg-[#0077FF] text-white rounded-xl hover:opacity-90 transition-opacity"
+                            className="inline-flex items-center justify-center gap-2 min-w-[140px] px-4 py-2.5 bg-[#0077FF] text-white rounded-lg hover:opacity-90 transition-opacity text-sm font-medium"
                           >
-                            <span className="font-bold text-sm flex-shrink-0">VK</span>
-                            <span className="text-sm truncate">{String(currentUser.vk).replace(/^@/, '').trim()}</span>
+                            <Globe size={16} className="flex-shrink-0" />
+                            <span>VKontakte</span>
                           </a>
                         )}
                       </div>
@@ -561,15 +564,28 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                   </>
                 ) : (
                   <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="name" className="text-[#666]">ФИО</Label>
-                      <Input
-                        id="name"
-                        value={formData.имя}
-                        onChange={(e) => setFormData(prev => ({ ...prev, имя: e.target.value }))}
-                        className="mt-1"
-                        placeholder="Иванов Иван Иванович"
-                      />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <Label htmlFor="firstName" className="text-[#666]">Имя</Label>
+                        <Input
+                          id="firstName"
+                          value={formData.имя}
+                          onChange={(e) => setFormData(prev => ({ ...prev, имя: e.target.value }))}
+                          className="mt-1"
+                          placeholder="Иван"
+                        />
+                      </div>
+                      
+                      <div>
+                        <Label htmlFor="lastName" className="text-[#666]">Фамилия</Label>
+                        <Input
+                          id="lastName"
+                          value={formData.фамилия}
+                          onChange={(e) => setFormData(prev => ({ ...prev, фамилия: e.target.value }))}
+                          className="mt-1"
+                          placeholder="Иванов"
+                        />
+                      </div>
                     </div>
                     
                     <div>
@@ -585,13 +601,30 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                     
                     <div>
                       <Label htmlFor="birthDate" className="text-[#666]">Дата рождения</Label>
-                      <Input
-                        id="birthDate"
-                        type="date"
-                        value={formData.датаРождения}
-                        onChange={(e) => setFormData(prev => ({ ...prev, датаРождения: e.target.value }))}
-                        className="mt-1"
-                      />
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            id="birthDate"
+                            variant="outline"
+                            className="w-full justify-start text-left font-normal mt-1"
+                          >
+                            <CalendarIcon size={16} className="mr-2" />
+                            {formData.датаРождения ? format(new Date(formData.датаРождения), 'dd MMMM yyyy', { locale: ru }) : 'Выберите дату'}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <CalendarComponent
+                            mode="single"
+                            selected={formData.датаРождения ? new Date(formData.датаРождения) : undefined}
+                            onSelect={(date) => {
+                              if (date) {
+                                setFormData(prev => ({ ...prev, датаРождения: date.toISOString().split('T')[0] }));
+                              }
+                            }}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
                     </div>
                     
                     <div>
@@ -694,6 +727,8 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
             </p>
             
             <div className="space-y-4">
+              {/* Контактная информация в 2 колонки */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               <div className="flex items-center justify-between p-3 bg-[#F7FAFC] rounded-xl">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
@@ -896,11 +931,13 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                   }}
                 />
               </div>
+              </div>
               
-              <div className="border-t border-gray-200 my-4 pt-4">
+              {/* Финансовая информация */}
+              <div className="border-t border-gray-200 pt-4">
                 <h4 className="text-sm font-semibold text-[#1E1E1E] mb-3">Финансовая информация</h4>
                 
-                <div className="space-y-3">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                   <div className="flex items-center justify-between p-3 bg-[#F7FAFC] rounded-xl">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
