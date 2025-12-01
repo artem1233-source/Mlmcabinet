@@ -1,483 +1,1079 @@
 import { useState, useEffect } from 'react';
-import { TrendingUp, ShoppingBag, Users, Wallet, ArrowUpRight, Loader2, RefreshCw, DollarSign, Package, TrendingDown, Calendar, Target, Award, ChevronDown, ChevronUp } from 'lucide-react';
+import { TrendingUp, TrendingDown, Users, Wallet, ShoppingBag, Award, Target, Zap, Calendar as CalendarIcon, ArrowUpRight, ArrowDownRight, Activity, Crown, Rocket, Star, Gift, CheckCircle2, Clock, Package, UserPlus, DollarSign, BarChart3, Share2, Plus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
-import { AdminToolbar } from './AdminToolbar';
-import { AchievementsWidget } from './AchievementsWidget';
+import { Button } from './ui/button';
+import { Badge } from './ui/badge';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
+import { Progress } from './ui/progress';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
+import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
+import { motion, AnimatePresence } from 'motion/react';
 import * as api from '../utils/api';
 import { toast } from 'sonner';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { AdvancedAnalytics } from './AdvancedAnalytics';
 
 interface DashboardRuProps {
   currentUser: any;
-  onRefresh: () => void;
-  refreshTrigger: number;
+  onNavigate?: (section: string) => void;
+  onRefresh?: () => void;
+  refreshTrigger?: number;
 }
 
-export function DashboardRu({ currentUser, onRefresh, refreshTrigger }: DashboardRuProps) {
-  // 🔐 Проверка прав администратора: CEO, admin email, или флаг isAdmin
-  const isAdmin = currentUser?.isAdmin === true || 
-                  currentUser?.email === 'admin@admin.com' || 
-                  currentUser?.id === 'ceo' || 
-                  currentUser?.id === '1';
-  const showAdminToolbar = isAdmin;
-  
-  const effectiveUserId = currentUser?.id;
-  
-  const [stats, setStats] = useState({
-    totalEarnings: 0,
-    monthEarnings: 0,
-    activeOrders: 0,
-    teamSize: 0
-  });
-  const [adminStats, setAdminStats] = useState<any>(null);
-  const [recentOrders, setRecentOrders] = useState<any[]>([]);
-  const [earnings, setEarnings] = useState<any[]>([]);
-  const [chartData, setChartData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  
-  // 🆕 Состояние для команды (нужно для AdvancedAnalytics)
-  const [team, setTeam] = useState<any[]>([]);
-  const [allOrders, setAllOrders] = useState<any[]>([]);
-  
-  // 🆕 Новые состояния для расширенной аналитики
-  const [selectedPeriod, setSelectedPeriod] = useState<'7d' | '30d' | '90d' | '1y'>('30d');
-  const [monthlyData, setMonthlyData] = useState<any[]>([]);
-  const [teamGrowthData, setTeamGrowthData] = useState<any[]>([]);
-  const [conversionFunnel, setConversionFunnel] = useState<any>({
-    total: 0,
-    active: 0,
-    leaders: 0
-  });
-  const [periodComparison, setPeriodComparison] = useState<any>({
-    currentRevenue: 0,
-    previousRevenue: 0,
-    currentTeam: 0,
-    previousTeam: 0,
-    currentOrders: 0,
-    previousOrders: 0
-  });
-  const [showForecast, setShowForecast] = useState(false);
-  const [forecastPartners, setForecastPartners] = useState(5);
+// Компонент кольца активности (как в Apple Watch)
+const ActivityRing = ({ radius, stroke, progress, color, label, value }: any) => {
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference - (progress / 100) * circumference;
+
+  return (
+    <div className="relative">
+      <svg width={radius * 2 + stroke * 2} height={radius * 2 + stroke * 2} className="transform -rotate-90">
+        {/* Background circle */}
+        <circle
+          cx={radius + stroke}
+          cy={radius + stroke}
+          r={radius}
+          stroke="#E5E7EB"
+          strokeWidth={stroke}
+          fill="none"
+        />
+        {/* Progress circle */}
+        <motion.circle
+          cx={radius + stroke}
+          cy={radius + stroke}
+          r={radius}
+          stroke={color}
+          strokeWidth={stroke}
+          fill="none"
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          initial={{ strokeDashoffset: circumference }}
+          animate={{ strokeDashoffset }}
+          transition={{ duration: 1.5, delay: 0.2, ease: "easeOut" }}
+          style={{ filter: `drop-shadow(0 0 8px ${color})` }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.5 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5, delay: 0.5 }}
+          className="text-center"
+        >
+          <div className="text-2xl font-bold text-gray-800">{value}</div>
+          <div className="text-xs text-gray-500 mt-1">{label}</div>
+        </motion.div>
+      </div>
+    </div>
+  );
+};
+
+// Компонент анимированного счетчика
+const AnimatedCounter = ({ value, suffix = '' }: { value: number; suffix?: string }) => {
+  const [displayValue, setDisplayValue] = useState(0);
 
   useEffect(() => {
-    console.log('🔄 DashboardRu: effectiveUserId changed:', effectiveUserId);
-    if (effectiveUserId) {
-      loadDashboardData();
-    }
-  }, [refreshTrigger, effectiveUserId]);
-
-  const loadDashboardData = async (showRefreshing = false) => {
-    if (!effectiveUserId) {
-      console.warn('Cannot load dashboard: effectiveUserId not available');
-      setLoading(false);
-      return;
-    }
-
-    if (showRefreshing) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-
-    try {
-      console.log('📊 DashboardRu: Loading data for user:', effectiveUserId);
-      
-      // Load admin stats if admin
-      if (isAdmin) {
-        const adminData = await api.getAdminStats().catch(() => ({ success: false }));
-        if (adminData.success) {
-          setAdminStats(adminData.stats);
-        }
+    let startValue = 0;
+    const duration = 1500;
+    const increment = value / (duration / 16);
+    
+    const timer = setInterval(() => {
+      startValue += increment;
+      if (startValue >= value) {
+        setDisplayValue(value);
+        clearInterval(timer);
+      } else {
+        setDisplayValue(Math.floor(startValue));
       }
+    }, 16);
 
-      // Load all data in parallel
-      const [ordersData, earningsData, teamData] = await Promise.all([
-        api.getOrders().catch(() => ({ success: false, orders: [] })),
-        api.getEarnings().catch(() => ({ success: false, earnings: [] })),
-        api.getUserTeam(effectiveUserId).catch(() => ({ success: false, team: [] }))
-      ]);
+    return () => clearInterval(timer);
+  }, [value]);
 
-      // Process orders
-      const orders = ordersData.success ? ordersData.orders : [];
-      const activeOrders = orders.filter((o: any) => o.статус === 'pending').length;
-      setRecentOrders(orders.slice(0, 5));
-      setAllOrders(orders);
+  return <span>{displayValue.toLocaleString('ru-RU')}{suffix}</span>;
+};
 
-      // Process earnings
-      const earningsArr = earningsData.success ? earningsData.earnings : [];
-      setEarnings(earningsArr);
+// Компонент heatmap календаря активности
+const ActivityHeatmap = ({ orders }: { orders: any[] }) => {
+  const weeks = 12;
+  const days = 7;
+  
+  const getActivityForDate = (date: Date) => {
+    const dayActivity = orders.filter(order => {
+      const orderDate = new Date(order.датаСоздания || order.created_at);
+      return orderDate.toDateString() === date.toDateString();
+    }).length;
+    
+    if (dayActivity === 0) return 'bg-gray-100';
+    if (dayActivity <= 1) return 'bg-green-200';
+    if (dayActivity <= 3) return 'bg-green-400';
+    return 'bg-green-600';
+  };
 
-      const totalEarnings = earningsArr.reduce((sum: number, e: any) => sum + (e.сумма || e.amount || 0), 0);
-      
-      // Calculate month earnings
-      const now = new Date();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const monthEarnings = earningsArr
-        .filter((e: any) => new Date(e.дата || e.createdAt) >= monthStart)
-        .reduce((sum: number, e: any) => sum + (e.сумма || e.amount || 0), 0);
-
-      // Process team
-      const teamArr = teamData.success ? teamData.team : [];
-      const teamSize = teamArr.length;
-      setTeam(teamArr);
-
-      setStats({
-        totalEarnings,
-        monthEarnings,
-        activeOrders,
-        teamSize
-      });
-
-      console.log('✅ DashboardRu: Stats loaded:', { totalEarnings, monthEarnings, activeOrders, teamSize });
-
-      // Generate chart data (last 7 days)
-      const chartDataArr = [];
-      for (let i = 6; i >= 0; i--) {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        date.setHours(0, 0, 0, 0);
-        
-        const nextDate = new Date(date);
-        nextDate.setDate(nextDate.getDate() + 1);
-        
-        const dayEarnings = earningsArr
-          .filter((e: any) => {
-            const eDate = new Date(e.дата || e.createdAt);
-            return eDate >= date && eDate < nextDate;
-          })
-          .reduce((sum: number, e: any) => sum + (e.сумма || e.amount || 0), 0);
-        
-        chartDataArr.push({
-          date: date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
-          доход: dayEarnings
+  const generateCalendar = () => {
+    const calendar = [];
+    const today = new Date();
+    
+    for (let week = weeks - 1; week >= 0; week--) {
+      const weekData = [];
+      for (let day = 0; day < days; day++) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - (week * 7 + (6 - day)));
+        weekData.push({
+          date,
+          activity: getActivityForDate(date)
         });
       }
-      setChartData(chartDataArr);
+      calendar.push(weekData);
+    }
+    
+    return calendar;
+  };
 
+  const calendar = generateCalendar();
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 text-sm text-gray-600">
+        <CalendarIcon className="w-4 h-4" />
+        <span>Моя активность за последние {weeks} недель</span>
+      </div>
+      <div className="flex gap-1">
+        {calendar.map((week, weekIndex) => (
+          <div key={weekIndex} className="flex flex-col gap-1">
+            {week.map((day, dayIndex) => (
+              <TooltipProvider key={dayIndex}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div
+                      className={`w-3 h-3 rounded-sm ${day.activity} cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-gray-400 transition-all`}
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="text-xs">{day.date.toLocaleDateString('ru-RU')}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-4 text-xs text-gray-500">
+        <span>Меньше</span>
+        <div className="flex gap-1">
+          <div className="w-3 h-3 rounded-sm bg-gray-100" />
+          <div className="w-3 h-3 rounded-sm bg-green-200" />
+          <div className="w-3 h-3 rounded-sm bg-green-400" />
+          <div className="w-3 h-3 rounded-sm bg-green-600" />
+        </div>
+        <span>Больше</span>
+      </div>
+    </div>
+  );
+};
+
+export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger }: DashboardRuProps) {
+  const [loading, setLoading] = useState(true);
+  const [team, setTeam] = useState<any[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [myOrders, setMyOrders] = useState<any[]>([]);
+  const [recentActivity, setRecentActivity] = useState<any[]>([]);
+
+  useEffect(() => {
+    loadData();
+  }, [currentUser, refreshTrigger]);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      
+      // Загружаем команду
+      const teamData = await api.getUserTeam(currentUser.id);
+      const teamArray = Array.isArray(teamData) ? teamData : [];
+      setTeam(teamArray);
+      
+      // Загружаем все заказы для расчёта комиссий
+      const allOrders = await api.getOrders();
+      const ordersArray = Array.isArray(allOrders) ? allOrders : (allOrders?.orders ? allOrders.orders : []);
+      setOrders(ordersArray);
+      
+      // Мои заказы
+      const myOrdersData = ordersArray.filter((o: any) => o.партнерId === currentUser.id);
+      setMyOrders(myOrdersData);
+      
+      // Формируем недавнюю активность
+      const activity = [];
+      
+      // Новые партнёры (последние 7 дней)
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      const newPartners = teamArray.filter((m: any) => {
+        const regDate = new Date(m.датаРегистрации || m.зарегистрирован);
+        return regDate >= weekAgo;
+      });
+      
+      newPartners.forEach((partner: any) => {
+        activity.push({
+          type: 'partner',
+          icon: UserPlus,
+          color: 'text-blue-500',
+          bg: 'bg-blue-50',
+          title: 'Новый партнёр',
+          description: `${partner.имя} присоединился к вашей команде`,
+          time: new Date(partner.датаРегистрации || partner.зарегистрирован),
+        });
+      });
+      
+      // Недавние заказы (последние 10)
+      const recentOrders = [...(ordersArray || [])]
+        .filter((o: any) => {
+          // Мои заказы или заказы команды
+          return o.партнерId === currentUser.id || teamArray.some((m: any) => m.id === o.партнерId);
+        })
+        .sort((a: any, b: any) => new Date(b.датаСоздания || b.created_at).getTime() - new Date(a.датаСоздания || a.created_at).getTime())
+        .slice(0, 10);
+      
+      recentOrders.forEach((order: any) => {
+        const isMine = order.партнерId === currentUser.id;
+        activity.push({
+          type: 'order',
+          icon: Package,
+          color: isMine ? 'text-green-500' : 'text-purple-500',
+          bg: isMine ? 'bg-green-50' : 'bg-purple-50',
+          title: isMine ? 'Ваш заказ' : 'Заказ команды',
+          description: `${order.товары?.length || 0} товаров на ${order.итого?.toLocaleString('ru-RU')}₽`,
+          time: new Date(order.датаСоздания || order.created_at),
+        });
+      });
+      
+      // Сортируем по времени
+      activity.sort((a, b) => b.time.getTime() - a.time.getTime());
+      setRecentActivity(activity.slice(0, 10));
+      
     } catch (error) {
-      console.error('Failed to load dashboard data:', error);
-      toast.error('Не удалось загрузить данные дашборда');
+      console.error('Error loading dashboard data:', error);
+      toast.error('Ошибка загрузки данных');
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   };
 
-  const handleRefresh = () => {
-    loadDashboardData(true);
-    onRefresh();
+  // Расчёт дохода за текущий месяц
+  const getMonthlyIncome = () => {
+    if (!Array.isArray(orders)) return 0;
+    
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    
+    let totalIncome = 0;
+    
+    orders.forEach((order: any) => {
+      const orderDate = new Date(order.датаСоздания || order.created_at);
+      if (orderDate >= monthStart && orderDate <= now) {
+        // Считаем комиссии
+        if (order.d1 === currentUser.id) totalIncome += order.комиссияD1 || 0;
+        if (order.d2 === currentUser.id) totalIncome += order.комиссияD2 || 0;
+        if (order.d3 === currentUser.id) totalIncome += order.комиссияD3 || 0;
+      }
+    });
+    
+    return totalIncome;
   };
 
-  // Guard clause
-  if (!currentUser || !currentUser.имя) {
-    return (
-      <div className="p-4 lg:p-8 max-w-full overflow-x-hidden" style={{ backgroundColor: '#F7FAFC' }}>
-        <div className="flex items-center justify-center py-20">
-          <div className="flex flex-col items-center gap-4">
-            <Loader2 className="w-12 h-12 text-[#39B7FF] animate-spin" />
-            <p className="text-[#666]">Загрузка профиля...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Расчёт дохода за прошлый месяц для сравнения
+  const getLastMonthIncome = () => {
+    if (!Array.isArray(orders)) return 0;
+    
+    const now = new Date();
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+    
+    let totalIncome = 0;
+    
+    orders.forEach((order: any) => {
+      const orderDate = new Date(order.датаСоздания || order.created_at);
+      if (orderDate >= lastMonthStart && orderDate <= lastMonthEnd) {
+        if (order.d1 === currentUser.id) totalIncome += order.комиссияD1 || 0;
+        if (order.d2 === currentUser.id) totalIncome += order.комиссияD2 || 0;
+        if (order.d3 === currentUser.id) totalIncome += order.комиссияD3 || 0;
+      }
+    });
+    
+    return totalIncome;
+  };
+
+  // Генерация данных для графика дохода
+  const getIncomeChartData = () => {
+    if (!Array.isArray(orders)) return [];
+    
+    const months = [];
+    const now = new Date();
+    
+    for (let i = 5; i >= 0; i--) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+      const monthName = date.toLocaleDateString('ru-RU', { month: 'short' });
+      
+      let income = 0;
+      orders.forEach((order: any) => {
+        const orderDate = new Date(order.датаСоздания || order.created_at);
+        if (orderDate >= date && orderDate <= monthEnd) {
+          if (order.d1 === currentUser.id) income += order.комиссияD1 || 0;
+          if (order.d2 === currentUser.id) income += order.комиссияD2 || 0;
+          if (order.d3 === currentUser.id) income += order.комиссияD3 || 0;
+        }
+      });
+      
+      months.push({
+        month: monthName,
+        доход: Math.floor(income),
+      });
+    }
+    
+    return months;
+  };
+
+  // Генерация данных для графика роста команды
+  const getTeamGrowthData = () => {
+    if (!Array.isArray(team)) return [];
+    
+    const months = [];
+    const now = new Date();
+    
+    for (let i = 5; i >= 0; i--) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthName = date.toLocaleDateString('ru-RU', { month: 'short' });
+      
+      const count = team.filter(member => {
+        if (!member.датаРегистрации && !member.зарегистрирован) return false;
+        const regDate = new Date(member.датаРегистрации || member.зарегистрирован);
+        return regDate <= date;
+      }).length;
+      
+      months.push({
+        month: monthName,
+        партнеров: count,
+      });
+    }
+    
+    return months;
+  };
+
+  // Топ товары
+  const getTopProducts = () => {
+    if (!Array.isArray(orders) || !Array.isArray(team)) return [];
+    
+    const productSales: Record<string, { name: string; count: number; revenue: number }> = {};
+    
+    orders.forEach((order: any) => {
+      // Только мои заказы и заказы команды
+      if (order.партнерId !== currentUser.id && !team.some(m => m.id === order.партнерId)) {
+        return;
+      }
+      
+      (order.товары || []).forEach((item: any) => {
+        const key = item.товарId || item.название;
+        if (!productSales[key]) {
+          productSales[key] = {
+            name: item.название || 'Товар',
+            count: 0,
+            revenue: 0,
+          };
+        }
+        productSales[key].count += item.количество || 1;
+        productSales[key].revenue += (item.цена || 0) * (item.количество || 1);
+      });
+    });
+    
+    return Object.values(productSales)
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 5)
+      .map(p => ({
+        название: p.name,
+        продаж: p.count,
+        выручка: p.revenue,
+      }));
+  };
+
+  // Активные заказы (в обработке)
+  const getActiveOrders = () => {
+    if (!Array.isArray(orders) || !Array.isArray(team)) return 0;
+    
+    return orders.filter((o: any) => {
+      const status = o.статус || o.status;
+      return (o.партнерId === currentUser.id || team.some(m => m.id === o.партнерId)) &&
+             (status === 'в обработке' || status === 'pending' || !status);
+    }).length;
+  };
+
+  // Новые партнёры за неделю
+  const getNewPartnersThisWeek = () => {
+    if (!Array.isArray(team)) return 0;
+    
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    
+    return team.filter(m => {
+      const regDate = new Date(m.датаРегистрации || m.зарегистрирован);
+      return regDate >= weekAgo;
+    }).length;
+  };
+
+  // Данные для колец активности
+  const getActivityRingsData = () => {
+    if (!Array.isArray(orders) || !Array.isArray(team)) {
+      return {
+        income: { value: 0, progress: 0, goal: 100000 },
+        team: { value: 0, progress: 0, goal: 50 },
+        activity: { value: 0, progress: 0, goal: 0 },
+      };
+    }
+    
+    const monthlyIncome = getMonthlyIncome();
+    const incomeGoal = 100000; // Цель 100K₽
+    
+    const teamSize = team.length;
+    const teamGoal = 50; // Цель 50 партнёров
+    
+    // Активность - партнёры с заказами за последние 7 дней
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const activePartners = team.filter(member => {
+      return orders.some(order => {
+        const orderDate = new Date(order.датаСоздания || order.created_at);
+        return order.партнерId === member.id && orderDate >= weekAgo;
+      });
+    }).length;
+    const activityPercent = teamSize > 0 ? (activePartners / teamSize) * 100 : 0;
+    
+    return {
+      income: {
+        value: monthlyIncome,
+        progress: Math.min(100, (monthlyIncome / incomeGoal) * 100),
+        goal: incomeGoal,
+      },
+      team: {
+        value: teamSize,
+        progress: Math.min(100, (teamSize / teamGoal) * 100),
+        goal: teamGoal,
+      },
+      activity: {
+        value: activePartners,
+        progress: activityPercent,
+        goal: teamSize,
+      },
+    };
+  };
+
+  // Прогресс к следующему уровню
+  const getLevelProgress = () => {
+    if (!Array.isArray(orders) || !Array.isArray(team)) {
+      return { 
+        current: currentUser.уровень || 1, 
+        next: (currentUser.уровень || 1) + 1, 
+        teamProgress: 0, 
+        revenueProgress: 0, 
+        requirements: null,
+        currentTeam: 0,
+        currentRevenue: 0,
+      };
+    }
+    
+    const currentLevel = currentUser.уровень || 1;
+    const nextLevel = currentLevel + 1;
+    
+    // Требования для уровней (пример)
+    const requirements: Record<number, { team: number; revenue: number }> = {
+      2: { team: 15, revenue: 500000 },
+      3: { team: 50, revenue: 2000000 },
+    };
+    
+    if (nextLevel > 3) {
+      return { current: 3, next: 3, teamProgress: 100, revenueProgress: 100, requirements: null, currentTeam: team.length, currentRevenue: 0 };
+    }
+    
+    const req = requirements[nextLevel];
+    const totalRevenue = orders.reduce((sum, order) => {
+      if (order.партнерId === currentUser.id || team.some(m => m.id === order.партнерId)) {
+        return sum + (order.итого || 0);
+      }
+      return sum;
+    }, 0);
+    
+    return {
+      current: currentLevel,
+      next: nextLevel,
+      teamProgress: Math.min(100, (team.length / req.team) * 100),
+      revenueProgress: Math.min(100, (totalRevenue / req.revenue) * 100),
+      requirements: req,
+      currentTeam: team.length,
+      currentRevenue: totalRevenue,
+    };
+  };
 
   if (loading) {
     return (
-      <div className="p-4 lg:p-8 max-w-full overflow-x-hidden" style={{ backgroundColor: '#F7FAFC' }}>
-        <div className="flex items-center justify-center py-20">
-          <div className="flex flex-col items-center gap-4">
-            <Loader2 className="w-12 h-12 text-[#39B7FF] animate-spin" />
-            <p className="text-[#666]">Загрузка дашборда...</p>
-          </div>
+      <div className="flex items-center justify-center h-screen" style={{ backgroundColor: '#F7FAFC' }}>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#39B7FF] mx-auto mb-4"></div>
+          <p className="text-gray-600">Загрузка дашборда...</p>
         </div>
       </div>
     );
   }
 
+  const monthlyIncome = getMonthlyIncome();
+  const lastMonthIncome = getLastMonthIncome();
+  const incomeChange = lastMonthIncome > 0 
+    ? ((monthlyIncome - lastMonthIncome) / lastMonthIncome) * 100 
+    : monthlyIncome > 0 ? 100 : 0;
+  
+  const incomeChartData = getIncomeChartData();
+  const teamGrowthData = getTeamGrowthData();
+  const topProducts = getTopProducts();
+  const ringsData = getActivityRingsData();
+  const levelProgress = getLevelProgress();
+  const activeOrders = getActiveOrders();
+  const newPartnersThisWeek = getNewPartnersThisWeek();
+
   return (
     <div className="p-4 lg:p-8 max-w-full overflow-x-hidden" style={{ backgroundColor: '#F7FAFC' }}>
-      {/* Admin Toolbar */}
-      {showAdminToolbar && <AdminToolbar userName={currentUser.имя} onUserChange={onRefresh} />}
-
       {/* Header */}
-      <div className="flex items-center justify-between mb-6 lg:mb-8">
-        <div>
-          <h1 className="text-[#1E1E1E] mb-1" style={{ fontSize: '24px', fontWeight: '700' }}>
-            {isAdmin ? ' Панель администратора' : `Добро пожаловаь, ${currentUser.имя}! 👋`}
-          </h1>
-          <p className="text-[#666]">
-            {isAdmin 
-              ? 'Глобальная ст��тистика и управление системой'
-              : `Уровень ${currentUser.уровень} • Рефкод: ${currentUser.рефКод}`
-            }
-          </p>
-        </div>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="p-2 rounded-lg hover:bg-white transition-colors"
-          title="Обновить данные"
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.3 }}
+        className="mb-6 md:mb-8"
+      >
+        <h1 className="text-[#1E1E1E] mb-2" style={{ fontSize: 'clamp(24px, 5vw, 32px)', fontWeight: '700' }}>
+          🏠 Дашборд
+        </h1>
+        <p className="text-[#666] text-sm md:text-base">
+          Добро пожаловать, {currentUser.имя}! Вот ваша статистика
+        </p>
+      </motion.div>
+
+      {/* Activity Rings - Hero Section */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.6, delay: 0.2 }}
+      >
+        <Card className="border-[#E6E9EE] rounded-2xl md:rounded-3xl shadow-lg bg-gradient-to-br from-white to-blue-50 mb-6 md:mb-8">
+          <CardContent className="p-4 md:p-8">
+            <div className="flex items-center gap-2 md:gap-3 mb-4 md:mb-6">
+              <Activity className="w-5 h-5 md:w-6 md:h-6 text-[#39B7FF]" />
+              <h2 className="text-lg md:text-xl font-bold text-gray-800">Кольца активности</h2>
+            </div>
+            
+            <div className="grid grid-cols-3 gap-4 md:gap-8">
+              {/* Blue Ring - Income */}
+              <div className="flex flex-col items-center">
+                <ActivityRing
+                  radius={50}
+                  stroke={10}
+                  progress={ringsData.income.progress}
+                  color="#39B7FF"
+                  label="Доход"
+                  value={`${Math.floor(ringsData.income.value / 1000)}K`}
+                />
+                <div className="mt-2 md:mt-4 text-center">
+                  <div className="text-xs md:text-sm text-gray-600">
+                    Цель: {(ringsData.income.goal / 1000).toLocaleString('ru-RU')}K₽
+                  </div>
+                </div>
+              </div>
+
+              {/* Green Ring - Team */}
+              <div className="flex flex-col items-center">
+                <ActivityRing
+                  radius={50}
+                  stroke={10}
+                  progress={ringsData.team.progress}
+                  color="#12C9B6"
+                  label="Команда"
+                  value={ringsData.team.value}
+                />
+                <div className="mt-2 md:mt-4 text-center">
+                  <div className="text-xs md:text-sm text-gray-600">
+                    Цель: {ringsData.team.goal}
+                  </div>
+                </div>
+              </div>
+
+              {/* Red Ring - Activity */}
+              <div className="flex flex-col items-center">
+                <ActivityRing
+                  radius={50}
+                  stroke={10}
+                  progress={ringsData.activity.progress}
+                  color="#EF4444"
+                  label="Активных"
+                  value={ringsData.activity.value}
+                />
+                <div className="mt-2 md:mt-4 text-center">
+                  <div className="text-xs md:text-sm text-gray-600">
+                    За неделю
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 md:mt-8 p-3 md:p-4 bg-blue-50 rounded-xl md:rounded-2xl border border-blue-100">
+              <div className="flex items-center gap-2 text-blue-800 text-sm md:text-base">
+                <Zap className="w-4 h-4 md:w-5 md:h-5 flex-shrink-0" />
+                <span className="font-semibold">
+                  {ringsData.income.progress >= 100 && ringsData.team.progress >= 100 && ringsData.activity.progress >= 80
+                    ? '🔥 Все кольца закрыты! Отличная работа!'
+                    : 'Продолжайте работу, чтобы закрыть все кольца!'}
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* Key Metrics - 4 Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-6 md:mb-8">
+        {/* Monthly Income */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.3 }}
         >
-          <RefreshCw className={`w-5 h-5 text-[#666] ${refreshing ? 'animate-spin' : ''}`} />
-        </button>
+          <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white hover:shadow-md transition-shadow">
+            <CardContent className="p-4 md:p-6">
+              <div className="flex items-center justify-between mb-3">
+                <div className="p-2 bg-green-50 rounded-xl">
+                  <DollarSign className="w-5 h-5 text-green-600" />
+                </div>
+                {incomeChange !== 0 && (
+                  <Badge className={`${incomeChange > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} border-0`}>
+                    {incomeChange > 0 ? <ArrowUpRight className="w-3 h-3 mr-1" /> : <ArrowDownRight className="w-3 h-3 mr-1" />}
+                    {Math.abs(incomeChange).toFixed(0)}%
+                  </Badge>
+                )}
+              </div>
+              <div className="text-2xl font-bold text-gray-800 mb-1">
+                <AnimatedCounter value={monthlyIncome} suffix="₽" />
+              </div>
+              <div className="text-sm text-gray-600">Доход за месяц</div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Team Size */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.4 }}
+        >
+          <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white hover:shadow-md transition-shadow">
+            <CardContent className="p-4 md:p-6">
+              <div className="flex items-center justify-between mb-3">
+                <div className="p-2 bg-blue-50 rounded-xl">
+                  <Users className="w-5 h-5 text-blue-600" />
+                </div>
+                {newPartnersThisWeek > 0 && (
+                  <Badge className="bg-blue-100 text-blue-700 border-0">
+                    +{newPartnersThisWeek} за неделю
+                  </Badge>
+                )}
+              </div>
+              <div className="text-2xl font-bold text-gray-800 mb-1">
+                <AnimatedCounter value={team.length} />
+              </div>
+              <div className="text-sm text-gray-600">Партнёров в команде</div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Balance */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.5 }}
+        >
+          <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white hover:shadow-md transition-shadow">
+            <CardContent className="p-4 md:p-6">
+              <div className="flex items-center justify-between mb-3">
+                <div className="p-2 bg-purple-50 rounded-xl">
+                  <Wallet className="w-5 h-5 text-purple-600" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold text-gray-800 mb-1">
+                <AnimatedCounter value={currentUser.баланс || 0} suffix="₽" />
+              </div>
+              <div className="text-sm text-gray-600 mb-3">Доступно к выводу</div>
+              <Button 
+                size="sm" 
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+                onClick={() => onNavigate?.('баланс')}
+              >
+                Вывести
+              </Button>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Active Orders */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.6 }}
+        >
+          <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white hover:shadow-md transition-shadow">
+            <CardContent className="p-4 md:p-6">
+              <div className="flex items-center justify-between mb-3">
+                <div className="p-2 bg-orange-50 rounded-xl">
+                  <ShoppingBag className="w-5 h-5 text-orange-600" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold text-gray-800 mb-1">
+                <AnimatedCounter value={activeOrders} />
+              </div>
+              <div className="text-sm text-gray-600 mb-3">Активных заказов</div>
+              <Button 
+                size="sm" 
+                variant="outline" 
+                className="w-full"
+                onClick={() => onNavigate?.('заказы')}
+              >
+                Посмотреть
+              </Button>
+            </CardContent>
+          </Card>
+        </motion.div>
       </div>
 
-      {/* Admin Global Stats */}
-      {isAdmin && adminStats && (
-        <>
-          <div className="mb-4">
-            <h2 className="text-[#1E1E1E] mb-4" style={{ fontSize: '18px', fontWeight: '700' }}>
-              🌍 Глобальная статистика системы
-            </h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-6 lg:mb-8">
-            <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-gradient-to-br from-green-50 to-emerald-50">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
-                    <DollarSign className="w-6 h-6 text-green-600" />
-                  </div>
+      {/* Charts in Tabs */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5, delay: 0.7 }}
+        className="mb-6 md:mb-8"
+      >
+        <Card className="border-[#E6E9EE] rounded-3xl shadow-lg bg-white">
+          <CardContent className="p-4 md:p-6">
+            <Tabs defaultValue="income" className="w-full">
+              <TabsList className="grid w-full grid-cols-3 mb-6">
+                <TabsTrigger value="income">Динамика дохода</TabsTrigger>
+                <TabsTrigger value="team">Рост команды</TabsTrigger>
+                <TabsTrigger value="products">Топ товары</TabsTrigger>
+              </TabsList>
+              
+              {/* Income Chart */}
+              <TabsContent value="income">
+                <div className="mb-4">
+                  <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5 text-green-500" />
+                    Динамика дохода (6 месяцев)
+                  </h3>
                 </div>
-                <div className="text-[#1E1E1E] mb-1" style={{ fontSize: '28px', fontWeight: '700' }}>
-                  ₽{(adminStats.revenue?.total || 0).toLocaleString()}
-                </div>
-                <div className="text-[#666]" style={{ fontSize: '13px' }}>Общая выручка</div>
-              </CardContent>
-            </Card>
-
-            <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-gradient-to-br from-blue-50 to-cyan-50">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
-                    <Users className="w-6 h-6 text-blue-600" />
-                  </div>
-                </div>
-                <div className="text-[#1E1E1E] mb-1" style={{ fontSize: '28px', fontWeight: '700' }}>
-                  {adminStats.users?.total || 0}
-                </div>
-                <div className="text-[#666]" style={{ fontSize: '13px' }}>Всего партнёров</div>
-              </CardContent>
-            </Card>
-
-            <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-gradient-to-br from-purple-50 to-pink-50">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
-                    <Package className="w-6 h-6 text-purple-600" />
-                  </div>
-                </div>
-                <div className="text-[#1E1E1E] mb-1" style={{ fontSize: '28px', fontWeight: '700' }}>
-                  {adminStats.orders?.total || 0}
-                </div>
-                <div className="text-[#666]" style={{ fontSize: '13px' }}>Всего заказов</div>
-              </CardContent>
-            </Card>
-
-            <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-gradient-to-br from-orange-50 to-amber-50">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center">
-                    <Wallet className="w-6 h-6 text-orange-600" />
-                  </div>
-                </div>
-                <div className="text-[#1E1E1E] mb-1" style={{ fontSize: '28px', fontWeight: '700' }}>
-                  ₽{(adminStats.finance?.pendingWithdrawals || 0).toLocaleString()}
-                </div>
-                <div className="text-[#666]" style={{ fontSize: '13px' }}>Ожидают выплаты</div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="mb-4">
-            <h2 className="text-[#1E1E1E] mb-4" style={{ fontSize: '18px', fontWeight: '700' }}>
-              👤 Личная статистика
-            </h2>
-          </div>
-        </>
-      )}
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-6 lg:mb-8">
-        <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="text-[#666]" style={{ fontSize: '14px', fontWeight: '500' }}>Текущий баланс</div>
-              <div className="w-8 h-8 bg-[#39B7FF]/10 rounded-lg flex items-center justify-center">
-                <Wallet className="w-4 h-4 text-[#39B7FF]" />
-              </div>
-            </div>
-            <div className="text-[#39B7FF] mb-2" style={{ fontSize: '32px', fontWeight: '700', lineHeight: '1' }}>
-              {(currentUser.баланс || 0).toLocaleString('ru-RU')} ₽
-            </div>
-            <div className="text-[#666]" style={{ fontSize: '13px' }}>Доступно для вывода</div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="text-[#666]" style={{ fontSize: '14px', fontWeight: '500' }}>Доход за месяц</div>
-              <div className="w-8 h-8 bg-[#12C9B6]/10 rounded-lg flex items-center justify-center">
-                <TrendingUp className="w-4 h-4 text-[#12C9B6]" />
-              </div>
-            </div>
-            <div className="text-[#12C9B6] mb-2" style={{ fontSize: '32px', fontWeight: '700', lineHeight: '1' }}>
-              {(stats.monthEarnings || 0).toLocaleString('ru-RU')} ₽
-            </div>
-            <div className="text-[#12C9B6]" style={{ fontSize: '13px' }}>
-              ↑ +{stats.monthEarnings > 0 ? '100' : '0'}% от прошлого месяца
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="text-[#666]" style={{ fontSize: '14px', fontWeight: '500' }}>Всего заработано</div>
-              <div className="w-8 h-8 bg-[#39B7FF]/10 rounded-lg flex items-center justify-center">
-                <DollarSign className="w-4 h-4 text-[#39B7FF]" />
-              </div>
-            </div>
-            <div className="text-[#39B7FF] mb-2" style={{ fontSize: '32px', fontWeight: '700', lineHeight: '1' }}>
-              {(stats.totalEarnings || 0).toLocaleString('ru-RU')} ₽
-            </div>
-            <div className="text-[#666]" style={{ fontSize: '13px' }}>За всё время</div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="text-[#666]" style={{ fontSize: '14px', fontWeight: '500' }}>Команда</div>
-              <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                <Users className="w-4 h-4 text-purple-600" />
-              </div>
-            </div>
-            <div className="text-purple-600 mb-2" style={{ fontSize: '32px', fontWeight: '700', lineHeight: '1' }}>
-              {stats.teamSize}
-            </div>
-            <div className="text-[#666]" style={{ fontSize: '13px' }}>Активных партнёров</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Chart */}
-      <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white mb-6 lg:mb-8">
-        <CardHeader>
-          <CardTitle className="text-[#1E1E1E]">График доходов (7 дней)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E6E9EE" />
-              <XAxis 
-                dataKey="date" 
-                stroke="#666"
-                style={{ fontSize: '12px' }}
-              />
-              <YAxis 
-                stroke="#666"
-                style={{ fontSize: '12px' }}
-                tickFormatter={(value) => `₽${value}`}
-              />
-              <Tooltip 
-                contentStyle={{
-                  backgroundColor: 'white',
-                  border: '1px solid #E6E9EE',
-                  borderRadius: '8px'
-                }}
-                formatter={(value: any) => [`₽${value.toLocaleString()}`, 'Доход']}
-              />
-              <Line 
-                type="monotone" 
-                dataKey="доход" 
-                stroke="#39B7FF" 
-                strokeWidth={3}
-                dot={{ fill: '#39B7FF', r: 4 }}
-                activeDot={{ r: 6 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
-
-      {/* Recent Orders */}
-      <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white mb-6 lg:mb-8">
-        <CardHeader>
-          <CardTitle className="text-[#1E1E1E]">Последние заказы</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {recentOrders.length === 0 ? (
-            <div className="text-center py-8">
-              <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <ShoppingBag className="w-6 h-6 text-gray-400" />
-              </div>
-              <p className="text-[#666]">Пока нет заказов</p>
-              <p className="text-[#666] mt-1" style={{ fontSize: '13px' }}>
-                Создайте первый заказ в разделе Каталог
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {recentOrders.map((order) => (
-                <div 
-                  key={order.id}
-                  className="flex items-center justify-between p-4 bg-[#F7FAFC] rounded-xl"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                      order.статус === 'completed' || order.статус === 'paid' ? 'bg-green-100' : 'bg-orange-100'
-                    }`}>
-                      <ShoppingBag className={`w-5 h-5 ${
-                        order.статус === 'completed' || order.статус === 'paid' ? 'text-green-600' : 'text-orange-600'
-                      }`} />
-                    </div>
-                    <div>
-                      <p className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>
-                        {order.товар}
-                      </p>
-                      <p className="text-[#666]" style={{ fontSize: '13px' }}>
-                        {new Date(order.датаЗаказа || order.дата).toLocaleDateString('ru-RU')}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>
-                      {(order.суммаЗаказа || order.общаяСумма || order.цена || 0).toLocaleString('ru-RU')}₽
-                    </p>
-                    <p className={`text-${order.статус === 'completed' || order.статус === 'paid' ? 'green' : 'orange'}-600`} style={{ fontSize: '12px' }}>
-                      {order.статус === 'completed' || order.статус === 'paid' ? 'Завершён' : order.статус === 'pending' ? 'Ожидание' : 'Обработка'}
+                <ResponsiveContainer width="100%" height={300}>
+                  <AreaChart data={incomeChartData}>
+                    <defs>
+                      <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#12C9B6" stopOpacity={0.8}/>
+                        <stop offset="95%" stopColor="#12C9B6" stopOpacity={0.1}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                    <XAxis dataKey="month" stroke="#6B7280" style={{ fontSize: '12px' }} />
+                    <YAxis stroke="#6B7280" style={{ fontSize: '12px' }} />
+                    <RechartsTooltip
+                      contentStyle={{ backgroundColor: '#FFF', border: '1px solid #E5E7EB', borderRadius: '8px' }}
+                      formatter={(value: any) => [`${value.toLocaleString('ru-RU')}₽`, 'Доход']}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="доход"
+                      stroke="#12C9B6"
+                      fillOpacity={1}
+                      fill="url(#colorIncome)"
+                      strokeWidth={2}
+                      animationDuration={1500}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+                {incomeChartData.every(d => d.доход === 0) && (
+                  <div className="mt-4 flex items-center gap-2 p-3 bg-blue-50 rounded-xl border border-blue-200">
+                    <Zap size={16} className="text-blue-600 flex-shrink-0" />
+                    <p className="text-xs text-blue-700">
+                      Доход будет отображаться после совершения первых заказов
                     </p>
                   </div>
+                )}
+              </TabsContent>
+              
+              {/* Team Growth Chart */}
+              <TabsContent value="team">
+                <div className="mb-4">
+                  <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <Users className="w-5 h-5 text-blue-500" />
+                    Рост команды (6 месяцев)
+                  </h3>
                 </div>
-              ))}
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={teamGrowthData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                    <XAxis dataKey="month" stroke="#6B7280" style={{ fontSize: '12px' }} />
+                    <YAxis stroke="#6B7280" style={{ fontSize: '12px' }} />
+                    <RechartsTooltip
+                      contentStyle={{ backgroundColor: '#FFF', border: '1px solid #E5E7EB', borderRadius: '8px' }}
+                      formatter={(value: any) => [value, 'Партнёров']}
+                    />
+                    <Bar
+                      dataKey="партнеров"
+                      fill="#39B7FF"
+                      radius={[8, 8, 0, 0]}
+                      animationDuration={1500}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </TabsContent>
+              
+              {/* Top Products Chart */}
+              <TabsContent value="products">
+                <div className="mb-4">
+                  <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <Award className="w-5 h-5 text-amber-500" />
+                    Топ товары по продажам
+                  </h3>
+                </div>
+                {topProducts.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={topProducts} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                      <XAxis type="number" stroke="#6B7280" style={{ fontSize: '12px' }} />
+                      <YAxis type="category" dataKey="название" stroke="#6B7280" style={{ fontSize: '12px' }} width={120} />
+                      <RechartsTooltip
+                        contentStyle={{ backgroundColor: '#FFF', border: '1px solid #E5E7EB', borderRadius: '8px' }}
+                        formatter={(value: any) => [`${value.toLocaleString('ru-RU')}₽`, 'Выручка']}
+                      />
+                      <Bar
+                        dataKey="выручка"
+                        fill="#F59E0B"
+                        radius={[0, 8, 8, 0]}
+                        animationDuration={1500}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-[300px] text-center p-6">
+                    <Package className="w-12 h-12 text-gray-300 mb-4" />
+                    <p className="text-gray-500 mb-2">Пока нет данных о продажах</p>
+                    <p className="text-sm text-gray-400">Создайте первый заказ, чтобы увидеть статистику</p>
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* Activity Heatmap & Level Progress */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6 md:mb-8">
+        {/* Activity Heatmap */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.8 }}
+        >
+          <Card className="border-[#E6E9EE] rounded-3xl shadow-lg bg-white h-full">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-gray-800">
+                <CalendarIcon className="w-5 h-5 text-purple-500" />
+                Календарь активности
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ActivityHeatmap orders={orders.filter(o => o.партнерId === currentUser.id)} />
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Level Progress */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.9 }}
+        >
+          <Card className="border-[#E6E9EE] rounded-3xl shadow-lg bg-gradient-to-br from-white to-amber-50 h-full">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-gray-800">
+                <Crown className="w-5 h-5 text-amber-500" />
+                Прогресс к следующему уровню
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between mb-6">
+                <div className="text-center">
+                  <div className="text-3xl font-bold text-gray-800">Уровень {levelProgress.current}</div>
+                  <div className="text-sm text-gray-600 mt-1">Текущий</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="h-1 w-12 bg-gradient-to-r from-blue-500 to-amber-500 rounded-full"></div>
+                  <Rocket className="w-6 h-6 text-amber-500" />
+                </div>
+                <div className="text-center">
+                  <div className="text-3xl font-bold text-amber-600">Уровень {levelProgress.next}</div>
+                  <div className="text-sm text-gray-600 mt-1">Следующий</div>
+                </div>
+              </div>
+
+              {levelProgress.requirements ? (
+                <div className="space-y-4">
+                  {/* Team Progress */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm text-gray-600 flex items-center gap-2">
+                        <Users className="w-4 h-4" />
+                        Партнёров
+                      </span>
+                      <span className="text-sm font-semibold text-gray-800">
+                        {levelProgress.currentTeam} / {levelProgress.requirements.team}
+                      </span>
+                    </div>
+                    <Progress value={levelProgress.teamProgress} className="h-2" />
+                  </div>
+
+                  {/* Revenue Progress */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm text-gray-600 flex items-center gap-2">
+                        <DollarSign className="w-4 h-4" />
+                        Оборот
+                      </span>
+                      <span className="text-sm font-semibold text-gray-800">
+                        {Math.floor(levelProgress.currentRevenue / 1000)}K / {levelProgress.requirements.revenue / 1000}K₽
+                      </span>
+                    </div>
+                    <Progress value={levelProgress.revenueProgress} className="h-2" />
+                  </div>
+
+                  <div className="mt-6 p-4 bg-amber-50 rounded-xl border border-amber-200">
+                    <div className="flex items-start gap-2 text-amber-800 text-sm">
+                      <Target className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <div className="font-semibold mb-1">Осталось совсем немного!</div>
+                        <div className="text-xs">
+                          Достигните целей, чтобы получить доступ к более высоким комиссиям
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-6">
+                  <Star className="w-12 h-12 text-amber-500 mx-auto mb-4" />
+                  <p className="text-lg font-bold text-gray-800 mb-2">Максимальный уровень!</p>
+                  <p className="text-sm text-gray-600">Вы достигли наивысшего уровня партнёра</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
+
+      {/* Recent Activity Timeline */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5, delay: 1.0 }}
+        className="mb-6 md:mb-8"
+      >
+        <Card className="border-[#E6E9EE] rounded-3xl shadow-lg bg-white">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-gray-800">
+              <Clock className="w-5 h-5 text-gray-600" />
+              Недавняя активность
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {recentActivity.length > 0 ? (
+              <div className="space-y-4">
+                {recentActivity.map((item, index) => (
+                  <motion.div
+                    key={index}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.3, delay: index * 0.05 }}
+                    className="flex items-start gap-4 p-3 rounded-xl hover:bg-gray-50 transition-colors"
+                  >
+                    <div className={`p-2 ${item.bg} rounded-lg`}>
+                      <item.icon className={`w-4 h-4 ${item.color}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-800 text-sm">{item.title}</p>
+                      <p className="text-sm text-gray-600 truncate">{item.description}</p>
+                    </div>
+                    <div className="text-xs text-gray-500 whitespace-nowrap">
+                      {item.time.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <Activity className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-500 mb-2">Пока нет активности</p>
+                <p className="text-sm text-gray-400">Начните работу, чтобы увидеть недавние события</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* Quick Actions */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5, delay: 1.1 }}
+      >
+        <Card className="border-[#E6E9EE] rounded-3xl shadow-lg bg-gradient-to-br from-[#39B7FF] to-[#12C9B6]">
+          <CardContent className="p-6 md:p-8">
+            <div className="flex items-center gap-3 mb-6">
+              <Zap className="w-6 h-6 text-white" />
+              <h2 className="text-xl font-bold text-white">Быстрые действия</h2>
             </div>
-          )}
-        </CardContent>
-      </Card>
-      
-      {/* 🎮 Achievements Widget */}
-      <div className="mb-6 lg:mb-8">
-        <AchievementsWidget onNavigate={() => {
-          // This will be handled by parent component
-          window.dispatchEvent(new CustomEvent('navigate-to-achievements'));
-        }} />
-      </div>
-      
-      {/* 🆕 Advanced Analytics Section */}
-      <div className="mt-6 lg:mt-8">
-        <AdvancedAnalytics 
-          earnings={earnings} 
-          orders={allOrders} 
-          team={team} 
-          currentUser={currentUser}
-        />
-      </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Button
+                className="bg-white text-[#39B7FF] hover:bg-gray-50 h-auto py-4 px-6 justify-start"
+                onClick={() => onNavigate?.('структура')}
+              >
+                <Share2 className="w-5 h-5 mr-3" />
+                <div className="text-left">
+                  <div className="font-bold">Пригласить партнёра</div>
+                  <div className="text-xs opacity-80">Поделиться реф. ссылкой</div>
+                </div>
+              </Button>
+
+              <Button
+                className="bg-white text-[#12C9B6] hover:bg-gray-50 h-auto py-4 px-6 justify-start"
+                onClick={() => onNavigate?.('каталог')}
+              >
+                <Plus className="w-5 h-5 mr-3" />
+                <div className="text-left">
+                  <div className="font-bold">Создать заказ</div>
+                  <div className="text-xs opacity-80">Оформить новый заказ</div>
+                </div>
+              </Button>
+
+              <Button
+                className="bg-white text-purple-600 hover:bg-gray-50 h-auto py-4 px-6 justify-start"
+                onClick={() => onNavigate?.('обучение')}
+              >
+                <Gift className="w-5 h-5 mr-3" />
+                <div className="text-left">
+                  <div className="font-bold">Материалы</div>
+                  <div className="text-xs opacity-80">Обучение и презентации</div>
+                </div>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
     </div>
   );
 }

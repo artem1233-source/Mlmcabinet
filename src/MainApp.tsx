@@ -277,7 +277,12 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
             {useOptimizedDashboard ? (
               <DashboardRuOptimized currentUser={currentUser} onRefresh={handleRefresh} refreshTrigger={refreshTrigger} />
             ) : (
-              <DashboardRu currentUser={currentUser} onRefresh={handleRefresh} refreshTrigger={refreshTrigger} />
+              <DashboardRu 
+                currentUser={currentUser} 
+                onNavigate={setActiveSection}
+                onRefresh={handleRefresh} 
+                refreshTrigger={refreshTrigger} 
+              />
             )}
           </div>
         );
@@ -369,7 +374,12 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
       case 'admin-management':
         return <AdminPanel currentUser={currentUser} />;
       default:
-        return <DashboardRu currentUser={currentUser} onRefresh={handleRefresh} refreshTrigger={refreshTrigger} />;
+        return <DashboardRu 
+          currentUser={currentUser} 
+          onNavigate={setActiveSection}
+          onRefresh={handleRefresh} 
+          refreshTrigger={refreshTrigger} 
+        />;
     }
   };
 

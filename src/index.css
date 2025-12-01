@@ -97,7 +97,6 @@
     --color-orange-800: oklch(.47 .157 37.304);
     --color-orange-900: oklch(.408 .123 38.172);
     --color-amber-50: oklch(.987 .022 95.277);
-    --color-amber-100: oklch(.962 .059 95.617);
     --color-amber-200: oklch(.924 .12 95.746);
     --color-amber-300: oklch(.879 .169 91.605);
     --color-amber-400: oklch(.828 .189 84.429);
@@ -912,6 +911,10 @@
 
   .mr-2 {
     margin-right: calc(var(--spacing) * 2);
+  }
+
+  .mr-3 {
+    margin-right: calc(var(--spacing) * 3);
   }
 
   .mb-0 {
@@ -2049,6 +2052,11 @@
     border-bottom-width: 1px;
   }
 
+  .border-b-2 {
+    border-bottom-style: var(--tw-border-style);
+    border-bottom-width: 2px;
+  }
+
   .border-l {
     border-left-style: var(--tw-border-style);
     border-left-width: 1px;
@@ -2442,10 +2450,6 @@
     .bg-amber-50\/50 {
       background-color: color-mix(in oklab, var(--color-amber-50) 50%, transparent);
     }
-  }
-
-  .bg-amber-100 {
-    background-color: var(--color-amber-100);
   }
 
   .bg-amber-500 {
@@ -4346,6 +4350,10 @@
     opacity: .75;
   }
 
+  .opacity-80 {
+    opacity: .8;
+  }
+
   .opacity-90 {
     opacity: .9;
   }
@@ -5568,6 +5576,13 @@
   }
 
   @media (hover: hover) {
+    .hover\:ring-offset-1:hover {
+      --tw-ring-offset-width: 1px;
+      --tw-ring-offset-shadow: var(--tw-ring-inset, ) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
+    }
+  }
+
+  @media (hover: hover) {
     .group-\[\.toast\]\:hover\:bg-gray-100:is(:where(.group).toast *):hover {
       background-color: var(--color-gray-100);
     }
@@ -6335,6 +6350,12 @@
   @media (width >= 48rem) {
     .md\:gap-3 {
       gap: calc(var(--spacing) * 3);
+    }
+  }
+
+  @media (width >= 48rem) {
+    .md\:gap-6 {
+      gap: calc(var(--spacing) * 6);
     }
   }
 

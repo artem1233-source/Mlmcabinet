@@ -1726,7 +1726,7 @@ app.put("/make-server-05aa3c8a/user/profile", async (c) => {
     console.log(`Updating profile for user: ${currentUser.id}`);
     
     // Разрешённые поля для обновления
-    const allowedFields = ['имя', 'телефон', 'telegram', 'whatsapp', 'instagram', 'vk', 'facebook', 'аватарка'];
+    const allowedFields = ['имя', 'телефон', 'telegram', 'whatsapp', 'instagram', 'vk', 'facebook', 'аватарка', 'датаРождения', 'privacySettings', 'settings'];
     
     // Обновляем только разрешённые поля
     const updates: any = {};
@@ -1737,6 +1737,23 @@ app.put("/make-server-05aa3c8a/user/profile", async (c) => {
     }
     
     console.log('📝 Profile updates to apply:', updates);
+    
+    // Логируем датаРождения отдельно
+    if (updates.hasOwnProperty('датаРождения')) {
+      console.log('📅 Birth date in updates:', updates.датаРождения);
+    } else {
+      console.log('⚠️ Birth date NOT in updates. profileData:', profileData);
+    }
+    
+    // Логируем настройки приватности
+    if (updates.hasOwnProperty('privacySettings')) {
+      console.log('🔒 Privacy settings in updates:', updates.privacySettings);
+    }
+    
+    // Логируем общие настройки
+    if (updates.hasOwnProperty('settings')) {
+      console.log('⚙️ General settings in updates:', updates.settings);
+    }
     
     // Проверка: имя не может быть пустым
     if (updates.hasOwnProperty('имя') && !updates.имя?.trim()) {
@@ -1750,6 +1767,7 @@ app.put("/make-server-05aa3c8a/user/profile", async (c) => {
     };
     
     console.log('👤 Updated user object:', updatedUser);
+    console.log('📅 Birth date in updatedUser:', updatedUser.датаРождения);
     console.log('📋 Social media fields:', {
       telegram: updatedUser.telegram,
       whatsapp: updatedUser.whatsapp,

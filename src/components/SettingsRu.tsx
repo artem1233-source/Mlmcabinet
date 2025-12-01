@@ -6,6 +6,7 @@ import { Label } from './ui/label';
 import { Button } from './ui/button';
 import { toast } from 'sonner';
 import { DeleteAccountButton } from './DeleteAccountButton';
+import { useState, useEffect } from 'react';
 
 interface SettingsProps {
   currentUser: any;
@@ -26,7 +27,60 @@ export function SettingsRu({ currentUser, onLogout, onUpdate }: SettingsProps) {
       </div>
     );
   }
-
+  
+  // Состояние настроек
+  const [settings, setSettings] = useState({
+    darkMode: currentUser?.settings?.darkMode || false,
+    compactView: currentUser?.settings?.compactView || false,
+    emailNotifications: currentUser?.settings?.emailNotifications !== false,
+    pushNotifications: currentUser?.settings?.pushNotifications !== false,
+    weeklyReports: currentUser?.settings?.weeklyReports !== false,
+    twoFactorAuth: currentUser?.settings?.twoFactorAuth || false,
+  });
+  
+  // Обновляем настройки когда currentUser меняется
+  useEffect(() => {
+    if (currentUser?.settings) {
+      setSettings({
+        darkMode: currentUser.settings.darkMode || false,
+        compactView: currentUser.settings.compactView || false,
+        emailNotifications: currentUser.settings.emailNotifications !== false,
+        pushNotifications: currentUser.settings.pushNotifications !== false,
+        weeklyReports: currentUser.settings.weeklyReports !== false,
+        twoFactorAuth: currentUser.settings.twoFactorAuth || false,
+      });
+    }
+  }, [currentUser]);
+  
+  // Функция для обновления настроек
+  const updateSetting = async (key: string, value: boolean) => {
+    const newSettings = { ...settings, [key]: value };
+    setSettings(newSettings);
+    
+    try {
+      const response = await fetch(`https://cxodxkxobqyuqgsksxap.supabase.co/functions/v1/make-server-05aa3c8a/api/profile/${currentUser.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN4b2R4a3hvYnF5dXFnc2tzeGFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzI3MTYxMTgsImV4cCI6MjA0ODI5MjExOH0.T_aUF5zrq2iy1cww0U1PKQMz7nSSgb-NjjOZdq3v2E0'
+        },
+        body: JSON.stringify({ settings: newSettings })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to update settings');
+      }
+      
+      toast.success('Настройка обновлена');
+      if (onUpdate) await onUpdate();
+    } catch (error) {
+      console.error('Error updating setting:', error);
+      toast.error('Ошибка обновления настройки');
+      // Откатываем изменение при ошибке
+      setSettings(settings);
+    }
+  };
+  
   const методВыплаты = currentUser.методВыплаты || 'USDT';
   const изменитьМетодВыплаты = (method: string) => {
     toast.success('Метод выплаты обновлен', {
@@ -75,7 +129,7 @@ export function SettingsRu({ currentUser, onLogout, onUpdate }: SettingsProps) {
                 <Label className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>Тёмная тема</Label>
                 <p className="text-[#666] mt-1">Переключение между светлой и тёмной темой</p>
               </div>
-              <Switch />
+              <Switch checked={settings.darkMode} onCheckedChange={(value) => updateSetting('darkMode', value)} />
             </div>
             
             <div className="flex items-center justify-between pt-4 border-t border-[#E6E9EE]">
@@ -83,7 +137,7 @@ export function SettingsRu({ currentUser, onLogout, onUpdate }: SettingsProps) {
                 <Label className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>Компактный вид</Label>
                 <p className="text-[#666] mt-1">Уменьшить отступы и размеры шрифтов</p>
               </div>
-              <Switch />
+              <Switch checked={settings.compactView} onCheckedChange={(value) => updateSetting('compactView', value)} />
             </div>
           </CardContent>
         </Card>
@@ -101,7 +155,7 @@ export function SettingsRu({ currentUser, onLogout, onUpdate }: SettingsProps) {
                 <Label className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>Email уведомления</Label>
                 <p className="text-[#666] mt-1">Получайте обновления о заказах и активности сети</p>
               </div>
-              <Switch defaultChecked />
+              <Switch checked={settings.emailNotifications} onCheckedChange={(value) => updateSetting('emailNotifications', value)} defaultChecked />
             </div>
             
             <div className="flex items-center justify-between pt-4 border-t border-[#E6E9EE]">
@@ -109,7 +163,7 @@ export function SettingsRu({ currentUser, onLogout, onUpdate }: SettingsProps) {
                 <Label className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>Push уведомления</Label>
                 <p className="text-[#666] mt-1">Мгновенные оповещения о новых продажах и сообщениях</p>
               </div>
-              <Switch defaultChecked />
+              <Switch checked={settings.pushNotifications} onCheckedChange={(value) => updateSetting('pushNotifications', value)} defaultChecked />
             </div>
             
             <div className="flex items-center justify-between pt-4 border-t border-[#E6E9EE]">
@@ -117,7 +171,7 @@ export function SettingsRu({ currentUser, onLogout, onUpdate }: SettingsProps) {
                 <Label className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>Еженедельные отчёты</Label>
                 <p className="text-[#666] mt-1">Получайте еженедельные сводки производительности</p>
               </div>
-              <Switch defaultChecked />
+              <Switch checked={settings.weeklyReports} onCheckedChange={(value) => updateSetting('weeklyReports', value)} defaultChecked />
             </div>
           </CardContent>
         </Card>
@@ -177,7 +231,7 @@ export function SettingsRu({ currentUser, onLogout, onUpdate }: SettingsProps) {
                 <Label className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>Двухфакторная аутентификация</Label>
                 <p className="text-[#666] mt-1">Добавьте дополнительный уровень безопасности для вашего аккаунта</p>
               </div>
-              <Switch />
+              <Switch checked={settings.twoFactorAuth} onCheckedChange={(value) => updateSetting('twoFactorAuth', value)} />
             </div>
             
             <div className="pt-4 border-t border-[#E6E9EE]">

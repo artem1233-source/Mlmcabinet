@@ -344,7 +344,7 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
       months.push({
         month: monthName,
         партнеров: count,
-        доход: Math.floor(count * 15000 * (0.8 + Math.random() * 0.4)) // Примерный доход
+        доход: 0 // Реальный доход будет подсчитываться из заказов
       });
     }
     
@@ -1142,6 +1142,14 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
                   />
                 </BarChart>
               </ResponsiveContainer>
+              {growthData.every(d => d.доход === 0) && (
+                <div className="mt-4 flex items-center gap-2 p-3 bg-blue-50 rounded-xl border border-blue-200">
+                  <Zap size={16} className="text-blue-600 flex-shrink-0" />
+                  <p className="text-xs text-blue-700">
+                    Доход будет отображаться после совершения первых заказов вашей командой
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </motion.div>

@@ -34,6 +34,9 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
   const [cropDialogOpen, setCropDialogOpen] = useState(false);
   const [imageToCrop, setImageToCrop] = useState<string>('');
   
+  // 🆕 Локальное состояние для текстового ввода даты
+  const [birthDateInput, setBirthDateInput] = useState('');
+  
   // Редактируемые поля
   const [formData, setFormData] = useState({
     имя: currentUser?.имя?.split(' ')[0] || '', // Только имя (первое слово)
@@ -87,6 +90,12 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
         showBalance: currentUser.privacySettings?.showBalance !== false,
         showEarnings: currentUser.privacySettings?.showEarnings !== false,
       });
+      // Синхронизируем поле ввода даты
+      if (currentUser.датаРождения) {
+        setBirthDateInput(format(new Date(currentUser.датаРождения), 'dd.MM.yyyy'));
+      } else {
+        setBirthDateInput('');
+      }
     }
   }, [currentUser]);
   
@@ -144,6 +153,9 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
       // Добавляем дату рождния если она указана
       if (formData.датаРождения) {
         normalizedData.датаРождения = formData.датаРождения;
+        console.log('📅 Saving birth date:', formData.датаРождения);
+      } else {
+        console.log('⚠️ Birth date is empty in formData');
       }
       
       // Добавляем соц сети только если они заполнены
@@ -357,7 +369,7 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                             Ваш ранг: {currentUser.уровень}
                           </div>
                           <p className="text-xs text-blue-700/80">
-                            Ранг определяется глубиной вашей партнерской структуры. Чем больше уровней в вашей команде, тем выше ранг.
+                            Ранг определ��ется глубиной вашей партнерской структуры. Чем больше уровней в вашей команде, тем выше ранг.
                           </p>
                           <div className="text-xs border-t border-blue-200/50 pt-2 mt-2">
                             {currentUser.уровень === 1 && (
@@ -555,7 +567,9 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                             rel="noopener noreferrer"
                             className="inline-flex items-center justify-center gap-2 min-w-[140px] px-4 py-2.5 bg-[#0077FF] text-white rounded-lg hover:opacity-90 transition-opacity text-sm font-medium"
                           >
-                            <Globe size={16} className="flex-shrink-0" />
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+                              <path d="M13.162 18.994c.609 0 .858-.406.851-.915-.031-1.917.714-2.949 2.059-1.604 1.488 1.488 1.796 2.519 3.603 2.519h3.2c.808 0 1.126-.26 1.126-.668 0-.863-1.421-2.386-2.625-3.504-1.686-1.565-1.765-1.602-.313-3.486 1.801-2.339 4.157-5.336 2.073-5.336h-3.981c-.772 0-.828.435-1.103 1.083-.995 2.347-2.886 5.387-3.604 4.922-.751-.485-.407-2.406-.35-5.261.015-.754.011-1.271-.141-1.539-.36-.637-1.111-.778-1.742-.778-.631 0-1.381.141-1.742.778-.152.268-.156.785-.141 1.539.057 2.855.401 4.776-.35 5.261-.718.465-2.609-2.575-3.604-4.922-.275-.648-.331-1.083-1.103-1.083H2.294c-2.084 0 .272 2.997 2.073 5.336 1.452 1.884 1.373 1.921-.313 3.486-1.204 1.118-2.625 2.641-2.625 3.504 0 .408.418.668 1.126.668h3.2c1.807 0 2.115-1.031 3.603-2.519 1.345-1.345 2.09-.313 2.059 1.604-.007.509.242.915.851.915h4.894z"/>
+                            </svg>
                             <span>VKontakte</span>
                           </a>
                         )}
@@ -601,30 +615,149 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                     
                     <div>
                       <Label htmlFor="birthDate" className="text-[#666]">Дата рождения</Label>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            id="birthDate"
-                            variant="outline"
-                            className="w-full justify-start text-left font-normal mt-1"
-                          >
-                            <CalendarIcon size={16} className="mr-2" />
-                            {formData.датаРождения ? format(new Date(formData.датаРождения), 'dd MMMM yyyy', { locale: ru }) : 'Выберите дату'}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <CalendarComponent
-                            mode="single"
-                            selected={formData.датаРождения ? new Date(formData.датаРождения) : undefined}
-                            onSelect={(date) => {
-                              if (date) {
-                                setFormData(prev => ({ ...prev, датаРождения: date.toISOString().split('T')[0] }));
+                      <div className="space-y-2 mt-1">
+                        {/* Поле для ручного ввода */}
+                        <Input
+                          type="text"
+                          value={birthDateInput}
+                          onChange={(e) => {
+                            let value = e.target.value.replace(/[^\d]/g, ''); // Только цифры
+                            
+                            // Автоматическая расстановка точек
+                            if (value.length >= 2) {
+                              value = value.slice(0, 2) + '.' + value.slice(2);
+                            }
+                            if (value.length >= 5) {
+                              value = value.slice(0, 5) + '.' + value.slice(5);
+                            }
+                            if (value.length > 10) {
+                              value = value.slice(0, 10); // Ограничение дд.мм.гггг
+                            }
+                            
+                            setBirthDateInput(value);
+                            
+                            // Проверяем формат дд.мм.гггг
+                            const match = value.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+                            if (match) {
+                              const [, day, month, year] = match;
+                              const dateStr = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+                              console.log('📝 Setting date in formData:', dateStr);
+                              setFormData(prev => ({ ...prev, датаРождения: dateStr }));
+                            } else if (value.length < 10) {
+                              // Если формат неполный, очищаем дату в formData
+                              setFormData(prev => ({ ...prev, датаРождения: '' }));
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            // Сохранение по Enter
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const match = birthDateInput.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+                              if (match) {
+                                handleSave();
                               }
-                            }}
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
+                            }
+                          }}
+                          onFocus={() => {
+                            // При фокусе показываем текущую дату в формате дд.мм.гггг
+                            if (formData.датаРождения && !birthDateInput) {
+                              setBirthDateInput(format(new Date(formData.датаРождения), 'dd.MM.yyyy'));
+                            }
+                          }}
+                          onBlur={() => {
+                            // При потере фокуса очищаем если формат неправильный
+                            if (birthDateInput && !birthDateInput.match(/^(\d{2})\.(\d{2})\.(\d{4})$/)) {
+                              setBirthDateInput('');
+                              setFormData(prev => ({ ...prev, датаРождения: '' }));
+                            }
+                          }}
+                          placeholder="дд.мм.гггг"
+                          className="w-full"
+                        />
+                        
+                        {/* Календарь */}
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              className="w-full justify-start text-left font-normal"
+                            >
+                              <CalendarIcon size={16} className="mr-2" />
+                              {formData.датаРождения ? format(new Date(formData.датаРождения), 'dd MMMM yyyy', { locale: ru }) : 'Выберите дату в календаре'}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <div className="p-3 border-b space-y-2">
+                              <div className="flex gap-2">
+                                <select
+                                  className="flex-1 px-2 py-1 border rounded text-sm"
+                                  value={formData.датаРождения ? new Date(formData.датаРождения).getMonth() : new Date().getMonth()}
+                                  onChange={(e) => {
+                                    const currentDate = formData.датаРождения ? new Date(formData.датаРождения) : new Date();
+                                    const year = currentDate.getFullYear();
+                                    const month = String(parseInt(e.target.value) + 1).padStart(2, '0');
+                                    const day = String(currentDate.getDate()).padStart(2, '0');
+                                    const dateStr = `${year}-${month}-${day}`;
+                                    setFormData(prev => ({ ...prev, датаРождения: dateStr }));
+                                    setBirthDateInput(format(new Date(dateStr + 'T12:00:00'), 'dd.MM.yyyy'));
+                                  }}
+                                >
+                                  {['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'].map((month, idx) => (
+                                    <option key={idx} value={idx}>{month}</option>
+                                  ))}
+                                </select>
+                                <select
+                                  className="w-24 px-2 py-1 border rounded text-sm"
+                                  value={formData.датаРождения ? new Date(formData.датаРождения).getFullYear() : new Date().getFullYear()}
+                                  onChange={(e) => {
+                                    const currentDate = formData.датаРождения ? new Date(formData.датаРождения) : new Date();
+                                    const year = e.target.value;
+                                    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+                                    const day = String(currentDate.getDate()).padStart(2, '0');
+                                    const dateStr = `${year}-${month}-${day}`;
+                                    setFormData(prev => ({ ...prev, датаРождения: dateStr }));
+                                    setBirthDateInput(format(new Date(dateStr + 'T12:00:00'), 'dd.MM.yyyy'));
+                                  }}
+                                >
+                                  {Array.from({ length: 100 }, (_, i) => new Date().getFullYear() - i).map(year => (
+                                    <option key={year} value={year}>{year}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <CalendarComponent
+                              mode="single"
+                              selected={formData.датаРождения ? new Date(formData.датаРождения + 'T12:00:00') : undefined}
+                              onSelect={(date) => {
+                                if (date) {
+                                  const year = date.getFullYear();
+                                  const month = String(date.getMonth() + 1).padStart(2, '0');
+                                  const day = String(date.getDate()).padStart(2, '0');
+                                  const dateStr = `${year}-${month}-${day}`;
+                                  setFormData(prev => ({ ...prev, датаРождения: dateStr }));
+                                  setBirthDateInput(format(new Date(dateStr + 'T12:00:00'), 'dd.MM.yyyy'));
+                                }
+                              }}
+                              month={formData.датаРождения ? new Date(formData.датаРождения + 'T12:00:00') : undefined}
+                              onMonthChange={(date) => {
+                                if (date) {
+                                  const year = date.getFullYear();
+                                  const month = String(date.getMonth() + 1).padStart(2, '0');
+                                  const day = String(date.getDate()).padStart(2, '0');
+                                  const dateStr = `${year}-${month}-${day}`;
+                                  setFormData(prev => ({ ...prev, датаРождения: dateStr }));
+                                  setBirthDateInput(format(new Date(dateStr + 'T12:00:00'), 'dd.MM.yyyy'));
+                                }
+                              }}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        
+                        <p className="text-[#999]" style={{ fontSize: '11px' }}>
+                          Введите дату в формате дд.мм.гггг или выберите в календаре
+                        </p>
+                      </div>
                     </div>
                     
                     <div>
@@ -749,7 +882,6 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                     try {
                       await api.updateUserProfile({ privacySettings: newSettings });
                       toast.success('Настройки приватности обновлены');
-                      if (onUpdate) await onUpdate();
                     } catch (error) {
                       toast.error('Ошибка обновления настроек');
                       setPrivacySettings(privacySettings);
@@ -764,7 +896,7 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                     <Mail size={18} className="text-purple-600" />
                   </div>
                   <div>
-                    <div className="text-[#1E1E1E] font-semibold text-sm">Показывать email</div>
+                    <div className="text-[#1E1E1E] font-semibold text-sm">Показы��ать email</div>
                     <div className="text-[#666] text-xs">
                       {privacySettings.showEmail ? 'Виден всем' : 'Скрыт'}
                     </div>
@@ -778,7 +910,6 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                     try {
                       await api.updateUserProfile({ privacySettings: newSettings });
                       toast.success('Настройки приватности обновлены');
-                      if (onUpdate) await onUpdate();
                     } catch (error) {
                       toast.error('Ошибка обновления настроек');
                       setPrivacySettings(privacySettings);
@@ -807,7 +938,6 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                     try {
                       await api.updateUserProfile({ privacySettings: newSettings });
                       toast.success('Настройки приватности обновлены');
-                      if (onUpdate) await onUpdate();
                     } catch (error) {
                       toast.error('Ошибка обновления настроек');
                       setPrivacySettings(privacySettings);
@@ -836,7 +966,6 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                     try {
                       await api.updateUserProfile({ privacySettings: newSettings });
                       toast.success('Настройки приватности обновлены');
-                      if (onUpdate) await onUpdate();
                     } catch (error) {
                       toast.error('Ошибка обновления настроек');
                       setPrivacySettings(privacySettings);
@@ -865,7 +994,6 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                     try {
                       await api.updateUserProfile({ privacySettings: newSettings });
                       toast.success('Настройки приватности обновлены');
-                      if (onUpdate) await onUpdate();
                     } catch (error) {
                       toast.error('Ошибка обновления настроек');
                       setPrivacySettings(privacySettings);
@@ -894,7 +1022,6 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                     try {
                       await api.updateUserProfile({ privacySettings: newSettings });
                       toast.success('Настройки приватности обновлены');
-                      if (onUpdate) await onUpdate();
                     } catch (error) {
                       toast.error('Ошибка обновления настроек');
                       setPrivacySettings(privacySettings);
@@ -905,8 +1032,10 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
               
               <div className="flex items-center justify-between p-3 bg-[#F7FAFC] rounded-xl">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-[#0077FF] rounded-lg flex items-center justify-center text-white font-bold text-sm">
-                    VK
+                  <div className="w-10 h-10 bg-[#0077FF] rounded-lg flex items-center justify-center">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M13.162 18.994c.609 0 .858-.406.851-.915-.031-1.917.714-2.949 2.059-1.604 1.488 1.488 1.796 2.519 3.603 2.519h3.2c.808 0 1.126-.26 1.126-.668 0-.863-1.421-2.386-2.625-3.504-1.686-1.565-1.765-1.602-.313-3.486 1.801-2.339 4.157-5.336 2.073-5.336h-3.981c-.772 0-.828.435-1.103 1.083-.995 2.347-2.886 5.387-3.604 4.922-.751-.485-.407-2.406-.35-5.261.015-.754.011-1.271-.141-1.539-.36-.637-1.111-.778-1.742-.778-.631 0-1.381.141-1.742.778-.152.268-.156.785-.141 1.539.057 2.855.401 4.776-.35 5.261-.718.465-2.609-2.575-3.604-4.922-.275-.648-.331-1.083-1.103-1.083H2.294c-2.084 0 .272 2.997 2.073 5.336 1.452 1.884 1.373 1.921-.313 3.486-1.204 1.118-2.625 2.641-2.625 3.504 0 .408.418.668 1.126.668h3.2c1.807 0 2.115-1.031 3.603-2.519 1.345-1.345 2.09-.313 2.059 1.604-.007.509.242.915.851.915h4.894z"/>
+                    </svg>
                   </div>
                   <div>
                     <div className="text-[#1E1E1E] font-semibold text-sm">Показывать VK</div>
@@ -923,7 +1052,6 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                     try {
                       await api.updateUserProfile({ privacySettings: newSettings });
                       toast.success('Настройки приватности обновлены');
-                      if (onUpdate) await onUpdate();
                     } catch (error) {
                       toast.error('Ошибка обновления настроек');
                       setPrivacySettings(privacySettings);
@@ -958,7 +1086,6 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                         try {
                           await api.updateUserProfile({ privacySettings: newSettings });
                           toast.success('Настройки приватности обновлены');
-                          if (onUpdate) await onUpdate();
                         } catch (error) {
                           toast.error('Ошибка обновления настроек');
                           setPrivacySettings(privacySettings);
@@ -987,7 +1114,6 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                         try {
                           await api.updateUserProfile({ privacySettings: newSettings });
                           toast.success('Настройки приватности обновлены');
-                          if (onUpdate) await onUpdate();
                         } catch (error) {
                           toast.error('Ошибка обновления настроек');
                           setPrivacySettings(privacySettings);

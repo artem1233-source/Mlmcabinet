@@ -682,8 +682,8 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
       {showAdminToolbar && <AdminToolbar userName={currentUser.имя} onUserChange={() => loadProducts()} />}
       
       <div className="p-4 lg:p-8 max-w-full overflow-x-hidden" style={{ backgroundColor: '#F7FAFC' }}>
-        {/* 🔧 ДИАГНОСТИЧЕСКИЙ КОМПОНЕНТ */}
-        <CatalogDebug currentUser={currentUser} />
+        {/* 🔧 ДИАГНОСТИЧЕСКИЙ КОМПОНЕНТ - ОТКЛЮЧЕН */}
+        {/* <CatalogDebug currentUser={currentUser} /> */}
         
         <div className="mb-6 lg:mb-8">
           <div className="flex items-start justify-between mb-6">
