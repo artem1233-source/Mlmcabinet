@@ -16,6 +16,11 @@ export function UserProfileView({ userId, onClose }: UserProfileViewProps) {
 
   useEffect(() => {
     loadUserProfile();
+    // Блокируем скролл body при открытии модалки
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
   }, [userId]);
 
   const loadUserProfile = async () => {
@@ -43,8 +48,8 @@ export function UserProfileView({ userId, onClose }: UserProfileViewProps) {
 
   if (loading) {
     return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-        <Card className="w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+        <Card className="w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
           <CardContent className="p-8">
             <div className="flex flex-col items-center gap-4">
               <Loader2 className="w-12 h-12 text-[#39B7FF] animate-spin" />
@@ -58,8 +63,8 @@ export function UserProfileView({ userId, onClose }: UserProfileViewProps) {
 
   if (!user) {
     return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-        <Card className="w-full max-w-2xl mx-4">
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+        <Card className="w-full max-w-2xl mx-4" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
           <CardContent className="p-8 text-center">
             <p className="text-[#666] mb-4">Пользователь не найден</p>
             <Button onClick={onClose}>Закрыть</Button>
@@ -73,8 +78,14 @@ export function UserProfileView({ userId, onClose }: UserProfileViewProps) {
   const privacy = user.privacySettings || {};
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div 
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+    >
+      <Card 
+        className="w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+        onClick={(e: React.MouseEvent) => e.stopPropagation()}
+      >
         <CardContent className="p-0">
           {/* Header with gradient */}
           <div className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] p-6 text-white relative">

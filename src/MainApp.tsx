@@ -9,8 +9,7 @@ import { BalanceRu } from './components/BalanceRu';
 import { CatalogRu } from './components/CatalogRu';
 import { UsersManagementRu } from './components/UsersManagementRuV2';
 import { UsersManagementOptimized } from './components/UsersManagementOptimized';
-import { StructureRu } from './components/StructureRu';
-import { OptimizedStructureRu } from './components/OptimizedStructureRu';
+import { StructureDataViz } from './components/StructureDataViz';
 import { TrainingRu } from './components/TrainingRu';
 import { ProfileRu } from './components/ProfileRu';
 import { SettingsRu } from './components/SettingsRu';
@@ -39,10 +38,6 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
   // 🚀 Переключатель между старой и оптимизированной версией управления пользователями
   // ✅ Оптимизированная версия по умолчанию (имеет 100% функционал + лучшая производительность)
   const [useOptimizedUsers, setUseOptimizedUsers] = useState(true);
-  
-  // 🚀 Переключатель между старой и оптимизированной версией структуры команды
-  // ✅ Оптимизированная версия по умолчанию (виртуализация + React Query)
-  const [useOptimizedStructure, setUseOptimizedStructure] = useState(true);
   
   // 🚀 Переключатель между старой и оптимизированной версией дашборда
   // ✅ Оптимизированная версия по умолчанию (React Query + кэширование + экспорт CSV)
@@ -121,6 +116,13 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
             body: JSON.stringify({ userId }),
           }
         );
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('❌ Activity update failed:', response.status, errorText);
+          return;
+        }
+        
         const data = await response.json();
         // console.log('💓 Activity updated:', data);
       } catch (error) {
@@ -281,51 +283,7 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
         );
       case 'структура':
       case 'structure':
-        // 🚀 Переключатель между версиями структуры команды
-        return (
-          <div>
-            {/* Переключатель версий */}
-            <div className="bg-white border-b border-[#E6E9EE] px-6 py-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-[#666]" style={{ fontSize: '14px' }}>Версия:</span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setUseOptimizedStructure(false)}
-                    className={`px-4 py-2 rounded-lg transition-all ${
-                      !useOptimizedStructure 
-                        ? 'bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white shadow-sm' 
-                        : 'bg-gray-100 text-[#666] hover:bg-gray-200'
-                    }`}
-                    style={{ fontSize: '13px', fontWeight: '600' }}
-                  >
-                    Стандартная
-                  </button>
-                  <button
-                    onClick={() => setUseOptimizedStructure(true)}
-                    className={`px-4 py-2 rounded-lg transition-all ${
-                      useOptimizedStructure 
-                        ? 'bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white shadow-sm' 
-                        : 'bg-gray-100 text-[#666] hover:bg-gray-200'
-                    }`}
-                    style={{ fontSize: '13px', fontWeight: '600' }}
-                  >
-                    🚀 Оптимизированная
-                  </button>
-                </div>
-              </div>
-              <p className="text-[#999]" style={{ fontSize: '12px' }}>
-                {useOptimizedStructure ? '⚡ Виртуализация + кэширование (1000+ партнёров)' : '📋 Классический вид'}
-              </p>
-            </div>
-            
-            {/* Рендер выбранной версии */}
-            {useOptimizedStructure ? (
-              <OptimizedStructureRu currentUser={currentUser} refreshTrigger={refreshTrigger} />
-            ) : (
-              <StructureRu currentUser={currentUser} refreshTrigger={refreshTrigger} />
-            )}
-          </div>
-        );
+        return <StructureDataViz currentUser={currentUser} refreshTrigger={refreshTrigger} />;
       case 'пользователи':
       case 'users':
         // 🚀 Переключатель между версиями с кнопкой выбора
