@@ -34,6 +34,8 @@ This is a multi-level marketing (MLM) management application for hydrogen powder
 - Orders now track `usedReferralCode` field to record which specific code was used
 - Created `UserCodesManager.tsx` UI component for managing partner codes
 - Created `CodeLookup` component for searching users by any code
+- Integrated `UserCodesManager` into user details dialog as "ID/Коды" tab
+- Integrated `CodeLookup` into ID Management tab for global code search
 
 **December 2, 2025 - Replit Environment Setup:**
 - Configured Vite to run on port 5000 with `allowedHosts: true` for Replit proxy
