@@ -16,6 +16,25 @@ This is a multi-level marketing (MLM) management application for hydrogen powder
 
 ## Recent Changes
 
+**December 2, 2025 - Multiple ID/Code System Implementation:**
+- Implemented new multi-ID system where partners can have multiple permanent codes (numeric and alphanumeric)
+- IDs are never freed for reuse - once assigned to a partner, they belong to that partner forever
+- Added `PartnerCode` data model with fields: value, type, primary, isActive, createdAt, assignedBy
+- Created global code mapping: `id:code:{value}` → userId for fast code resolution
+- New API endpoints for code management:
+  - `GET /admin/user/:userId/codes` - Get all codes for a user
+  - `POST /admin/user/:userId/codes` - Add new code to user
+  - `POST /admin/user/:userId/codes/set-primary` - Set code as primary
+  - `POST /admin/user/:userId/codes/deactivate` - Deactivate a code
+  - `POST /admin/user/:userId/codes/activate` - Reactivate a code
+  - `GET /admin/codes/check/:code` - Check code availability
+  - `GET /admin/codes/resolve/:code` - Find user by any code
+  - `POST /admin/codes/migrate-all` - Migrate existing users to new system
+- Modified `change-user-id` endpoint to preserve old IDs instead of freeing them
+- Orders now track `usedReferralCode` field to record which specific code was used
+- Created `UserCodesManager.tsx` UI component for managing partner codes
+- Created `CodeLookup` component for searching users by any code
+
 **December 2, 2025 - Replit Environment Setup:**
 - Configured Vite to run on port 5000 with `allowedHosts: true` for Replit proxy
 - Fixed duplicate `Download` icon import in `UsersManagementOptimized.tsx`
