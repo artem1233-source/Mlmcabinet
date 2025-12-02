@@ -8,7 +8,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { ImageWithFallback } from './figma/ImageWithFallback';
-import { AdminToolbar } from './AdminToolbar';
 import { CatalogDebug } from './CatalogDebug';
 import { toast } from 'sonner';
 import { CheckoutRu } from './CheckoutRu';
@@ -29,7 +28,6 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
                   currentUser?.email === 'admin@admin.com' || 
                   currentUser?.id === 'ceo' || 
                   currentUser?.id === '1';
-  const showAdminToolbar = isAdmin;
   
   // 🔍 Debug: проверяем статус админа
   console.log('🔍 CatalogRu: currentUser:', currentUser);
@@ -679,7 +677,6 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
 
   return (
     <>
-      {showAdminToolbar && <AdminToolbar userName={currentUser.имя} onUserChange={() => loadProducts()} />}
       
       <div className="p-4 lg:p-8 max-w-full overflow-x-hidden" style={{ backgroundColor: '#F7FAFC' }}>
         {/* 🔧 ДИАГНОСТИЧЕСКИЙ КОМПОНЕНТ - ОТКЛЮЧЕН */}

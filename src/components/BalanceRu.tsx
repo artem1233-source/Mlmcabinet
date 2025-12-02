@@ -6,7 +6,6 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
-import { AdminToolbar } from './AdminToolbar';
 import { toast } from 'sonner';
 import * as api from '../utils/api';
 import { exportEarningsToCSV } from '../utils/exportToCSV';
@@ -173,7 +172,6 @@ export function BalanceRu({ currentUser, onRefresh, refreshTrigger }: BalanceRuP
 
   return (
     <div className="p-4 lg:p-8 max-w-full overflow-x-hidden" style={{ backgroundColor: '#F7FAFC' }}>
-      {isAdmin && <AdminToolbar userName={currentUser.имя} onUserChange={onRefresh} />}
       
       {/* Header */}
       <div className="mb-6 lg:mb-8">

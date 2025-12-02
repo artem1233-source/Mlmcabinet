@@ -16,7 +16,6 @@ import { useState, useEffect, useMemo } from 'react';
 import { TrendingUp, ShoppingBag, Users, Wallet, Loader2, RefreshCw, DollarSign, Package, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { AdminToolbar } from './AdminToolbar';
 import { AchievementsWidget } from './AchievementsWidget';
 import { AdvancedAnalytics } from './AdvancedAnalytics';
 import { StatsWidgets } from './StatsWidgets';
@@ -61,7 +60,6 @@ export function DashboardRuOptimized({ currentUser, onRefresh, refreshTrigger }:
                   currentUser?.email === 'admin@admin.com' || 
                   currentUser?.id === 'ceo' || 
                   currentUser?.id === '1';
-  const showAdminToolbar = isAdmin;
   const effectiveUserId = currentUser?.id;
 
   // 💾 Сохраняем выбранный период в localStorage
@@ -218,8 +216,6 @@ export function DashboardRuOptimized({ currentUser, onRefresh, refreshTrigger }:
 
   return (
     <div className="p-4 lg:p-8 max-w-full overflow-x-hidden" style={{ backgroundColor: '#F7FAFC' }}>
-      {/* Admin Toolbar */}
-      {showAdminToolbar && <AdminToolbar userName={currentUser.имя} onUserChange={onRefresh} />}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-6 lg:mb-8">
