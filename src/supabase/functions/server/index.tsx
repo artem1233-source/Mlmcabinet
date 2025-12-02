@@ -7217,10 +7217,42 @@ app.get('/make-server-05aa3c8a/admin/codes/resolve/:code', async (c) => {
     
     const user = await kv.get(`user:id:${userId}`);
     
+    // Find the specific code info from user's codes array or global mapping
+    let codeInfo = {
+      primary: false,
+      isActive: true,
+      createdAt: ''
+    };
+    
+    if (user && user.codes) {
+      const foundCode = user.codes.find((c: any) => 
+        c.value?.toLowerCase() === code.toLowerCase() || 
+        c.value === code
+      );
+      if (foundCode) {
+        codeInfo = {
+          primary: foundCode.primary || false,
+          isActive: foundCode.isActive !== false,
+          createdAt: foundCode.createdAt || ''
+        };
+      }
+    }
+    
+    // Also check global code mapping for additional info
+    const globalCodeInfo = await kv.get(`id:code:${code.toUpperCase()}`) || await kv.get(`id:code:${code}`);
+    if (globalCodeInfo) {
+      codeInfo.primary = globalCodeInfo.primary || codeInfo.primary;
+      codeInfo.isActive = globalCodeInfo.isActive !== false;
+      codeInfo.createdAt = globalCodeInfo.createdAt || codeInfo.createdAt;
+    }
+    
     return c.json({
       success: true,
       code: code.toUpperCase(),
       userId,
+      primary: codeInfo.primary,
+      isActive: codeInfo.isActive,
+      createdAt: codeInfo.createdAt,
       user: user ? {
         id: user.id,
         имя: user.имя,
@@ -7357,22 +7389,64 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
     }
 
     const oldId = targetUser.id;
+    const timestamp = new Date().toISOString();
 
-    // Update user ID
+    // 🔒 IMPORTANT: Add codes BEFORE saving user to ensure codes are persisted
+    // Initialize codes array if not exists
+    if (!targetUser.codes) {
+      targetUser.codes = [];
+    }
+    
+    // Add old ID as additional code (if not already present)
+    const oldIdExists = targetUser.codes.some((c: any) => c.value === oldId);
+    if (!oldIdExists) {
+      targetUser.codes.push({
+        value: oldId,
+        type: /^\d+$/.test(oldId) ? 'numeric' : 'alphanumeric',
+        primary: false,
+        isActive: true,
+        createdAt: timestamp,
+        assignedBy: 'system-id-change'
+      });
+      console.log(`🔒 Old ID ${oldId} preserved as additional code`);
+    }
+    
+    // Add new ID as primary code (if not already present)
+    const newIdExists = targetUser.codes.some((c: any) => c.value === cleanNewId);
+    if (!newIdExists) {
+      targetUser.codes.push({
+        value: cleanNewId,
+        type: /^\d+$/.test(cleanNewId) ? 'numeric' : 'alphanumeric',
+        primary: true,
+        isActive: true,
+        createdAt: timestamp,
+        assignedBy: 'system-id-change'
+      });
+    }
+    
+    // Ensure new ID is marked as primary
+    targetUser.codes = targetUser.codes.map((c: any) => ({
+      ...c,
+      primary: c.value === cleanNewId
+    }));
+
+    // Update user ID and refCode
     targetUser.id = cleanNewId;
     targetUser.рефКод = cleanNewId; // refCode = ID
 
     console.log(`🔄 Assigning ID: ${oldId} → ${cleanNewId} for user ${targetUser.имя} ${targetUser.фамилия}`);
+    console.log(`🔒 User now has ${targetUser.codes.length} codes:`, targetUser.codes.map((c: any) => c.value).join(', '));
 
-    // Save user with new ID
+    // Save user with new ID (includes codes array)
     await kv.set(`user:id:${cleanNewId}`, targetUser);
 
     // Delete old ID key
     await kv.del(`user:id:${oldId}`);
 
-    // Update ref code mapping
+    // Update ref code mapping for new ID
     await kv.set(`user:refcode:${cleanNewId}`, { id: cleanNewId });
-    await kv.del(`user:refcode:${oldId}`);
+    // Keep old refcode mapping pointing to new ID (for backwards compatibility)
+    await kv.set(`user:refcode:${oldId}`, { id: cleanNewId });
 
     // Update email mapping
     if (targetUser.email) {
@@ -7494,9 +7568,28 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
     const newReserved = reserved.filter((rid: number) => rid !== numericNewId);
     await kv.set('reserved:user:ids', newReserved);
 
-    // Add old ID to freed IDs for reuse (using freeUserId helper)
-    await freeUserId(oldId);
-    console.log(`♻️ Old user ID ${oldId} freed for reuse`);
+    // Create global code mappings for both old and new IDs with full metadata
+    await kv.set(`id:code:${oldId}`, {
+      value: oldId,
+      userId: cleanNewId,
+      type: /^\d+$/.test(oldId) ? 'numeric' : 'alphanumeric',
+      primary: false,
+      isActive: true,
+      createdAt: timestamp,
+      assignedBy: 'system-id-change'
+    });
+    
+    await kv.set(`id:code:${cleanNewId}`, {
+      value: cleanNewId,
+      userId: cleanNewId,
+      type: /^\d+$/.test(cleanNewId) ? 'numeric' : 'alphanumeric',
+      primary: true,
+      isActive: true,
+      createdAt: timestamp,
+      assignedBy: 'system-id-change'
+    });
+    
+    console.log(`🔒 ID ${oldId} permanently assigned to user ${cleanNewId} (never freed)`);
 
     return c.json({
       success: true,

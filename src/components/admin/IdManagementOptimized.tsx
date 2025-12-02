@@ -18,6 +18,7 @@ import { SmartOrphanFixer } from './SmartOrphanFixer';
 import { DataRecoveryTool } from './DataRecoveryTool';
 import { IdManager } from './IdManager';
 import { ChangeUserId } from './ChangeUserId';
+import { CodeLookup } from './CodeLookup';
 import { useAllUsers } from '../../hooks/useAllUsers';
 
 interface IdManagementOptimizedProps {
@@ -191,6 +192,7 @@ export function IdManagementOptimized({ currentUser, onSuccess }: IdManagementOp
               }}
             />
             <ChangeUserId currentUser={currentUser} />
+            <CodeLookup />
           </AccordionContent>
         </AccordionItem>
 
