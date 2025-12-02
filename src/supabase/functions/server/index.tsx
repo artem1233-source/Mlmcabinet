@@ -389,8 +389,357 @@ async function syncReservedIds(): Promise<{
     before: reservedIds.sort((a, b) => a - b),
     after: cleanedReservedIds.sort((a, b) => a - b),
     removed: duplicates.sort((a, b) => a - b),
-    message: `Удалено ${duplicates.length} дублирующихся номеров (����же заняты пользователями)`
+    message: `Удалено ${duplicates.length} дублирующихся номеров (уже заняты пользователями)`
   };
+}
+
+// ==============================================
+// 🆕 MULTIPLE ID SYSTEM - PARTNER CODES
+// ==============================================
+// Новая система: один пользователь может иметь множество ID/кодов
+// ID никогда не освобождается для других пользователей
+
+interface PartnerCode {
+  value: string;           // "001" или "ARTEM"
+  type: "numeric" | "alphanumeric";
+  primary: boolean;
+  isActive: boolean;
+  createdAt: string;
+  assignedBy?: string;     // ID админа, который назначил код
+}
+
+interface CodeMapping {
+  userId: string;
+  primary: boolean;
+  isActive: boolean;
+  createdAt: string;
+  type: "numeric" | "alphanumeric";
+}
+
+// Получить все коды пользователя
+async function getUserCodes(userId: string): Promise<PartnerCode[]> {
+  const user = await kv.get(`user:id:${userId}`);
+  if (!user) return [];
+  return user.codes || [];
+}
+
+// Найти userId по коду (любому - цифровому или буквенному)
+async function resolveCodeToUserId(code: string): Promise<string | null> {
+  const normalizedCode = code.toUpperCase().trim();
+  
+  // Сначала проверяем глобальный mapping
+  const mapping = await kv.get(`id:code:${normalizedCode}`);
+  if (mapping && mapping.isActive) {
+    return mapping.userId;
+  }
+  
+  // Для обратной совместимости: проверяем старый формат (user:id:{code})
+  const user = await kv.get(`user:id:${normalizedCode}`);
+  if (user) {
+    return normalizedCode;
+  }
+  
+  // Для числовых ID пробуем разные форматы (001 vs 1)
+  if (/^\d+$/.test(normalizedCode)) {
+    const numId = parseInt(normalizedCode, 10);
+    const formats = [
+      String(numId),
+      String(numId).padStart(3, '0'),
+      String(numId).padStart(5, '0')
+    ];
+    
+    for (const format of formats) {
+      const mappingAlt = await kv.get(`id:code:${format}`);
+      if (mappingAlt && mappingAlt.isActive) {
+        return mappingAlt.userId;
+      }
+      
+      const userAlt = await kv.get(`user:id:${format}`);
+      if (userAlt) {
+        return format;
+      }
+    }
+  }
+  
+  return null;
+}
+
+// Проверить, свободен ли код для использования
+async function isCodeAvailable(code: string): Promise<{ available: boolean; reason?: string; existingUserId?: string }> {
+  const normalizedCode = code.toUpperCase().trim();
+  
+  // Проверяем глобальный mapping
+  const mapping = await kv.get(`id:code:${normalizedCode}`);
+  if (mapping) {
+    return {
+      available: false,
+      reason: `Код "${normalizedCode}" уже привязан к пользователю ${mapping.userId}`,
+      existingUserId: mapping.userId
+    };
+  }
+  
+  // Проверяем существующего пользователя с таким ID
+  const existingUser = await kv.get(`user:id:${normalizedCode}`);
+  if (existingUser) {
+    return {
+      available: false,
+      reason: `Код "${normalizedCode}" уже используется как основной ID пользователя`,
+      existingUserId: normalizedCode
+    };
+  }
+  
+  // Для числовых кодов проверяем альтернативные форматы
+  if (/^\d+$/.test(normalizedCode)) {
+    const numId = parseInt(normalizedCode, 10);
+    const formats = [
+      String(numId),
+      String(numId).padStart(3, '0'),
+      String(numId).padStart(5, '0')
+    ];
+    
+    for (const format of formats) {
+      if (format !== normalizedCode) {
+        const altMapping = await kv.get(`id:code:${format}`);
+        if (altMapping) {
+          return {
+            available: false,
+            reason: `Код "${normalizedCode}" (формат ${format}) уже привязан к пользователю ${altMapping.userId}`,
+            existingUserId: altMapping.userId
+          };
+        }
+        
+        const altUser = await kv.get(`user:id:${format}`);
+        if (altUser) {
+          return {
+            available: false,
+            reason: `Код "${normalizedCode}" (формат ${format}) уже используется`,
+            existingUserId: format
+          };
+        }
+      }
+    }
+  }
+  
+  return { available: true };
+}
+
+// Добавить новый код пользователю (не заменяет, а добавляет)
+async function addCodeToUser(userId: string, code: string, options: {
+  makePrimary?: boolean;
+  assignedBy?: string;
+} = {}): Promise<{ success: boolean; error?: string }> {
+  const normalizedCode = code.toUpperCase().trim();
+  
+  // Проверяем, свободен ли код
+  const availability = await isCodeAvailable(normalizedCode);
+  if (!availability.available) {
+    return { success: false, error: availability.reason };
+  }
+  
+  // Получаем пользователя
+  const user = await kv.get(`user:id:${userId}`);
+  if (!user) {
+    return { success: false, error: `Пользователь ${userId} не найден` };
+  }
+  
+  // Определяем тип кода
+  const codeType: "numeric" | "alphanumeric" = /^\d+$/.test(normalizedCode) ? "numeric" : "alphanumeric";
+  
+  // Создаем новый код
+  const newCode: PartnerCode = {
+    value: normalizedCode,
+    type: codeType,
+    primary: options.makePrimary || false,
+    isActive: true,
+    createdAt: new Date().toISOString(),
+    assignedBy: options.assignedBy
+  };
+  
+  // Инициализируем массив кодов если нужно
+  if (!user.codes) {
+    user.codes = [];
+  }
+  
+  // Если делаем новый код основным, сбрасываем primary у остальных
+  if (options.makePrimary) {
+    user.codes = user.codes.map((c: PartnerCode) => ({ ...c, primary: false }));
+  }
+  
+  // Добавляем код
+  user.codes.push(newCode);
+  
+  // Сохраняем пользователя
+  await kv.set(`user:id:${userId}`, user);
+  
+  // Создаем глобальный mapping
+  const mapping: CodeMapping = {
+    userId,
+    primary: newCode.primary,
+    isActive: true,
+    createdAt: newCode.createdAt,
+    type: codeType
+  };
+  await kv.set(`id:code:${normalizedCode}`, mapping);
+  
+  console.log(`✅ Added code "${normalizedCode}" to user ${userId} (primary: ${newCode.primary})`);
+  
+  return { success: true };
+}
+
+// Установить код как основной
+async function setCodeAsPrimary(userId: string, code: string): Promise<{ success: boolean; error?: string }> {
+  const normalizedCode = code.toUpperCase().trim();
+  
+  const user = await kv.get(`user:id:${userId}`);
+  if (!user) {
+    return { success: false, error: `Пользователь ${userId} не найден` };
+  }
+  
+  if (!user.codes || user.codes.length === 0) {
+    return { success: false, error: 'У пользователя нет дополнительных кодов' };
+  }
+  
+  const codeIndex = user.codes.findIndex((c: PartnerCode) => c.value === normalizedCode);
+  if (codeIndex === -1) {
+    return { success: false, error: `Код "${normalizedCode}" не найден у пользователя` };
+  }
+  
+  // Сбрасываем primary у всех и устанавливаем у нужного
+  user.codes = user.codes.map((c: PartnerCode, i: number) => ({
+    ...c,
+    primary: i === codeIndex
+  }));
+  
+  await kv.set(`user:id:${userId}`, user);
+  
+  // Обновляем mappings
+  for (const c of user.codes) {
+    const mapping = await kv.get(`id:code:${c.value}`);
+    if (mapping) {
+      mapping.primary = c.primary;
+      await kv.set(`id:code:${c.value}`, mapping);
+    }
+  }
+  
+  console.log(`✅ Set code "${normalizedCode}" as primary for user ${userId}`);
+  
+  return { success: true };
+}
+
+// Деактивировать код (не удаляет, но делает неактивным)
+async function deactivateCode(userId: string, code: string): Promise<{ success: boolean; error?: string }> {
+  const normalizedCode = code.toUpperCase().trim();
+  
+  const user = await kv.get(`user:id:${userId}`);
+  if (!user) {
+    return { success: false, error: `Пользователь ${userId} не найден` };
+  }
+  
+  // Нельзя деактивировать основной ID пользователя
+  if (user.id === normalizedCode) {
+    return { success: false, error: 'Нельзя деактивировать основной ID пользователя' };
+  }
+  
+  if (!user.codes || user.codes.length === 0) {
+    return { success: false, error: 'У пользователя нет дополнительных кодов' };
+  }
+  
+  const codeIndex = user.codes.findIndex((c: PartnerCode) => c.value === normalizedCode);
+  if (codeIndex === -1) {
+    return { success: false, error: `Код "${normalizedCode}" не найден у пользователя` };
+  }
+  
+  user.codes[codeIndex].isActive = false;
+  await kv.set(`user:id:${userId}`, user);
+  
+  // Обновляем mapping
+  const mapping = await kv.get(`id:code:${normalizedCode}`);
+  if (mapping) {
+    mapping.isActive = false;
+    await kv.set(`id:code:${normalizedCode}`, mapping);
+  }
+  
+  console.log(`⏸️ Deactivated code "${normalizedCode}" for user ${userId}`);
+  
+  return { success: true };
+}
+
+// Активировать код
+async function activateCode(userId: string, code: string): Promise<{ success: boolean; error?: string }> {
+  const normalizedCode = code.toUpperCase().trim();
+  
+  const user = await kv.get(`user:id:${userId}`);
+  if (!user) {
+    return { success: false, error: `Пользователь ${userId} не найден` };
+  }
+  
+  if (!user.codes || user.codes.length === 0) {
+    return { success: false, error: 'У пользователя нет дополнительных кодов' };
+  }
+  
+  const codeIndex = user.codes.findIndex((c: PartnerCode) => c.value === normalizedCode);
+  if (codeIndex === -1) {
+    return { success: false, error: `Код "${normalizedCode}" не найден у пользователя` };
+  }
+  
+  user.codes[codeIndex].isActive = true;
+  await kv.set(`user:id:${userId}`, user);
+  
+  // Обновляем mapping
+  const mapping = await kv.get(`id:code:${normalizedCode}`);
+  if (mapping) {
+    mapping.isActive = true;
+    await kv.set(`id:code:${normalizedCode}`, mapping);
+  }
+  
+  console.log(`▶️ Activated code "${normalizedCode}" for user ${userId}`);
+  
+  return { success: true };
+}
+
+// Миграция: создать mapping для существующего основного ID пользователя
+async function migrateUserToNewCodeSystem(userId: string): Promise<{ success: boolean; migrated: boolean }> {
+  const user = await kv.get(`user:id:${userId}`);
+  if (!user) {
+    return { success: false, migrated: false };
+  }
+  
+  // Проверяем, есть ли уже mapping для основного ID
+  const existingMapping = await kv.get(`id:code:${userId}`);
+  if (existingMapping) {
+    return { success: true, migrated: false }; // Уже мигрирован
+  }
+  
+  // Создаем mapping для основного ID
+  const mapping: CodeMapping = {
+    userId,
+    primary: true,
+    isActive: true,
+    createdAt: user.датаРегистрации || new Date().toISOString(),
+    type: /^\d+$/.test(userId) ? "numeric" : "alphanumeric"
+  };
+  await kv.set(`id:code:${userId}`, mapping);
+  
+  // Добавляем основной ID в массив codes если его там нет
+  if (!user.codes) {
+    user.codes = [];
+  }
+  
+  const hasPrimaryCode = user.codes.some((c: PartnerCode) => c.value === userId);
+  if (!hasPrimaryCode) {
+    user.codes.unshift({
+      value: userId,
+      type: mapping.type,
+      primary: true,
+      isActive: true,
+      createdAt: mapping.createdAt
+    });
+    await kv.set(`user:id:${userId}`, user);
+  }
+  
+  console.log(`🔄 Migrated user ${userId} to new code system`);
+  
+  return { success: true, migrated: true };
 }
 
 // Calculate MLM payouts
@@ -6656,6 +7005,262 @@ app.post('/make-server-05aa3c8a/admin/debug-user', async (c) => {
   }
 });
 
+// ==============================================
+// 🆕 MULTIPLE CODES MANAGEMENT API
+// ==============================================
+
+// Получить все коды пользователя
+app.get('/make-server-05aa3c8a/admin/user/:userId/codes', async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const userId = c.req.param('userId');
+    const codes = await getUserCodes(userId);
+    
+    return c.json({
+      success: true,
+      userId,
+      codes,
+      primaryId: userId // Основной ID пользователя
+    });
+  } catch (error) {
+    console.error('❌ Get user codes error:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Добавить код пользователю
+app.post('/make-server-05aa3c8a/admin/user/:userId/codes', async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const userId = c.req.param('userId');
+    const { code, makePrimary } = await c.req.json();
+    
+    if (!code) {
+      return c.json({ success: false, error: 'Код не указан' }, 400);
+    }
+    
+    const result = await addCodeToUser(userId, code, {
+      makePrimary: makePrimary || false,
+      assignedBy: currentUser.id
+    });
+    
+    if (!result.success) {
+      return c.json({ success: false, error: result.error }, 400);
+    }
+    
+    // Получаем обновленный список кодов
+    const codes = await getUserCodes(userId);
+    
+    return c.json({
+      success: true,
+      message: `Код "${code.toUpperCase()}" добавлен пользователю ${userId}`,
+      codes
+    });
+  } catch (error) {
+    console.error('❌ Add user code error:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Установить код как основной
+app.post('/make-server-05aa3c8a/admin/user/:userId/codes/set-primary', async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const userId = c.req.param('userId');
+    const { code } = await c.req.json();
+    
+    if (!code) {
+      return c.json({ success: false, error: 'Код не указан' }, 400);
+    }
+    
+    const result = await setCodeAsPrimary(userId, code);
+    
+    if (!result.success) {
+      return c.json({ success: false, error: result.error }, 400);
+    }
+    
+    const codes = await getUserCodes(userId);
+    
+    return c.json({
+      success: true,
+      message: `Код "${code.toUpperCase()}" установлен как основной`,
+      codes
+    });
+  } catch (error) {
+    console.error('❌ Set primary code error:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Деактивировать код
+app.post('/make-server-05aa3c8a/admin/user/:userId/codes/deactivate', async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const userId = c.req.param('userId');
+    const { code } = await c.req.json();
+    
+    if (!code) {
+      return c.json({ success: false, error: 'Код не указан' }, 400);
+    }
+    
+    const result = await deactivateCode(userId, code);
+    
+    if (!result.success) {
+      return c.json({ success: false, error: result.error }, 400);
+    }
+    
+    const codes = await getUserCodes(userId);
+    
+    return c.json({
+      success: true,
+      message: `Код "${code.toUpperCase()}" деактивирован`,
+      codes
+    });
+  } catch (error) {
+    console.error('❌ Deactivate code error:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Активировать код
+app.post('/make-server-05aa3c8a/admin/user/:userId/codes/activate', async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const userId = c.req.param('userId');
+    const { code } = await c.req.json();
+    
+    if (!code) {
+      return c.json({ success: false, error: 'Код не указан' }, 400);
+    }
+    
+    const result = await activateCode(userId, code);
+    
+    if (!result.success) {
+      return c.json({ success: false, error: result.error }, 400);
+    }
+    
+    const codes = await getUserCodes(userId);
+    
+    return c.json({
+      success: true,
+      message: `Код "${code.toUpperCase()}" активирован`,
+      codes
+    });
+  } catch (error) {
+    console.error('❌ Activate code error:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Проверить доступность кода
+app.get('/make-server-05aa3c8a/admin/codes/check/:code', async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const code = c.req.param('code');
+    const availability = await isCodeAvailable(code);
+    
+    return c.json({
+      success: true,
+      code: code.toUpperCase(),
+      ...availability
+    });
+  } catch (error) {
+    console.error('❌ Check code availability error:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Найти пользователя по коду
+app.get('/make-server-05aa3c8a/admin/codes/resolve/:code', async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    const code = c.req.param('code');
+    const userId = await resolveCodeToUserId(code);
+    
+    if (!userId) {
+      return c.json({
+        success: false,
+        error: `Код "${code}" не найден или неактивен`
+      }, 404);
+    }
+    
+    const user = await kv.get(`user:id:${userId}`);
+    
+    return c.json({
+      success: true,
+      code: code.toUpperCase(),
+      userId,
+      user: user ? {
+        id: user.id,
+        имя: user.имя,
+        фамилия: user.фамилия,
+        email: user.email,
+        codes: user.codes || []
+      } : null
+    });
+  } catch (error) {
+    console.error('❌ Resolve code error:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Миграция всех пользователей на новую систему кодов
+app.post('/make-server-05aa3c8a/admin/codes/migrate-all', async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    console.log('🔄 Starting migration to new code system...');
+    
+    const allUsers = await kv.getByPrefix('user:id:');
+    let migrated = 0;
+    let skipped = 0;
+    let errors: string[] = [];
+    
+    for (const user of allUsers) {
+      if (!user || !user.id) continue;
+      
+      try {
+        const result = await migrateUserToNewCodeSystem(user.id);
+        if (result.migrated) {
+          migrated++;
+        } else {
+          skipped++;
+        }
+      } catch (e) {
+        errors.push(`User ${user.id}: ${String(e)}`);
+      }
+    }
+    
+    console.log(`✅ Migration complete: ${migrated} migrated, ${skipped} skipped, ${errors.length} errors`);
+    
+    return c.json({
+      success: true,
+      message: `Миграция завершена: ${migrated} мигрировано, ${skipped} пропущено`,
+      migrated,
+      skipped,
+      errors: errors.length > 0 ? errors.slice(0, 10) : []
+    });
+  } catch (error) {
+    console.error('❌ Migration error:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
 // Assign reserved ID to user
 app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
   try {
@@ -7392,6 +7997,37 @@ app.post('/make-server-05aa3c8a/admin/change-user-id', async (c) => {
 
     // 🔧 STEP 3: Update the user's own ID record
     oldUser.id = newId;
+    
+    // 🆕 НОВАЯ ЛОГИКА: Инициализируем массив codes и добавляем старый ID
+    if (!oldUser.codes) {
+      oldUser.codes = [];
+    }
+    
+    // Добавляем старый ID в массив кодов (если его там нет)
+    const hasOldCode = oldUser.codes.some((c: any) => c.value === actualOldId);
+    if (!hasOldCode) {
+      oldUser.codes.push({
+        value: actualOldId,
+        type: /^\d+$/.test(actualOldId) ? "numeric" : "alphanumeric",
+        primary: false, // Старый ID больше не основной
+        isActive: true, // Но остается активным!
+        createdAt: oldUser.датаРегистрации || new Date().toISOString(),
+        note: 'Сохранён при смене ID'
+      });
+    }
+    
+    // Добавляем новый ID в массив кодов как основной
+    const hasNewCode = oldUser.codes.some((c: any) => c.value === newId);
+    if (!hasNewCode) {
+      oldUser.codes.push({
+        value: newId,
+        type: /^\d+$/.test(newId) ? "numeric" : "alphanumeric",
+        primary: true,
+        isActive: true,
+        createdAt: new Date().toISOString()
+      });
+    }
+    
     await kv.set(`user:id:${newId}`, oldUser);
     console.log(`✅ Created new user record: user:id:${newId}`);
     
@@ -7399,14 +8035,32 @@ app.post('/make-server-05aa3c8a/admin/change-user-id', async (c) => {
     await kv.del(`user:id:${actualOldId}`);
     console.log(`🗑️ Deleted old user record: user:id:${actualOldId}`);
     
-    // 🔧 STEP 5: Free the old ID for reuse (use actual ID from database)
-    if (actualOldId.length === 3 && /^\d+$/.test(actualOldId)) {
-      await freePartnerId(actualOldId);
-      console.log(`♻️ Freed old partner ID ${actualOldId}`);
-    } else {
-      await freeUserId(actualOldId);
-      console.log(`♻️ Freed old user ID ${actualOldId}`);
-    }
+    // 🆕 STEP 5: Создаём mapping для старого ID (НЕ освобождаем его!)
+    // Старый ID теперь навсегда привязан к этому пользователю
+    const oldIdMapping: CodeMapping = {
+      userId: newId, // Теперь указываем на новый ID пользователя
+      primary: false,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      type: /^\d+$/.test(actualOldId) ? "numeric" : "alphanumeric"
+    };
+    await kv.set(`id:code:${actualOldId}`, oldIdMapping);
+    console.log(`🔒 Created permanent mapping for old ID: ${actualOldId} → ${newId}`);
+    
+    // Создаём mapping для нового ID
+    const newIdMapping: CodeMapping = {
+      userId: newId,
+      primary: true,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      type: /^\d+$/.test(newId) ? "numeric" : "alphanumeric"
+    };
+    await kv.set(`id:code:${newId}`, newIdMapping);
+    console.log(`🔒 Created mapping for new ID: ${newId}`);
+    
+    // ⚠️ ВАЖНО: НЕ освобождаем старый ID для повторного использования!
+    // Старый ID остаётся привязанным к этому пользователю навсегда
+    console.log(`🔐 Old ID ${actualOldId} is permanently linked to user ${newId} (NOT freed for reuse)`);
 
     // 🔍 STEP 6: VALIDATION - Check data integrity after changes
     const validationErrors: string[] = [];
