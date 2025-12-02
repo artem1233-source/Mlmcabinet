@@ -103,6 +103,7 @@ import { IdManagementOptimized } from './admin/IdManagementOptimized';
 import { UserTreeRenderer } from './UserTreeRenderer';
 import { AdvancedFiltersPanel } from './AdvancedFiltersPanel';
 import { VirtualizedTreeView } from './VirtualizedTreeView';
+import { UserCodesManager, CodeLookup } from './admin/UserCodesManager';
 
 interface UsersManagementOptimizedProps {
   currentUser: any;
@@ -2000,10 +2001,13 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
 
         {/* 🛡️ ID Management Tab */}
         <TabsContent value="ids">
-          <IdManagementOptimized 
-            currentUser={currentUser} 
-            onSuccess={() => queryClient.invalidateQueries({ queryKey: ['users-optimized'] })} 
-          />
+          <div className="space-y-4">
+            <IdManagementOptimized 
+              currentUser={currentUser} 
+              onSuccess={() => queryClient.invalidateQueries({ queryKey: ['users-optimized'] })} 
+            />
+            <CodeLookup />
+          </div>
         </TabsContent>
       </Tabs>
 
@@ -2165,12 +2169,13 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
 
               {/* Tabs */}
               <Tabs defaultValue="general" className="w-full">
-                <TabsList className="grid w-full grid-cols-5 mb-2.5">
+                <TabsList className="grid w-full grid-cols-6 mb-2.5">
                   <TabsTrigger value="general">Общее</TabsTrigger>
                   <TabsTrigger value="team">Команда</TabsTrigger>
                   <TabsTrigger value="sales">Продажи</TabsTrigger>
                   <TabsTrigger value="finance">Финансы</TabsTrigger>
                   <TabsTrigger value="activity">Активность</TabsTrigger>
+                  <TabsTrigger value="codes">ID/Коды</TabsTrigger>
                 </TabsList>
 
                 {/* 📋 Вкладка: Общее */}
@@ -2730,6 +2735,17 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                       Заказов пока нет
                     </div>
                   </div>
+                </TabsContent>
+
+                {/* 🆔 Вкладка: ID/Коды */}
+                <TabsContent value="codes" className="space-y-2.5">
+                  <UserCodesManager 
+                    userId={selectedUserForDetails.id}
+                    userName={`${selectedUserForDetails.имя || ''} ${selectedUserForDetails.фамилия || ''}`.trim()}
+                    onCodesChanged={() => {
+                      queryClient.invalidateQueries({ queryKey: ['users-optimized'] });
+                    }}
+                  />
                 </TabsContent>
               </Tabs>
             </div>
