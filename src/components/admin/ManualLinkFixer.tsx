@@ -118,7 +118,7 @@ export function ManualLinkFixer({ currentUser, onSuccess }: ManualLinkFixerProps
       updatedUser[issue.fix.field] = issue.fix.correctValue;
 
       // Save via API
-      const response = await api.updateUser(issue.fix.userId, updatedUser);
+      const response = await api.updateUserProfile(updatedUser);
       
       if (response.success) {
         toast.success('Связь исправлена!');

@@ -15,7 +15,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useAllUsers, useInvalidateUsers } from '../../hooks/useAllUsers';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 

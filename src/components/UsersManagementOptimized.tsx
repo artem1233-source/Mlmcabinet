@@ -93,7 +93,7 @@ import {
   TabsList,
   TabsTrigger,
 } from './ui/tabs';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { StatsWidgets } from './StatsWidgets';
 import { exportAllUsersToCSV } from '../utils/exportToCSV';
