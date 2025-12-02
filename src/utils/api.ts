@@ -941,3 +941,63 @@ export async function updateOrderStatus(orderId: string, status: string) {
     body: JSON.stringify({ status }),
   });
 }
+
+// ======================
+// ADMIN - MULTIPLE ID/CODES MANAGEMENT
+// ======================
+
+export interface PartnerCode {
+  value: string;
+  type: "numeric" | "alphanumeric";
+  primary: boolean;
+  isActive: boolean;
+  createdAt: string;
+  assignedBy?: string;
+  note?: string;
+}
+
+export async function getUserCodes(userId: string): Promise<{ success: boolean; userId: string; codes: PartnerCode[]; primaryId: string }> {
+  return apiCall(`/admin/user/${userId}/codes`);
+}
+
+export async function addUserCode(userId: string, code: string, makePrimary: boolean = false): Promise<{ success: boolean; message: string; codes: PartnerCode[] }> {
+  return apiCall(`/admin/user/${userId}/codes`, {
+    method: 'POST',
+    body: JSON.stringify({ code, makePrimary }),
+  });
+}
+
+export async function setCodeAsPrimary(userId: string, code: string): Promise<{ success: boolean; message: string; codes: PartnerCode[] }> {
+  return apiCall(`/admin/user/${userId}/codes/set-primary`, {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+}
+
+export async function deactivateCode(userId: string, code: string): Promise<{ success: boolean; message: string; codes: PartnerCode[] }> {
+  return apiCall(`/admin/user/${userId}/codes/deactivate`, {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+}
+
+export async function activateCode(userId: string, code: string): Promise<{ success: boolean; message: string; codes: PartnerCode[] }> {
+  return apiCall(`/admin/user/${userId}/codes/activate`, {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+}
+
+export async function checkCodeAvailability(code: string): Promise<{ success: boolean; code: string; available: boolean; reason?: string; existingUserId?: string }> {
+  return apiCall(`/admin/codes/check/${encodeURIComponent(code)}`);
+}
+
+export async function resolveCode(code: string): Promise<{ success: boolean; code: string; userId: string; user: any }> {
+  return apiCall(`/admin/codes/resolve/${encodeURIComponent(code)}`);
+}
+
+export async function migrateAllUsersToCodes(): Promise<{ success: boolean; message: string; migrated: number; skipped: number; errors: string[] }> {
+  return apiCall('/admin/codes/migrate-all', {
+    method: 'POST',
+  });
+}

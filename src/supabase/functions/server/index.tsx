@@ -2831,9 +2831,9 @@ app.post("/make-server-05aa3c8a/upload/course-material", async (c) => {
 app.post("/make-server-05aa3c8a/orders", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
-    const { sku, isPartner, quantity = 1 } = await c.req.json();
+    const { sku, isPartner, quantity = 1, usedReferralCode } = await c.req.json();
     
-    console.log(`📦 Creating order: SKU=${sku}, isPartner=${isPartner}, quantity=${quantity}`);
+    console.log(`📦 Creating order: SKU=${sku}, isPartner=${isPartner}, quantity=${quantity}, usedCode=${usedReferralCode}`);
     
     if (!sku) {
       return c.json({ error: "SKU is required" }, 400);
@@ -2843,6 +2843,17 @@ app.post("/make-server-05aa3c8a/orders", async (c) => {
     if (!sku || sku.length < 2) {
       console.error(`❌ Invalid SKU: "${sku}"`);
       return c.json({ error: `Invalid SKU format: "${sku}"` }, 400);
+    }
+    
+    // 🆕 Если передан реферальный код, проверяем его и находим владельца
+    let resolvedSponsorId: string | null = null;
+    if (usedReferralCode) {
+      resolvedSponsorId = await resolveCodeToUserId(usedReferralCode);
+      if (!resolvedSponsorId) {
+        console.log(`⚠️ Referral code "${usedReferralCode}" not found, ignoring`);
+      } else {
+        console.log(`✅ Resolved referral code "${usedReferralCode}" to user ${resolvedSponsorId}`);
+      }
     }
     
     // Find upline chain
@@ -2862,7 +2873,7 @@ app.post("/make-server-05aa3c8a/orders", async (c) => {
     
     // Create order
     const orderId = `ORD-${Date.now()}`;
-    const order = {
+    const order: any = {
       id: orderId,
       покупательId: currentUser.id,
       sku: sku,
@@ -2874,6 +2885,12 @@ app.post("/make-server-05aa3c8a/orders", async (c) => {
       дата: new Date().toISOString(),
       статус: 'pending' // pending, paid, cancelled
     };
+    
+    // 🆕 Сохраняем использованный реферальный код
+    if (usedReferralCode) {
+      order.usedReferralCode = usedReferralCode.toUpperCase().trim();
+      order.resolvedSponsorId = resolvedSponsorId;
+    }
     
     await kv.set(`order:${orderId}`, order);
     await kv.set(`order:user:${currentUser.id}:${orderId}`, order);
