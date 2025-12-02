@@ -49,7 +49,6 @@ import {
   Link2,
   Bell,
   Download,
-  Download,
   PhoneCall,
   TrendingDown,
   DollarSign,

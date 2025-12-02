@@ -12,7 +12,23 @@ This is a multi-level marketing (MLM) management application for hydrogen powder
 - Backend: Supabase Edge Functions (Deno + Hono framework)
 - Database: Supabase KV Store (key-value storage)
 - Authentication: Email/password + Telegram Mini App integration
-- Deployment: Vercel (frontend) + Supabase (backend)
+- Deployment: Replit (development) + Vercel (production frontend) + Supabase (backend)
+
+## Recent Changes
+
+**December 2, 2025 - Replit Environment Setup:**
+- Configured Vite to run on port 5000 with `allowedHosts: true` for Replit proxy
+- Fixed duplicate `Download` icon import in `UsersManagementOptimized.tsx`
+- Removed misplaced `src/vite.config.ts` file (was causing bundler conflicts)
+- Updated lucide-react to version 0.555.0
+- Added Supabase environment secrets (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+## Development Environment
+
+**Running the Application:**
+- Workflow: "Start application" runs `npm run dev`
+- Development server: http://localhost:5000
+- Frontend is proxied through Replit's web preview
 
 ## User Preferences
 

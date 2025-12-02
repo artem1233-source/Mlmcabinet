@@ -4,11 +4,20 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    include: [
+      'lucide-react',
+      'react',
+      'react-dom',
+      '@tanstack/react-query',
+    ],
+  },
   resolve: {
     extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
+    dedupe: ['lucide-react', 'react', 'react-dom'],
   },
   build: {
     target: 'esnext',
@@ -19,9 +28,7 @@ export default defineConfig({
     port: 5000,
     strictPort: true,
     allowedHosts: true,
-    hmr: {
-      clientPort: 5000,
-    },
+    hmr: false,
   },
   preview: {
     host: '0.0.0.0',
