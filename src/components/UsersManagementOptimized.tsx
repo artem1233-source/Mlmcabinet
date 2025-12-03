@@ -1398,12 +1398,54 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    if (confirm(`Удалить ${selectedUsers.size} выбранных пользователей?`)) {
-                      // TODO: Реализовать массовое удаление
-                      toast.success(`Удалено пользователей: ${selectedUsers.size}`);
-                      setSelectedUsers(new Set());
+                  onClick={async () => {
+                    if (!confirm(`⚠️ УДАЛЕНИЕ ${selectedUsers.size} ПОЛЬЗОВАТЕЛЕЙ\n\nЭто действие необратимо!\n\nПродолжить?`)) {
+                      return;
                     }
+                    
+                    const userIds = Array.from(selectedUsers);
+                    let deleted = 0;
+                    let failed = 0;
+                    
+                    toast.loading(`Удаление ${userIds.length} пользователей...`);
+                    
+                    for (const userId of userIds) {
+                      try {
+                        const response = await fetch(
+                          `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/delete-user/${userId}`,
+                          {
+                            method: 'DELETE',
+                            headers: {
+                              'Authorization': `Bearer ${publicAnonKey}`,
+                              'X-User-Id': currentUser?.id || '',
+                            },
+                          }
+                        );
+                        
+                        const data = await response.json();
+                        if (data.success) {
+                          deleted++;
+                        } else {
+                          failed++;
+                          console.error(`Failed to delete ${userId}:`, data.error);
+                        }
+                      } catch (error) {
+                        failed++;
+                        console.error(`Error deleting ${userId}:`, error);
+                      }
+                    }
+                    
+                    toast.dismiss();
+                    
+                    if (deleted > 0) {
+                      toast.success(`Удалено: ${deleted} пользователей${failed > 0 ? `, ошибок: ${failed}` : ''}`);
+                      queryClient.invalidateQueries({ queryKey: ['users-optimized'] });
+                      onRefresh?.();
+                    } else {
+                      toast.error(`Ошибка удаления. Не удалось удалить пользователей.`);
+                    }
+                    
+                    setSelectedUsers(new Set());
                   }}
                   className="border-red-500 text-red-600 hover:bg-red-50"
                 >
