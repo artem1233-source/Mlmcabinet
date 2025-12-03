@@ -5,6 +5,7 @@ import * as kv from "./kv_store.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getUserRank, invalidateRankCache, updateUplineRanks, updateUserRank, calculateUserRank } from "./rank_calculator.tsx";
 import * as metricsCache from "./user_metrics_cache.tsx";
+import { convertToBackendFormat, getProductPrices, BACKEND_DEFAULT_COMMISSIONS, BACKEND_DEFAULT_PRICES } from "./commission_backend.ts";
 
 // 🎯 HELPER: Инвалидация кэша при изменении пользователей
 async function invalidateUsersCache() {
@@ -750,84 +751,16 @@ async function calculatePayouts(price: number, isPartner: boolean, sku: string, 
   const products = await kv.getByPrefix('product:');
   const product = products.find((p: any) => p.sku === sku);
   
-  if (!product) {
-    // Fallback to hardcoded products for backward compatibility
-    const productConfig: any = {
-      'H2-1': {
-        retail: 6500,
-        partner: 4900,
-        d0: 1600,
-        d1: 1500,
-        d2: 900,
-        d3: 600
-      },
-      'H2-3': {
-        retail: 18000,
-        partner: 13500,
-        d0: 4500,
-        d1: 4000,
-        d2: 2500,
-        d3: 1500
-      }
-    };
-    
-    const config = productConfig[sku];
-    if (!config) {
-      throw new Error(`Unknown product SKU: ${sku}`);
-    }
-    
-    const actualPrice = isPartner ? config.partner : config.retail;
-    
-    if (!isPartner) {
-      // Guest purchase - L0 gets d0
-      if (upline.u0) {
-        payouts.push({
-          userId: upline.u0,
-          amount: config.d0,
-          level: 'L0'
-        });
-      }
-    } else {
-      // Partner purchase - distribute d1, d2, d3 to upline
-      if (upline.u1) {
-        payouts.push({
-          userId: upline.u1,
-          amount: config.d1,
-          level: 'L1'
-        });
-      }
-      if (upline.u2) {
-        payouts.push({
-          userId: upline.u2,
-          amount: config.d2,
-          level: 'L2'
-        });
-      }
-      if (upline.u3) {
-        payouts.push({
-          userId: upline.u3,
-          amount: config.d3,
-          level: 'L3'
-        });
-      }
-    }
-    
-    return { price: actualPrice, payouts };
-  }
+  // 🆕 Используем helper для получения комиссий (поддержка product.commission и product.комиссии)
+  // Если product не найден — передаём объект с sku для использования дефолтов
+  const commissions = convertToBackendFormat(product || { sku }, isPartner);
   
-  // 🆕 Получаем цены и комиссии из товара
-  const retailPrice = Number(product.цена_розница || product.розничнаяЦена || 0);
-  const partnerPrice = Number(product.цена1 || product.партнёрскаяЦена || 0);
+  // 🆕 Получаем цены через helper (с fallback на дефолты)
+  const prices = getProductPrices(product || { sku });
+  const actualPrice = isPartner ? prices.partner : prices.retail;
   
-  // Получаем комиссии из товара или используем дефолтные
-  const commissions = product.комиссии || {
-    d0: 1600,
-    d1: 1500,
-    d2: 900,
-    d3: 600
-  };
-  
-  const actualPrice = isPartner ? partnerPrice : retailPrice;
+  // Логирование для отладки
+  console.log(`💰 calculatePayouts: sku=${sku}, isPartner=${isPartner}, commissions=`, commissions);
   
   if (!isPartner) {
     // Guest purchase - L0 gets d0
@@ -836,6 +769,28 @@ async function calculatePayouts(price: number, isPartner: boolean, sku: string, 
         userId: upline.u0,
         amount: commissions.d0 || 0,
         level: 'L0'
+      });
+    }
+    // 🆕 Для гостевых покупок также выплачиваем d1/d2/d3 спонсорам продавца
+    if (upline.u1) {
+      payouts.push({
+        userId: upline.u1,
+        amount: commissions.d1 || 0,
+        level: 'L1'
+      });
+    }
+    if (upline.u2) {
+      payouts.push({
+        userId: upline.u2,
+        amount: commissions.d2 || 0,
+        level: 'L2'
+      });
+    }
+    if (upline.u3) {
+      payouts.push({
+        userId: upline.u3,
+        amount: commissions.d3 || 0,
+        level: 'L3'
       });
     }
   } else {
