@@ -1313,13 +1313,16 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger 
-            value="ids" 
-            className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white data-[state=active]:shadow-md"
-          >
-            <Shield className="w-4 h-4 mr-2" />
-            Управление ID
-          </TabsTrigger>
+          {/* 🔒 Вкладка "Управление ID" только для админов/CEO */}
+          {(currentUser?.isAdmin || currentUser?.id === 'ceo' || currentUser?.id === '001' || currentUser?.email === 'admin@admin.com') && (
+            <TabsTrigger 
+              value="ids" 
+              className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white data-[state=active]:shadow-md"
+            >
+              <Shield className="w-4 h-4 mr-2" />
+              Управление ID
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* 👥 Users Tab */}
@@ -1999,16 +2002,18 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       )}
         </TabsContent>
 
-        {/* 🛡️ ID Management Tab */}
-        <TabsContent value="ids">
-          <div className="space-y-4">
-            <IdManagementOptimized 
-              currentUser={currentUser} 
-              onSuccess={() => queryClient.invalidateQueries({ queryKey: ['users-optimized'] })} 
-            />
-            <CodeLookup />
-          </div>
-        </TabsContent>
+        {/* 🛡️ ID Management Tab - только для админов/CEO */}
+        {(currentUser?.isAdmin || currentUser?.id === 'ceo' || currentUser?.id === '001' || currentUser?.email === 'admin@admin.com') && (
+          <TabsContent value="ids">
+            <div className="space-y-4">
+              <IdManagementOptimized 
+                currentUser={currentUser} 
+                onSuccess={() => queryClient.invalidateQueries({ queryKey: ['users-optimized'] })} 
+              />
+              <CodeLookup />
+            </div>
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* 👁️ User Details Modal */}
