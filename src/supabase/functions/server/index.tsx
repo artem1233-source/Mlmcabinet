@@ -2332,18 +2332,47 @@ app.delete("/make-server-05aa3c8a/user/account", async (c) => {
       }
     }
     
-    // Free the ID for reuse
+    // 🔓 Free ALL user IDs (primary + additional codes) for reuse
+    const freedCodes: string[] = [];
+    
+    // 1. Free the primary ID
     if (userId.length === 3 && /^\d+$/.test(userId)) {
       await freePartnerId(userId);
     } else {
       await freeUserId(userId);
     }
+    freedCodes.push(userId);
     
-    console.log(`✅ User ${userId} self-deleted and ID freed for reuse`);
+    // 2. Delete global mapping for primary ID
+    await kv.del(`id:code:${userId}`);
+    
+    // 3. Free all additional codes from user.codes[] array
+    if (currentUser.codes && Array.isArray(currentUser.codes)) {
+      for (const code of currentUser.codes) {
+        const codeValue = code.value || code;
+        if (codeValue && codeValue !== userId) {
+          // Delete global mapping
+          await kv.del(`id:code:${codeValue}`);
+          
+          // Free numeric codes for reuse
+          if (/^\d+$/.test(codeValue)) {
+            if (codeValue.length === 3) {
+              await freePartnerId(codeValue);
+            } else {
+              await freeUserId(codeValue);
+            }
+          }
+          freedCodes.push(codeValue);
+        }
+      }
+    }
+    
+    console.log(`✅ User ${userId} self-deleted. Freed codes: [${freedCodes.join(', ')}]`);
     
     return c.json({ 
       success: true, 
-      message: 'Ваш аккаунт удалён. Ваш ID будет доступен для новых пользователей.' 
+      message: `Ваш аккаунт удалён. Освобождено ${freedCodes.length} ID для новых пользователей.`,
+      freedCodes
     });
   } catch (error) {
     console.error(`❌ Self-delete error:`, error);
@@ -4157,20 +4186,51 @@ app.delete("/make-server-05aa3c8a/admin/users/:userId", async (c) => {
       }
     }
     
-    // Free the ID for reuse
-    // Determine if it's a 3-digit partner ID or regular ID
+    // 🔓 Free ALL user IDs (primary + additional codes) for reuse
+    const freedCodes: string[] = [];
+    
+    // 1. Free the primary ID
     if (userId.length === 3 && /^\d+$/.test(userId)) {
       await freePartnerId(userId);
     } else {
       await freeUserId(userId);
     }
+    freedCodes.push(userId);
+    
+    // 2. Delete global mapping for primary ID
+    await kv.del(`id:code:${userId}`);
+    
+    // 3. Free all additional codes from user.codes[] array
+    if (user.codes && Array.isArray(user.codes)) {
+      for (const code of user.codes) {
+        const codeValue = code.value || code;
+        if (codeValue && codeValue !== userId) {
+          // Delete global mapping
+          await kv.del(`id:code:${codeValue}`);
+          
+          // Free numeric codes for reuse
+          if (/^\d+$/.test(codeValue)) {
+            if (codeValue.length === 3) {
+              await freePartnerId(codeValue);
+            } else {
+              await freeUserId(codeValue);
+            }
+          }
+          freedCodes.push(codeValue);
+        }
+      }
+    }
     
     // 🗑️ Инвалидация кэша
     await invalidateUsersCache();
     
-    console.log(`✅ User ${userId} deleted and ID freed for reuse`);
+    console.log(`✅ User ${userId} deleted. Freed codes: [${freedCodes.join(', ')}]`);
     
-    return c.json({ success: true, message: 'Пользователь удалён, ID освобождён для повторного использования' });
+    return c.json({ 
+      success: true, 
+      message: `Пользователь удалён, освобождено ${freedCodes.length} ID: ${freedCodes.join(', ')}`,
+      freedCodes 
+    });
   } catch (error) {
     console.log(`Admin delete user error: ${error}`);
     return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
@@ -6628,20 +6688,52 @@ app.delete("/make-server-05aa3c8a/admin/delete-user/:userId", async (c) => {
       }
     }
     
-    // Free the user ID for reuse
-    await freeUserId(userId);
-    console.log(`♻️ Freed user ID ${userId} for reuse`);
+    // 🔓 Free ALL user IDs (primary + additional codes) for reuse
+    const freedCodes: string[] = [];
     
-    console.log(`✅ User deleted: ${userId}`);
+    // 1. Free the primary ID
+    if (userId.length === 3 && /^\d+$/.test(userId)) {
+      await freePartnerId(userId);
+    } else {
+      await freeUserId(userId);
+    }
+    freedCodes.push(userId);
+    
+    // 2. Delete global mapping for primary ID
+    await kv.del(`id:code:${userId}`);
+    
+    // 3. Free all additional codes from user.codes[] array
+    if (user.codes && Array.isArray(user.codes)) {
+      for (const code of user.codes) {
+        const codeValue = code.value || code;
+        if (codeValue && codeValue !== userId) {
+          // Delete global mapping
+          await kv.del(`id:code:${codeValue}`);
+          
+          // Free numeric codes for reuse
+          if (/^\d+$/.test(codeValue)) {
+            if (codeValue.length === 3) {
+              await freePartnerId(codeValue);
+            } else {
+              await freeUserId(codeValue);
+            }
+          }
+          freedCodes.push(codeValue);
+        }
+      }
+    }
+    
+    console.log(`✅ User deleted: ${userId}. Freed codes: [${freedCodes.join(', ')}]`);
     
     return c.json({ 
       success: true, 
-      message: `User ${userId} deleted successfully`,
+      message: `User ${userId} deleted successfully. Freed ${freedCodes.length} codes.`,
       deletedUser: {
         id: userId,
         email: user.email,
         name: `${user.имя} ${user.фамилия || ''}`
-      }
+      },
+      freedCodes
     });
     
   } catch (error) {
