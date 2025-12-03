@@ -7681,6 +7681,98 @@ app.post('/make-server-05aa3c8a/admin/clean-broken-refs', async (c) => {
   }
 });
 
+// Rebuild team relationships based on sponsorId (fix missing team members)
+app.post('/make-server-05aa3c8a/admin/rebuild-relationships', async (c) => {
+  try {
+    const userId = c.req.header('X-User-Id');
+    if (!userId) {
+      return c.json({ success: false, error: 'Не авторизован' }, 401);
+    }
+
+    const currentUser = await kv.get(`user:id:${userId}`);
+    if (!currentUser?.isAdmin) {
+      return c.json({ success: false, error: 'Доступ запрещён' }, 403);
+    }
+
+    console.log('🔧 Starting relationship rebuild...');
+
+    // Get all users
+    const allUsers = await kv.getByPrefix('user:id:');
+    console.log(`📋 Loaded ${allUsers.length} users from database`);
+
+    // Create maps for fast lookup
+    const userById = new Map();
+    const usersBySponsorId = new Map(); // sponsorId -> list of children
+    
+    for (const user of allUsers) {
+      userById.set(user.id, user);
+      
+      // Group users by their sponsor
+      const sponsorId = user.спонсорId;
+      if (sponsorId) {
+        if (!usersBySponsorId.has(sponsorId)) {
+          usersBySponsorId.set(sponsorId, []);
+        }
+        usersBySponsorId.get(sponsorId).push(user.id);
+      }
+    }
+    
+    console.log(`📋 Found ${usersBySponsorId.size} sponsors with children`);
+
+    let fixedUsers = 0;
+    let addedReferences = 0;
+    const repairLog: string[] = [];
+
+    // For each user, ensure their команда array contains all children who have them as sponsor
+    for (const [sponsorId, childIds] of usersBySponsorId.entries()) {
+      const sponsor = userById.get(sponsorId);
+      
+      if (!sponsor) {
+        console.log(`⚠️ Sponsor ${sponsorId} not found, but has children: ${childIds.join(', ')}`);
+        repairLog.push(`⚠️ Спонсор ${sponsorId} не найден, но на него ссылаются: ${childIds.join(', ')}`);
+        continue;
+      }
+      
+      // Initialize команда if not exists
+      if (!Array.isArray(sponsor.команда)) {
+        sponsor.команда = [];
+      }
+      
+      let needsUpdate = false;
+      const originalTeam = [...sponsor.команда];
+      
+      for (const childId of childIds) {
+        if (!sponsor.команда.includes(childId)) {
+          sponsor.команда.push(childId);
+          needsUpdate = true;
+          addedReferences++;
+          console.log(`   ✅ Added ${childId} to ${sponsorId}'s team`);
+        }
+      }
+      
+      if (needsUpdate) {
+        await kv.set(`user:id:${sponsorId}`, sponsor);
+        fixedUsers++;
+        repairLog.push(`✅ ${sponsor.имя || sponsorId}: добавлено ${sponsor.команда.length - originalTeam.length} участников (было: ${originalTeam.length}, стало: ${sponsor.команда.length})`);
+        console.log(`   🔧 Fixed ${sponsor.id}: [${originalTeam.join(', ')}] → [${sponsor.команда.join(', ')}]`);
+      }
+    }
+
+    console.log(`✅ Rebuild complete: ${fixedUsers} users fixed, ${addedReferences} references added`);
+
+    return c.json({
+      success: true,
+      message: `Восстановление завершено: обновлено ${fixedUsers} пользователей, добавлено ${addedReferences} связей`,
+      fixedUsers,
+      addedReferences,
+      log: repairLog
+    });
+  } catch (error) {
+    console.error('Error rebuilding relationships:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
 // Clean duplicate admins (remove admins from user:id: that should be in admin:id:)
 app.post('/make-server-05aa3c8a/admin/clean-duplicate-admins', async (c) => {
   try {

@@ -374,6 +374,12 @@ export async function cleanBrokenRefs() {
   });
 }
 
+export async function rebuildRelationships() {
+  return apiCall('/admin/rebuild-relationships', {
+    method: 'POST',
+  });
+}
+
 export async function cleanDuplicateAdmins() {
   const accessToken = localStorage.getItem('access_token');
   
