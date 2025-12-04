@@ -16,7 +16,7 @@ This is a multi-level marketing (MLM) management application for hydrogen powder
 
 ## Recent Changes
 
-**December 4, 2025 - Rank Calculation Fix (Off-by-One Error):**
+**December 4, 2025 - Rank Calculation Fix (Backend + Frontend):**
 - Fixed rank calculation logic in `rank_calculator.tsx`:
   - Formula: `ранг = max(ранги прямых партнёров) + 1`
   - If no team → rank = 0 (strictly)
@@ -26,6 +26,9 @@ This is a multi-level marketing (MLM) management application for hydrogen powder
 - Updated `updateUserRank()` to also update cache after calculation
 - Updated `recalculate-all-ranks` to set cache instead of just deleting it
 - New endpoint `GET /admin/test-rank-logic` for testing rank calculation rules
+- Frontend fixes:
+  - `RankBadge.tsx`: Changed `Math.max(1, rank || 1)` → `Math.max(0, rank ?? 0)` to allow rank 0
+  - `UserTreeRenderer.tsx`: Removed client-side `calculateCorrectRank()` that was overwriting backend values
 - Rank examples:
   - C (no team) = 0
   - B → C = 1 (B has partner C who has no team)
