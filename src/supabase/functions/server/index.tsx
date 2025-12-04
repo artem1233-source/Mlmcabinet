@@ -1129,6 +1129,10 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
     // Create refCode index for fast lookup
     await kv.set(`user:refcode:${refCode}`, { id: newUserId });
     
+    // ✅ Явно кэшируем ранг 0 для нового пользователя (у него ещё нет команды)
+    await kv.set(`rank:user:${newUserId}`, 0);
+    console.log(`✅ Rank cache set to 0 for new user ${newUserId}`);
+    
     // 🆕 Обновляем команду спонсора
     if (sponsor) {
       const команда = sponsor.команда || [];
@@ -1553,6 +1557,10 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
     await kv.set(emailKey, { id: partnerId });
     // Create refCode index for fast lookup
     await kv.set(`user:refcode:${refCode}`, { id: partnerId });
+    
+    // ✅ Явно кэшируем ранг 0 для нового партнёра (у него ещё нет команды)
+    await kv.set(`rank:user:${partnerId}`, 0);
+    console.log(`✅ Rank cache set to 0 for new partner ${partnerId}`);
     
     // Update sponsor's team
     if (sponsor) {
