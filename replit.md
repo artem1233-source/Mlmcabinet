@@ -16,23 +16,43 @@ This is a multi-level marketing (MLM) management application for hydrogen powder
 
 ## Recent Changes
 
-**December 4, 2025 - Commission System Refactoring:**
-- **UNIFIED HELPER** `createEarningsFromOrder(order)`:
-  - Единая функция для создания earnings из заказа
-  - Записывает: level, линия, сумма, sku, isPartner, fromUserId, createdAt
-  - Вызывается из: `/orders/:orderId/confirm`, demo-payment, YooKassa webhook
-  - Логирует каждое начисление: `✅ Earning: 1600₽ → 001 (L0, линия=0)`
-- **Purchase Flows (схема потоков):**
-  - **Поток A** "Продать гостю": CatalogRu → GuestSaleModal → createOrder + confirmOrder → createEarningsFromOrder
-  - **Поток B** "Купить" (партнёр): CatalogRu → CheckoutRu → createPayment(demo) → setTimeout → createEarningsFromOrder  
-  - **Поток C** "Корзина": CartRu → CheckoutRu → createPayment(demo) → createEarningsFromOrder
-- **Commission Logic:**
-  - Guest sale: L0→seller, L1/L2/L3→seller's upline
-  - Partner purchase: L1/L2/L3→buyer's upline (no L0)
-- **GuestSaleModal.tsx** - исправлен критический баг:
-  - Раньше: только createOrder (комиссии НЕ начислялись!)
-  - Теперь: createOrder + confirmOrder (комиссии начисляются)
-- **Frontend** (EarningsRu.tsx) - fallback: `level = e.level ?? ('L' + e.линия) ?? 'L0'`
+**December 4, 2025 - Commission System Complete Overhaul:**
+
+### MLM Commission Architecture
+
+**Единая функция создания earnings:**
+```
+createEarningsFromOrder(order) → earnings[]
+```
+- Вызывается из: `/orders/:orderId/confirm`, demo-payment, YooKassa webhook
+- Записывает ВСЕ поля: id, userId, orderId, amount, сумма, level, линия, fromUserId, sku, isPartner, createdAt
+- Логирует: `✅ Earning: 1600₽ → 001 (L0, линия=0)`
+
+**Схема потоков покупок:**
+
+| Поток | Путь | Момент earnings |
+|-------|------|-----------------|
+| A. Продать гостю | GuestSaleModal → createOrder + confirmOrder | Сразу |
+| B. Купить (партнёр) | CatalogRu → CheckoutRu → createPayment(demo) | 2 сек |
+| C. Корзина | CartRu → CheckoutRu → createPayment(demo) | 2 сек |
+| D. YooKassa | webhook → order.статус='paid' | При webhook |
+
+**Логика комиссий:**
+- **Гостевая продажа:** L0→продавец, L1/L2/L3→спонсоры продавца
+- **Партнёрская покупка:** L0=НЕТ (взял скидку), L1/L2/L3→спонсоры покупателя
+
+**Автотест комиссий:**
+```
+POST /admin/debug-mlm-test
+```
+- Создаёт тестовую структуру (U001→U002→U003→U004)
+- Прогоняет 3 сценария: гостевая, партнёрская, корзина
+- Проверяет: L0/L1/L2/L3 начислены правильным людям
+- Очищает тестовые данные после проверки
+
+**Исправления:**
+- GuestSaleModal: теперь вызывает confirmOrder (раньше комиссии не начислялись!)
+- EarningsRu: fallback `e.level ?? ('L' + e.линия) ?? 'L0'`
 
 **December 4, 2025 - Rank System Cache Fix:**
 - **ВРЕМЕННОЕ РЕШЕНИЕ**: `api.getUserRank()` теперь использует `cache=false` по умолчанию
