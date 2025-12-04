@@ -1,12 +1,19 @@
 import * as kv from './kv_store.tsx';
 
 /**
- * Рекурсивно вычисляет максимальную глубину дерева партнёров
+ * 🎯 ИСПРАВЛЕННАЯ ЛОГИКА РАСЧЁТА РАНГА
+ * 
+ * Ранг = максимальная глубина структуры ВНИЗ от пользователя.
+ * - Сам пользователь НЕ включается в расчёт.
+ * - Если потомков нет → ранг = 0
+ * - Если есть прямые партнёры без своих структур → ранг = 1
+ * - A → B → C означает: A=2, B=1, C=0
+ * 
  * @param userId - ID партнёра
  * @param visitedIds - Множество посещённых ID (защита от циклов)
  * @returns Максимальная глубина дерева (ранг)
  */
-async function calculateTreeDepth(userId: string, visitedIds: Set<string> = new Set(), depth: number = 0): Promise<number> {
+async function calculateTreeDepth(userId: string, visitedIds: Set<string> = new Set()): Promise<number> {
   // Защита от циклов
   if (visitedIds.has(userId)) {
     console.warn(`⚠️ Cycle detected for user ${userId}`);
@@ -23,68 +30,48 @@ async function calculateTreeDepth(userId: string, visitedIds: Set<string> = new 
     return 0;
   }
   
-  console.log(`📊 Calculating depth for user ${userId} (${user.имя} ${user.фамилия || ''})`);
-  console.log(`   Current visited IDs: [${Array.from(visitedIds).join(', ')}]`);
-  console.log(`   User команда:`, user.команда);
+  console.log(`📊 Calculating depth for user ${userId} (${user.имя || ''} ${user.фамилия || ''})`);
   
-  // Если нет команды - ранг 0
-  if (!user.команда || user.команда.length === 0) {
-    console.log(`   ✅ User ${userId}: команда пуста → depth = 0`);
+  // ✅ КЛЮЧЕВАЯ ПРОВЕРКА: Если нет команды — ранг СТРОГО 0
+  if (!user.команда || !Array.isArray(user.команда) || user.команда.length === 0) {
+    console.log(`   ✅ User ${userId}: команда пуста → rank = 0`);
     return 0;
   }
   
-  // ✅ Фильтруем невалидные ID из команды
-  console.log(`   🔍 Filtering team members...`);
-  const validTeam = user.команда.filter((id: any, index: number) => {
-    console.log(`      [${index}] Checking: value="${id}", type=${typeof id}, isString=${typeof id === 'string'}, trimmed="${typeof id === 'string' ? id.trim() : 'N/A'}"`);
-    
-    const isValid = id && typeof id === 'string' && id.trim() !== '';
-    
-    if (!isValid) {
-      console.warn(`      ❌ [${index}] INVALID: "${id}" (type: ${typeof id})`);
-    } else {
-      console.log(`      ✅ [${index}] VALID: "${id}"`);
-    }
-    
-    return isValid;
+  // Фильтруем невалидные ID из команды (null, undefined, пустые строки)
+  const validTeam = user.команда.filter((id: any) => {
+    return id && typeof id === 'string' && id.trim() !== '';
   });
   
+  // ✅ Если все ID невалидные — ранг 0
   if (validTeam.length === 0) {
-    console.log(`   ⚠️ User ${userId}: все ID в команде невалидны → depth = 0`);
+    console.log(`   ⚠️ User ${userId}: все ID в команде невалидны → rank = 0`);
     return 0;
   }
   
-  console.log(`   ✅ Valid team members: [${validTeam.join(', ')}]`);
+  console.log(`   👥 Valid team members: [${validTeam.join(', ')}]`);
   
-  // Рекурсивно вычисляем глубину для каждого партнёра в команде
-  const depths: number[] = [];
+  // Рекурсивно вычисляем ранг для каждого партнёра в команде
+  const childRanks: number[] = [];
   
-  console.log(`   🔄 Processing ${validTeam.length} team members...`);
-  
-  for (let i = 0; i < validTeam.length; i++) {
-    const partnerId = validTeam[i];
-    console.log(`   [${i + 1}/${validTeam.length}] Processing partner ${partnerId}...`);
-    
+  for (const partnerId of validTeam) {
     try {
-      // ✅ ИСПРАВЛЕНО: Передаем копию Set для каждой ветки, чтобы избежать конфликтов между ветками
-      const partnerDepth = await calculateTreeDepth(partnerId, new Set(visitedIds), depth + 1);
-      depths.push(partnerDepth);
-      console.log(`   [${i + 1}/${validTeam.length}] ✅ Partner ${partnerId}: depth = ${partnerDepth}`);
+      // Передаем копию Set для каждой ветки
+      const partnerRank = await calculateTreeDepth(partnerId, new Set(visitedIds));
+      childRanks.push(partnerRank);
     } catch (error) {
-      console.error(`   [${i + 1}/${validTeam.length}] ❌ Error for partner ${partnerId}:`, error);
-      depths.push(0);
+      console.error(`   ❌ Error calculating rank for partner ${partnerId}:`, error);
+      childRanks.push(0);
     }
   }
   
-  // ✨ ПРАВИЛЬНАЯ ЛОГИКА MLM:
-  // - Если нет команды → ранг 0
-  // - Если есть команда → ранг = max(ранги партнёров) + 1
-  // Пример: У партнёра есть 3 человека в команде, все с рангом 0
-  //         → Его ранг = max(0,0,0) + 1 = 1 (потому что он построил 1 уровень)
-  const maxDepth = depths.length > 0 ? Math.max(...depths) : -1;
-  const resultRank = maxDepth + 1; // -1+1=0 для пустой команды, 0+1=1 для команды с новичками
+  // ✅ ФОРМУЛА: ранг = max(ранги детей) + 1
+  // Если дети есть, но все с рангом 0 → max(0) + 1 = 1 (1 уровень глубины)
+  // Если дети с рангами [0, 1, 2] → max(2) + 1 = 3 (3 уровня глубины)
+  const maxChildRank = Math.max(...childRanks);
+  const resultRank = maxChildRank + 1;
   
-  console.log(`   📊 RESULT for ${userId} (${user.имя}): depths=[${depths.join(', ')}], max=${maxDepth}, rank=${resultRank}`);
+  console.log(`   📊 User ${userId}: childRanks=[${childRanks.join(',')}], max=${maxChildRank}, rank=${resultRank}`);
   return resultRank;
 }
 
@@ -111,10 +98,11 @@ export async function calculateUserRank(userId: string): Promise<number> {
 }
 
 /**
- * ПРОСТАЯ функция: Рассчитывает и СОХРАНЯЕТ ранг в объект пользователя
+ * Рассчитывает и СОХРАНЯЕТ ранг в объект пользователя + обновляет кэш
  * @param userId - ID партнёра
+ * @returns Рассчитанный ранг
  */
-export async function updateUserRank(userId: string): Promise<void> {
+export async function updateUserRank(userId: string): Promise<number> {
   try {
     console.log(`🔄 Updating rank for user ${userId}...`);
     
@@ -125,16 +113,21 @@ export async function updateUserRank(userId: string): Promise<void> {
     const user = await kv.get(`user:id:${userId}`);
     if (!user) {
       console.error(`❌ User ${userId} not found, cannot update rank`);
-      return;
+      return 0;
     }
     
     // Обновляем уровень в объекте пользователя
     user.уровень = rank;
     await kv.set(`user:id:${userId}`, user);
     
+    // ✅ Также обновляем кэш ранга
+    await kv.set(`rank:user:${userId}`, rank);
+    
     console.log(`✅ User ${userId} rank updated: ${rank}`);
+    return rank;
   } catch (error) {
     console.error(`❌ Error updating rank for user ${userId}:`, error);
+    return 0;
   }
 }
 
