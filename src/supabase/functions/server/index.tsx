@@ -2962,12 +2962,16 @@ app.post("/make-server-05aa3c8a/orders/:orderId/confirm", async (c) => {
             // Create earning record with full info
             const earningId = `earning:${Date.now()}-${userId}-${Math.random().toString(36).slice(2, 6)}`;
             const level = order.комиссииУровни?.[userId] || 'L0';
+            // Извлекаем числовой индекс линии из строки 'L0'/'L1'/'L2'/'L3'
+            const lineIndex = typeof level === 'string' ? Number(level.replace('L', '')) : 0;
             const earning = {
               id: earningId,
               userId: userId,
               orderId: orderId,
               amount: numAmount,
+              сумма: numAmount, // дублируем для совместимости
               level: level,
+              линия: lineIndex, // числовое поле для фронтенда
               fromUserId: order.покупательId,
               sku: order.sku,
               isPartner: order.партнёрскаяПокупка,
@@ -2976,7 +2980,7 @@ app.post("/make-server-05aa3c8a/orders/:orderId/confirm", async (c) => {
             await kv.set(earningId, earning);
             await kv.set(`earning:user:${userId}:${earningId}`, earning);
             
-            console.log(`✅ Earning created: ${numAmount}₽ to user ${userId} (${level}) for order ${orderId}`);
+            console.log(`✅ Earning created: ${numAmount}₽ to user ${userId} (${level}, линия=${lineIndex}) for order ${orderId}`);
           } else {
             console.log(`⚠️ User ${userId} not found, skipping payout`);
           }
@@ -3167,13 +3171,19 @@ app.post("/make-server-05aa3c8a/payment/create", async (c) => {
                     }
                     
                     const earningId = `earning:${Date.now()}-${userId}`;
+                    const level = confirmOrder.комиссииУровни?.[userId] || 'L0';
+                    const lineIndex = typeof level === 'string' ? Number(level.replace('L', '')) : 0;
                     const earning = {
                       id: earningId,
                       userId: userId,
                       orderId: orderId,
                       amount: amount,
-                      level: confirmOrder.комиссииУровни?.[userId] || 'L0',
+                      сумма: amount,
+                      level: level,
+                      линия: lineIndex,
                       fromUserId: confirmOrder.покупательId,
+                      sku: confirmOrder.sku,
+                      isPartner: confirmOrder.партнёрскаяПокупка,
                       createdAt: new Date().toISOString()
                     };
                     await kv.set(earningId, earning);
@@ -3269,13 +3279,19 @@ app.post("/make-server-05aa3c8a/webhook/yookassa", async (c) => {
             }
             
             const earningId = `earning:${Date.now()}-${payout.userId}`;
+            const level = payout.level || 'L0';
+            const lineIndex = typeof level === 'string' ? Number(level.replace('L', '')) : 0;
             const earning = {
               id: earningId,
               userId: payout.userId,
               orderId: orderId,
               amount: payout.amount,
-              level: payout.level,
+              сумма: payout.amount,
+              level: level,
+              линия: lineIndex,
               fromUserId: order.продавецId,
+              sku: order.sku,
+              isPartner: order.партнёрскаяПокупка,
               createdAt: new Date().toISOString()
             };
             await kv.set(earningId, earning);
