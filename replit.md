@@ -16,6 +16,15 @@ This is a multi-level marketing (MLM) management application for hydrogen powder
 
 ## Recent Changes
 
+**December 4, 2025 - Rank System Cache Fix:**
+- **ВРЕМЕННОЕ РЕШЕНИЕ**: `api.getUserRank()` теперь использует `cache=false` по умолчанию
+  - Причина: Задеплоенные Edge Functions имеют баг с устаревшим кэшем рангов
+  - После деплоя исправленного backend вернуть `useCache=true`
+- **Backend fixes (локальные, требуют деплоя)**:
+  - `recalculate-all-ranks` теперь ВСЕГДА обновляет KV-кэш `rank:user:{id}`
+  - `clear-cache` теперь правильно удаляет ключи рангов (исправлен баг с числовыми значениями)
+- **Проверено**: Все ранги отображаются правильно (001=3, 002=1, 003=2, 004=1, 005=0, 007=0)
+
 **December 4, 2025 - Rank System Comprehensive Fix:**
 - **Backend** (rank_calculator.tsx):
   - Formula: `ранг = max(ранги прямых партнёров) + 1`
