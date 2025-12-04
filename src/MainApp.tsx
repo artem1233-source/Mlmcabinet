@@ -7,6 +7,7 @@ import { DashboardRuOptimized } from './components/DashboardRuOptimized';
 import { OrdersRu } from './components/OrdersRu';
 import { BalanceRu } from './components/BalanceRu';
 import { CatalogRu } from './components/CatalogRu';
+import { CartRu } from './components/CartRu';
 import { UsersManagementOptimized } from './components/UsersManagementOptimized';
 import { StructureDataViz } from './components/StructureDataViz';
 import { TrainingRu } from './components/TrainingRu';
@@ -35,12 +36,65 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   
+  // 🛒 Состояние корзины
+  const [cartItems, setCartItems] = useState<Array<{product: any; quantity: number; isPartner: boolean}>>([]);
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  
   // 🚀 Переключатель между старой и оптимизированной версией дашборда
   // ✅ Оптимизированная версия по умолчанию (React Query + кэширование + экспорт CSV)
   const [useOptimizedDashboard, setUseOptimizedDashboard] = useState(true);
 
   const handleRefresh = () => {
     setRefreshTrigger(prev => prev + 1);
+  };
+
+  // 🛒 Функции для работы с корзиной
+  const handleAddToCart = (product: any, isPartner: boolean, quantity: number = 1) => {
+    console.log('🛒 Adding to cart:', product.название, 'isPartner:', isPartner, 'qty:', quantity);
+    setCartItems(prev => {
+      const existingIndex = prev.findIndex(
+        item => item.product.sku === product.sku && item.isPartner === isPartner
+      );
+      
+      if (existingIndex >= 0) {
+        const updated = [...prev];
+        updated[existingIndex].quantity += quantity;
+        return updated;
+      }
+      
+      return [...prev, { product, quantity, isPartner }];
+    });
+    setIsCartOpen(true); // Открываем корзину при добавлении
+  };
+
+  const handleUpdateQuantity = (productId: string, isPartner: boolean, quantity: number) => {
+    if (quantity <= 0) {
+      handleRemoveItem(productId, isPartner);
+      return;
+    }
+    setCartItems(prev => 
+      prev.map(item => 
+        item.product.sku === productId && item.isPartner === isPartner
+          ? { ...item, quantity }
+          : item
+      )
+    );
+  };
+
+  const handleRemoveItem = (productId: string, isPartner: boolean) => {
+    setCartItems(prev => 
+      prev.filter(item => !(item.product.sku === productId && item.isPartner === isPartner))
+    );
+  };
+
+  const handleClearCart = () => {
+    setCartItems([]);
+  };
+
+  const handleCartOrderCreated = () => {
+    handleClearCart();
+    setIsCartOpen(false);
+    handleRefresh();
   };
 
   // 🚪 Выход из системы
@@ -300,7 +354,7 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
         return <BalanceRu currentUser={currentUser} onRefresh={handleRefresh} refreshTrigger={refreshTrigger} />;
       case 'каталог':
       case 'catalog':
-        return <CatalogRu currentUser={currentUser} onOrderCreated={handleRefresh} />;
+        return <CatalogRu currentUser={currentUser} onOrderCreated={handleRefresh} onAddToCart={handleAddToCart} />;
       case 'маркетинг':
       case 'marketing':
         return <MarketingToolsRu currentUser={currentUser} />;
@@ -336,38 +390,51 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
   };
 
   return (
-    <div className="flex h-screen bg-[#F7FAFC] overflow-hidden">
-      <SidebarRu 
-        текущаяВкладка={activeSection} 
-        изменитьВкладку={(tab) => {
-          setActiveSection(tab);
-          setMobileMenuOpen(false);
-        }}
-        currentUser={currentUser}
-        mobileMenuOpen={mobileMenuOpen}
-        setMobileMenuOpen={setMobileMenuOpen}
-      />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Mobile Header */}
-        <header className="lg:hidden bg-white border-b border-[#E6E9EE] px-4 py-3 flex items-center justify-between">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setMobileMenuOpen(true)}
-            className="text-[#666]"
-          >
-            <Menu className="w-5 h-5" />
-          </Button>
-          <h1 className="text-[#39B7FF] font-bold">H₂ Платформа</h1>
-          <div className="w-9" /> {/* Spacer for centering */}
-        </header>
-        
-        <main className="flex-1 overflow-y-auto">
-          <div className="max-w-7xl mx-auto w-full">
-            {renderSection()}
-          </div>
-        </main>
+    <>
+      <div className="flex h-screen bg-[#F7FAFC] overflow-hidden">
+        <SidebarRu 
+          текущаяВкладка={activeSection} 
+          изменитьВкладку={(tab) => {
+            setActiveSection(tab);
+            setMobileMenuOpen(false);
+          }}
+          currentUser={currentUser}
+          mobileMenuOpen={mobileMenuOpen}
+          setMobileMenuOpen={setMobileMenuOpen}
+        />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Mobile Header */}
+          <header className="lg:hidden bg-white border-b border-[#E6E9EE] px-4 py-3 flex items-center justify-between">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setMobileMenuOpen(true)}
+              className="text-[#666]"
+            >
+              <Menu className="w-5 h-5" />
+            </Button>
+            <h1 className="text-[#39B7FF] font-bold">H₂ Платформа</h1>
+            <div className="w-9" /> {/* Spacer for centering */}
+          </header>
+          
+          <main className="flex-1 overflow-y-auto">
+            <div className="max-w-7xl mx-auto w-full">
+              {renderSection()}
+            </div>
+          </main>
+        </div>
       </div>
-    </div>
+      
+      {/* 🛒 Корзина */}
+      <CartRu
+        isOpen={isCartOpen}
+        onClose={() => setIsCartOpen(false)}
+        cartItems={cartItems}
+        onUpdateQuantity={handleUpdateQuantity}
+        onRemoveItem={handleRemoveItem}
+        onClearCart={handleClearCart}
+        onOrderCreated={handleCartOrderCreated}
+      />
+    </>
   );
 }
