@@ -46,6 +46,9 @@ import {
   exportFullDashboard 
 } from '../utils/exportDashboardToCSV';
 
+// 🛡️ Безопасный парсинг дат
+import { isInMonth, safeFormatDate } from '../utils/dateUtils';
+
 interface DashboardRuProps {
   currentUser: any;
   onRefresh: () => void;
@@ -80,13 +83,13 @@ export function DashboardRuOptimized({ currentUser, onRefresh, refreshTrigger }:
   const conversionFunnel = useConversionFunnel(team);
 
   // 📊 Вычисляем статистику для личного дашборда
+  // 🛡️ Используем безопасный парсинг дат для предотвращения RangeError
   const stats = {
     totalEarnings: earnings.reduce((sum, e) => sum + (e.сумма || e.amount || 0), 0),
     monthEarnings: earnings
       .filter(e => {
-        const date = new Date(e.дата || e.date || e.createdAt);
         const now = new Date();
-        return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+        return isInMonth(e.дата || e.date || e.createdAt, now.getMonth(), now.getFullYear());
       })
       .reduce((sum, e) => sum + (e.сумма || e.amount || 0), 0),
     activeOrders: orders.filter(o => o.статус === 'pending' || o.status === 'pending').length,
@@ -504,7 +507,7 @@ export function DashboardRuOptimized({ currentUser, onRefresh, refreshTrigger }:
                         {order.товар || order.product || 'Товар'}
                       </p>
                       <p className="text-[#666]" style={{ fontSize: '13px' }}>
-                        {new Date(order.датаЗаказа || order.дата || order.createdAt).toLocaleDateString('ru-RU')}
+                        {safeFormatDate(order.датаЗаказа || order.дата || order.createdAt)}
                       </p>
                     </div>
                   </div>
