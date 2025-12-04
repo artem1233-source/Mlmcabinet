@@ -421,7 +421,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
         for (let i = 0; i < partnersToLoad.length; i += batchSize) {
           const batch = partnersToLoad.slice(i, i + batchSize);
           const rankPromises = batch.map(user => 
-            api.getUserRank(user.id, true).catch(() => ({ success: true, rank: 0 }))
+            api.getUserRank(user.id, false).catch(() => ({ success: true, rank: 0 }))
           );
           
           const results = await Promise.all(rankPromises);
