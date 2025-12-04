@@ -400,26 +400,17 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       
       if (currentUsers.length === 0) return;
       
-      // Сначала используем данные сервера если есть
-      currentUsers.forEach((user: any) => {
-        if (user.id && user._metrics?.rank !== undefined) {
-          newRanks.set(user.id, user._metrics.rank);
-        }
-      });
-      
-      // Быстро обновляем UI с серверными данными
-      setUserRanks(newRanks);
-      
-      // Затем параллельно догружаем свежие ранги только для партнёров (максимум 100 для дерева)
-      const partnersToLoad = currentUsers
-        .filter(u => !u.isAdmin && (!u._metrics || !u._metrics.rank))
+      // ВАЖНО: Загружаем свежие ранги для ВСЕХ пользователей (включая админов)
+      // Это временное решение пока на сервере не исправлен кэш рангов
+      const usersToLoad = currentUsers
+        .filter(u => u.id) // Только пользователи с ID
         .slice(0, viewMode === 'tree' ? 100 : 50); // Ограничение для производительности
       
-      if (partnersToLoad.length > 0) {
+      if (usersToLoad.length > 0) {
         // Загружаем ранги параллельно (макс. 15 одновременно)
         const batchSize = 15;
-        for (let i = 0; i < partnersToLoad.length; i += batchSize) {
-          const batch = partnersToLoad.slice(i, i + batchSize);
+        for (let i = 0; i < usersToLoad.length; i += batchSize) {
+          const batch = usersToLoad.slice(i, i + batchSize);
           const rankPromises = batch.map(user => 
             api.getUserRank(user.id, false).catch(() => ({ success: true, rank: 0 }))
           );
@@ -435,9 +426,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
         
         // Обновляем финальные ранги
         setUserRanks(new Map(newRanks));
-        console.log(`📊 User ranks updated [${viewMode}]:`, newRanks.size, 'users (fresh data loaded)');
-      } else {
-        console.log(`📊 User ranks updated [${viewMode}]:`, newRanks.size, 'users (from server cache)');
+        console.log(`📊 User ranks updated [${viewMode}]:`, newRanks.size, 'users (fresh API data)');
       }
     } catch (error) {
       console.error('Failed to load ranks:', error);
