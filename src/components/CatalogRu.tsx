@@ -11,6 +11,7 @@ import { ImageWithFallback } from './figma/ImageWithFallback';
 import { CatalogDebug } from './CatalogDebug';
 import { toast } from 'sonner';
 import { CheckoutRu } from './CheckoutRu';
+import { GuestSaleModal } from './GuestSaleModal';
 import * as api from '../utils/api';
 import { CommissionEditor } from './CommissionEditor';
 import type { ProductCommission } from '../utils/types/commission';
@@ -41,6 +42,10 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [showCheckout, setShowCheckout] = useState(false);
   const [showArchived, setShowArchived] = useState(false); // Показывать архивные товары
+  
+  // Guest sale modal
+  const [isGuestModalOpen, setIsGuestModalOpen] = useState(false);
+  const [guestModalProduct, setGuestModalProduct] = useState<any>(null);
   
   // Admin states
   const [showProductModal, setShowProductModal] = useState(false);
@@ -1063,12 +1068,8 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
                         <>
                           <Button
                             onClick={() => {
-                              if (onAddToCart) {
-                                onAddToCart(товар, false, 1);
-                                toast.success('Добавлено в корзину', {
-                                  description: `${товар.название} (гость)`
-                                });
-                              }
+                              setGuestModalProduct(товар);
+                              setIsGuestModalOpen(true);
                             }}
                             className="w-full bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] hover:opacity-90 text-white"
                           >
@@ -1834,6 +1835,17 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Guest Sale Modal */}
+      <GuestSaleModal
+        isOpen={isGuestModalOpen}
+        onClose={() => {
+          setIsGuestModalOpen(false);
+          setGuestModalProduct(null);
+        }}
+        product={guestModalProduct}
+        onOrderCreated={onOrderCreated}
+      />
     </>
   );
 }
