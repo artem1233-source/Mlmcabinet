@@ -39,20 +39,33 @@ export function GuestSaleModal({ isOpen, onClose, product, onOrderCreated }: Gue
   const handleConfirm = async () => {
     setLoading(true);
     try {
-      const data = await api.createOrder(product.sku, false, 1);
+      // Шаг 1: Создаём заказ
+      const createData = await api.createOrder(product.sku, false, 1);
       
-      if (data.success && data.order) {
-        toast.success('Продажа оформлена!', {
-          description: `${product.название} — гостю${guestName ? ` ${guestName}` : ''}`
-        });
-        
-        setGuestName('');
-        setGuestPhone('');
-        onClose();
-        onOrderCreated();
-      } else {
-        throw new Error(data.error || 'Ошибка создания заказа');
+      if (!createData.success || !createData.order) {
+        throw new Error(createData.error || 'Ошибка создания заказа');
       }
+      
+      const orderId = createData.order.id;
+      console.log('📦 Order created:', orderId);
+      
+      // Шаг 2: Подтверждаем заказ (это начисляет комиссии!)
+      const confirmData = await api.confirmOrder(orderId);
+      
+      if (!confirmData.success) {
+        throw new Error(confirmData.error || 'Ошибка подтверждения заказа');
+      }
+      
+      console.log('✅ Order confirmed, commissions created');
+      
+      toast.success('Продажа оформлена!', {
+        description: `${product.название} — гостю${guestName ? ` ${guestName}` : ''}`
+      });
+      
+      setGuestName('');
+      setGuestPhone('');
+      onClose();
+      onOrderCreated();
     } catch (error) {
       console.error('Guest sale error:', error);
       toast.error(error instanceof Error ? error.message : 'Ошибка оформления продажи');
