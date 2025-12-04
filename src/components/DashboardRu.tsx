@@ -468,8 +468,8 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
   const getLevelProgress = () => {
     if (!Array.isArray(orders) || !Array.isArray(team)) {
       return { 
-        current: currentUser.уровень || 1, 
-        next: (currentUser.уровень || 1) + 1, 
+        current: currentUser.уровень ?? 0, 
+        next: (currentUser.уровень ?? 0) + 1, 
         teamProgress: 0, 
         revenueProgress: 0, 
         requirements: null,
@@ -478,7 +478,7 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
       };
     }
     
-    const currentLevel = currentUser.уровень || 1;
+    const currentLevel = currentUser.уровень ?? 0;
     const nextLevel = currentLevel + 1;
     
     // Требования для уровней (пример)

@@ -179,7 +179,7 @@ export function FilteredUsersList({ users, filterType, onClose }: FilteredUsersL
                         className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white"
                       >
                         <Award className="w-3 h-3 mr-1" />
-                        {user.уровень || user.level || 1}
+                        {user.уровень ?? user.level ?? 0}
                       </Badge>
                     </td>
                     <td className="py-3 px-4 text-right text-[#1E1E1E]" style={{ fontSize: '14px', fontWeight: '600' }}>

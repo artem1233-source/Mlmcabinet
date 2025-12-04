@@ -327,155 +327,42 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
     return total;
   };
 
-  // 🌳 НОВАЯ ФУНКЦИЯ: Расчёт ранга на основе древовидной структуры
-  const calculateRankFromTree = (userId: string, userMap: Map<string, any>, visited = new Set<string>()): number => {
-    // Защита от циклов
-    if (visited.has(userId)) {
-      console.warn(`⚠️ Обнаружен цикл для пользователя ${userId}`);
-      return 0;
-    }
-    visited.add(userId);
-    
-    const user = userMap.get(userId);
-    if (!user) {
-      console.warn(`⚠️ Пользователь ${userId} не найден`);
-      return 0;
-    }
-    
-    // Получаем всех детей из спонсорId (древовидная структура)
-    const children = Array.from(userMap.values()).filter(u => u.спонсорId === userId);
-    
-    // Если нет детей - ранг = 0 (листья дерева)
-    if (children.length === 0) {
-      return 0;
-    }
-    
-    // ✅ ПРАВИЛЬНАЯ ЛОГИКА: РАНГ = МАКСИМАЛЬНАЯ ГЛУБИНА самой длинной ветки!
-    // Рекурсивно находим максимальный ранг среди всех детей
-    let maxChildRank = 0;
-    
-    for (const child of children) {
-      const childRank = calculateRankFromTree(child.id, userMap, new Set(visited));
-      if (childRank > maxChildRank) {
-        maxChildRank = childRank;
-      }
-    }
-    
-    // Ранг = 1 (прямой реферал) + максимальная глубина ниже
-    return 1 + maxChildRank;
-  };
-
-  // 🔄 Пересчёт ВСЕХ рангов на основе дерева
+  // 🔄 Пересчёт ВСЕХ рангов через СЕРВЕРНЫЙ API
+  // ✅ ИСПРАВЛЕНО: Убран клиентский перерасчёт - используется только сервер
   const recalculateAllRanksFromTree = async () => {
-    const toastId = toast.loading('🌳 Начинаем пересчёт рангов...');
+    const toastId = toast.loading('🌳 Отправляем запрос на пересчёт рангов...');
     
     try {
-      // Создаём Map для быстрого доступа
-      const userMap = new Map<string, any>();
-      allUsers.forEach(u => userMap.set(u.id, u));
-      
-      toast.loading('🔍 Анализируем древовидную структуру...', { id: toastId });
-      
-      // Рассчитываем ранги для ВСЕХ пользователей
-      const newRanks = new Map<string, number>();
-      const updates: Array<{userId: string, userName: string, newRank: number, oldRank: number}> = [];
-      
-      for (const user of allUsers) {
-        if (user.isAdmin) continue; // Админам ранги не нужны
-        
-        const newRank = calculateRankFromTree(user.id, userMap);
-        const oldRank = userRanks.get(user.id) ?? user.уровень ?? 0;
-        
-        newRanks.set(user.id, newRank);
-        
-        if (newRank !== oldRank) {
-          updates.push({ 
-            userId: user.id, 
-            userName: `${user.имя} ${user.фамилия}`,
-            newRank, 
-            oldRank 
-          });
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/recalculate-all-ranks`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+            'Content-Type': 'application/json',
+            'X-User-Id': currentUser?.id || '',
+          },
         }
-      }
+      );
       
-      // Обновляем локальное состояние СРАЗУ для визуализации
-      setUserRanks(newRanks);
+      const result = await response.json();
       
-      console.log(`📊 Пересчитано рангов: ${newRanks.size}, изменений: ${updates.length}`);
-      
-      if (updates.length === 0) {
-        toast.success('✅ Все ранги уже корректны! Ошибок не обнаружено.', { id: toastId });
-        return;
-      }
-      
-      // Показываем топ-5 изменений для наглядности
-      const topChanges = updates
-        .sort((a, b) => Math.abs(b.newRank - b.oldRank) - Math.abs(a.newRank - a.oldRank))
-        .slice(0, 5);
-      
-      console.log('🔝 Топ-5 изменений:');
-      topChanges.forEach(u => {
-        console.log(`  ${u.userName}: ${u.oldRank} → ${u.newRank} (${u.newRank > u.oldRank ? '+' : ''}${u.newRank - u.oldRank})`);
-      });
-      
-      toast.loading(`💾 Сохраняем ${updates.length} изме��ений...`, { id: toastId });
-      
-      // Сохраняем в базу ПАКЕТАМИ для скорости
-      let savedCount = 0;
-      let errorCount = 0;
-      const batchSize = 10;
-      
-      for (let i = 0; i < updates.length; i += batchSize) {
-        const batch = updates.slice(i, i + batchSize);
-        
-        // Сохраняем параллельно
-        const promises = batch.map(update => 
-          fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/user/${update.userId}/rank`,
-            {
-              method: 'PUT',
-              headers: {
-                'Authorization': `Bearer ${publicAnonKey}`,
-                'Content-Type': 'application/json',
-                'X-User-Id': currentUser?.id || '',
-              },
-              body: JSON.stringify({ rank: update.newRank }),
-            }
-          ).then(response => ({ success: response.ok, update }))
-           .catch(() => ({ success: false, update }))
-        );
-        
-        const results = await Promise.all(promises);
-        
-        results.forEach(({ success, update }) => {
-          if (success) {
-            savedCount++;
-            console.log(`✅ ${update.userName}: ${update.oldRank} → ${update.newRank}`);
-          } else {
-            errorCount++;
-            console.error(`❌ Ошибка для ${update.userName}`);
-          }
-        });
-        
-        // Обновляем прогресс
-        toast.loading(`💾 Сохранено ${savedCount}/${updates.length}...`, { id: toastId });
-      }
-      
-      if (errorCount === 0) {
-        toast.success(`🎉 Успешно пересчитано и сохранено ${savedCount} рангов!`, { 
+      if (result.success || response.ok) {
+        const updatedCount = result.updated || result.recalculated || 0;
+        toast.success(`🎉 Сервер пересчитал ранги для ${updatedCount} пользователей!`, { 
           id: toastId,
           duration: 5000 
         });
+        
+        // Перезагружаем данные с сервера
+        await queryClient.invalidateQueries({ queryKey: ['users-all-tree'] });
+        await queryClient.invalidateQueries({ queryKey: ['users-optimized'] });
+        
+        // Перезагружаем ранги с сервера
+        await loadUserRanks();
       } else {
-        toast.warning(`⚠️ Сохранено ${savedCount} из ${updates.length}. Ошибок: ${errorCount}`, { 
-          id: toastId,
-          duration: 7000 
-        });
+        throw new Error(result.error || 'Ошибка сервера');
       }
-      
-      // Перезагружаем данные
-      await queryClient.invalidateQueries({ queryKey: ['users-all-tree'] });
-      await queryClient.invalidateQueries({ queryKey: ['users-optimized'] });
       
     } catch (error) {
       console.error('Ошибка пересчёта рангов:', error);

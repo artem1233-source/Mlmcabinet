@@ -293,7 +293,7 @@ export function MarketingToolsRu({ currentUser }: MarketingToolsRuProps) {
 
     ctx.font = '28px Arial';
     ctx.fillStyle = '#1E1E1E';
-    ctx.fillText(`Уровень: ${currentUser?.уровень || 1}`, 80, 260);
+    ctx.fillText(`Уровень: ${currentUser?.уровень ?? 0}`, 80, 260);
     ctx.fillText(`Реф. код: ${currentUser?.реф_код || 'DEMO'}`, 80, 310);
 
     if (currentUser?.телефон) {

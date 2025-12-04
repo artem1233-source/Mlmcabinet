@@ -56,7 +56,7 @@ export async function changeLevelUser(
   queryClient: any,
   onRefresh?: () => void
 ) {
-  const newLevel = prompt(`Текущий уровень: ${user.уровень || 1}\n\nВведите новый уровень (1, 2 или 3):`, String(user.уровень || 1));
+  const newLevel = prompt(`Текущий уровень: ${user.уровень ?? 0}\n\nВведите новый уровень (0, 1, 2 или 3):`, String(user.уровень ?? 0));
   
   if (!newLevel || !['1', '2', '3'].includes(newLevel)) {
     if (newLevel !== null) toast.error('Допустимые значения: 1, 2, 3');
