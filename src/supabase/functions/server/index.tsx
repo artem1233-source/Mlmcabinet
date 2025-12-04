@@ -2942,37 +2942,48 @@ app.post("/make-server-05aa3c8a/orders/:orderId/confirm", async (c) => {
     await kv.set(`order:user:${order.покупательId}:${orderId}`, order);
     
     // Process payouts from комиссии
+    console.log(`💰 Processing payouts for order ${orderId}:`, order.комиссии);
+    console.log(`📊 Commission levels:`, order.комиссииУровни);
+    
     if (order.комиссии) {
       for (const [userId, amount] of Object.entries(order.комиссии)) {
-        if (amount > 0) {
+        const numAmount = Number(amount);
+        if (numAmount > 0) {
           // Update user balance
           const user = await kv.get(`user:id:${userId}`);
           if (user) {
-            user.баланс = (user.баланс || 0) + amount;
+            user.баланс = (user.баланс || 0) + numAmount;
             await kv.set(`user:id:${userId}`, user);
             
             if (user.telegramId) {
               await kv.set(`user:tg:${user.telegramId}`, user);
             }
             
-            // Create earning record
-            const earningId = `earning:${Date.now()}-${userId}`;
+            // Create earning record with full info
+            const earningId = `earning:${Date.now()}-${userId}-${Math.random().toString(36).slice(2, 6)}`;
+            const level = order.комиссииУровни?.[userId] || 'L0';
             const earning = {
               id: earningId,
               userId: userId,
               orderId: orderId,
-              amount: amount,
-              level: order.комиссииУровни?.[userId] || 'L0',
+              amount: numAmount,
+              level: level,
               fromUserId: order.покупательId,
+              sku: order.sku,
+              isPartner: order.партнёрскаяПокупка,
               createdAt: new Date().toISOString()
             };
             await kv.set(earningId, earning);
             await kv.set(`earning:user:${userId}:${earningId}`, earning);
             
-            console.log(`Payout processed: ${amount} to ${user.имя} (${order.комиссииУровни?.[userId] || 'L0'})`);
+            console.log(`✅ Earning created: ${numAmount}₽ to user ${userId} (${level}) for order ${orderId}`);
+          } else {
+            console.log(`⚠️ User ${userId} not found, skipping payout`);
           }
         }
       }
+    } else {
+      console.log(`⚠️ No комиссии in order ${orderId}`);
     }
     
     // ✨ АВТОМАТИЧЕСКИЙ ПЕРЕСЧЁТ РАНГОВ после оплаты заказа

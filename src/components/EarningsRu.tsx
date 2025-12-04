@@ -31,26 +31,53 @@ export function EarningsRu({ currentUser, refreshTrigger }: EarningsProps) {
       const earningsData = await api.getEarnings();
       if (earningsData.success && earningsData.earnings) {
         // Convert to our format
-        const newEarnings: Earning[] = earningsData.earnings.map((e: any) => ({
-          id: e.id,
-          userId: e.userId,
-          orderId: e.orderId,
-          amount: e.сумма || e.amount,
-          level: `L${e.линия}` as any, // линия 0 = L0, линия 1 = L1, линия 2 = L2, линия 3 = L3
-          timestamp: new Date(e.дата || e.createdAt),
-          fromUserId: e.fromUserId
-        }));
+        // Backend записывает level как 'L0', 'L1', etc. — используем напрямую
+        // Fallback на старый формат линия (число) для обратной совместимости
+        const newEarnings: Earning[] = earningsData.earnings.map((e: any) => {
+          // Определяем level: сначала проверяем новый формат (level='L0'), потом старый (линия=0)
+          let level: 'L0' | 'L1' | 'L2' | 'L3' = 'L0';
+          if (e.level && typeof e.level === 'string' && e.level.startsWith('L')) {
+            level = e.level as any;
+          } else if (e.линия !== undefined) {
+            level = `L${e.линия}` as any;
+          }
+          
+          return {
+            id: e.id,
+            userId: e.userId,
+            orderId: e.orderId,
+            amount: e.сумма || e.amount,
+            level,
+            timestamp: new Date(e.дата || e.createdAt),
+            fromUserId: e.fromUserId
+          };
+        });
         
-        const newTransactions: Transaction[] = earningsData.earnings.map((e: any) => ({
-          id: `txn-${e.id}`,
-          userId: e.userId,
-          type: 'earning',
-          amount: e.сумма || e.amount,
-          description: e.описание || e.description || `Комиссия с заказа ${e.sku || e.товар || ''}`,
-          timestamp: new Date(e.дата || e.createdAt),
-          level: `L${e.линия}` as any,
-          orderId: e.orderId
-        }));
+        const newTransactions: Transaction[] = earningsData.earnings.map((e: any) => {
+          let level: 'L0' | 'L1' | 'L2' | 'L3' = 'L0';
+          if (e.level && typeof e.level === 'string' && e.level.startsWith('L')) {
+            level = e.level as any;
+          } else if (e.линия !== undefined) {
+            level = `L${e.линия}` as any;
+          }
+          
+          // Формируем описание с указанием типа продажи
+          const typeLabel = e.isPartner === false ? 'гостевая' : (e.isPartner ? 'партнёрская' : '');
+          const skuLabel = e.sku || e.товар || '';
+          const description = e.описание || e.description || 
+            `Комиссия ${typeLabel ? `(${typeLabel})` : ''} ${skuLabel ? `- ${skuLabel}` : ''}`.trim();
+          
+          return {
+            id: `txn-${e.id}`,
+            userId: e.userId,
+            type: 'earning',
+            amount: e.сумма || e.amount,
+            description,
+            timestamp: new Date(e.дата || e.createdAt),
+            level,
+            orderId: e.orderId
+          };
+        });
         
         setEarnings(newEarnings);
         setTransactions(newTransactions);
