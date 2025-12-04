@@ -16,6 +16,21 @@ This is a multi-level marketing (MLM) management application for hydrogen powder
 
 ## Recent Changes
 
+**December 4, 2025 - Rank Calculation Fix (Off-by-One Error):**
+- Fixed rank calculation logic in `rank_calculator.tsx`:
+  - Formula: `ранг = max(ранги прямых партнёров) + 1`
+  - If no team → rank = 0 (strictly)
+  - If has team → rank = maxChildRank + 1
+- New users now correctly start with rank 0 (not 1)
+- Added explicit rank cache initialization (`rank:user:{id}` = 0) at registration
+- Updated `updateUserRank()` to also update cache after calculation
+- Updated `recalculate-all-ranks` to set cache instead of just deleting it
+- New endpoint `GET /admin/test-rank-logic` for testing rank calculation rules
+- Rank examples:
+  - C (no team) = 0
+  - B → C = 1 (B has partner C who has no team)
+  - A → B → C = 2, 1, 0 (chain of 3)
+
 **December 2, 2025 - Multiple ID/Code System Implementation:**
 - Implemented new multi-ID system where partners can have multiple permanent codes (numeric and alphanumeric)
 - IDs are never freed for reuse - once assigned to a partner, they belong to that partner forever
