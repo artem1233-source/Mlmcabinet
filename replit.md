@@ -16,23 +16,29 @@ This is a multi-level marketing (MLM) management application for hydrogen powder
 
 ## Recent Changes
 
-**December 4, 2025 - Rank Calculation Fix (Backend + Frontend):**
-- Fixed rank calculation logic in `rank_calculator.tsx`:
+**December 4, 2025 - Rank System Comprehensive Fix:**
+- **Backend** (rank_calculator.tsx):
   - Formula: `ранг = max(ранги прямых партнёров) + 1`
   - If no team → rank = 0 (strictly)
   - If has team → rank = maxChildRank + 1
-- New users now correctly start with rank 0 (not 1)
-- Added explicit rank cache initialization (`rank:user:{id}` = 0) at registration
-- Updated `updateUserRank()` to also update cache after calculation
-- Updated `recalculate-all-ranks` to set cache instead of just deleting it
-- New endpoint `GET /admin/test-rank-logic` for testing rank calculation rules
-- Frontend fixes:
-  - `RankBadge.tsx`: Changed `Math.max(1, rank || 1)` → `Math.max(0, rank ?? 0)` to allow rank 0
-  - `UserTreeRenderer.tsx`: Removed client-side `calculateCorrectRank()` that was overwriting backend values
+  - New users start with rank 0
+  - Rank cache `rank:user:{id}` = 0 at registration
+  - Server endpoint `POST /admin/recalculate-all-ranks` for recalculation
+- **Frontend** - Removed ALL client-side rank recalculation:
+  - `UsersManagementOptimized.tsx`: Deleted `calculateRankFromTree()` function, `recalculateAllRanksFromTree()` now calls server API only
+  - All rank display uses server data via `userRanks.get(userId)` or `user.уровень`
+- **Frontend** - Fixed `|| 1` fallbacks to `?? 0`:
+  - `FilteredUsersList.tsx:182`: `user.уровень ?? user.level ?? 0`
+  - `MarketingToolsRu.tsx:296`: `currentUser?.уровень ?? 0`
+  - `DashboardRu.tsx:471-484`: `currentUser.уровень ?? 0`
+  - `UsersManagementOptimizedActions.tsx:59,90,93`: `user.уровень ?? 0`
+  - `RankBadge.tsx:11`: `Math.max(0, rank ?? 0)`
+  - `UserTreeRenderer.tsx:60`: Uses server rank only
+- **Frontend** - Fixed depth vs rank confusion in `StructureDataViz.tsx`:
+  - `глубина` (depth in tree display) is now labeled "Глубина" (not "Уровень")
+  - All `глубина || 1` changed to `глубина ?? 0`
 - Rank examples:
-  - C (no team) = 0
-  - B → C = 1 (B has partner C who has no team)
-  - A → B → C = 2, 1, 0 (chain of 3)
+  - D (no team) = 0, C → D = 1, B → C → D = 2, A → B → C → D = 3
 
 **December 2, 2025 - Multiple ID/Code System Implementation:**
 - Implemented new multi-ID system where partners can have multiple permanent codes (numeric and alphanumeric)
