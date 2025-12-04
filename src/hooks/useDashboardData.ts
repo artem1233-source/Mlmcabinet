@@ -6,12 +6,14 @@
  * - Автоматическая инвалидация кэша
  * - Мемоизация вычислений графиков
  * - Параллельная загрузка всех данных
+ * - 🛡️ Безопасный парсинг дат (safeParseDate) для предотвращения RangeError
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as api from '../utils/api';
 import { toast } from 'sonner';
 import { useMemo } from 'react';
+import { safeParseDate, safeToDateString, safeGetTime, isInMonth, isDateBeforeOrEqual } from '../utils/dateUtils';
 
 /**
  * Хук для загрузки заказов
@@ -101,25 +103,20 @@ export function useAdminStats(isAdmin: boolean) {
  */
 export function useDashboardStats(orders: any[], earnings: any[], team: any[]) {
   return useMemo(() => {
-    // Считаем общий доход
     const totalEarnings = earnings.reduce((sum, e) => sum + (e.amount || 0), 0);
     
-    // Считаем доход за месяц
     const currentMonth = new Date().getMonth();
     const currentYear = new Date().getFullYear();
     const monthEarnings = earnings
       .filter(e => {
-        const date = new Date(e.date || e.createdAt);
-        return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
+        return isInMonth(e.date || e.createdAt, currentMonth, currentYear);
       })
       .reduce((sum, e) => sum + (e.amount || 0), 0);
     
-    // Считаем активные заказы
     const activeOrders = orders.filter(o => 
       o.status === 'pending' || o.status === 'processing'
     ).length;
     
-    // Размер команды
     const teamSize = team.length;
     
     console.log('📊 Dashboard stats calculated:', {
@@ -140,10 +137,10 @@ export function useDashboardStats(orders: any[], earnings: any[], team: any[]) {
 
 /**
  * Хук для вычисления данных графика (мемоизированный)
+ * 🛡️ Использует безопасный парсинг дат
  */
 export function useChartData(orders: any[], period: '7d' | '30d' | '90d' | '1y' = '30d') {
   return useMemo(() => {
-    // Определяем количество дней
     const days = {
       '7d': 7,
       '30d': 30,
@@ -151,7 +148,6 @@ export function useChartData(orders: any[], period: '7d' | '30d' | '90d' | '1y' 
       '1y': 365
     }[period];
     
-    // Создаём массив дат
     const now = new Date();
     const chartData = [];
     
@@ -160,10 +156,9 @@ export function useChartData(orders: any[], period: '7d' | '30d' | '90d' | '1y' 
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().split('T')[0];
       
-      // Считаем заказы и доход за этот день
       const dayOrders = orders.filter(o => {
-        const orderDate = new Date(o.createdAt || o.date);
-        return orderDate.toISOString().split('T')[0] === dateStr;
+        const orderDateStr = safeToDateString(o.createdAt || o.date);
+        return orderDateStr === dateStr;
       });
       
       const revenue = dayOrders.reduce((sum, o) => sum + (o.total || 0), 0);
@@ -187,13 +182,14 @@ export function useChartData(orders: any[], period: '7d' | '30d' | '90d' | '1y' 
 
 /**
  * Хук для вычисления недавних заказов (мемоизированный)
+ * 🛡️ Использует безопасный парсинг дат
  */
 export function useRecentOrders(orders: any[], limit = 5) {
   return useMemo(() => {
     const sorted = [...orders]
       .sort((a, b) => {
-        const dateA = new Date(a.createdAt || a.date).getTime();
-        const dateB = new Date(b.createdAt || b.date).getTime();
+        const dateA = safeGetTime(a.createdAt || a.date, 0);
+        const dateB = safeGetTime(b.createdAt || b.date, 0);
         return dateB - dateA;
       })
       .slice(0, limit);
@@ -206,6 +202,7 @@ export function useRecentOrders(orders: any[], limit = 5) {
 
 /**
  * Хук для вычисления роста команды (мемоизированный)
+ * 🛡️ Использует безопасный парсинг дат
  */
 export function useTeamGrowthData(team: any[], period: '7d' | '30d' | '90d' | '1y' = '30d') {
   return useMemo(() => {
@@ -218,17 +215,14 @@ export function useTeamGrowthData(team: any[], period: '7d' | '30d' | '90d' | '1
     
     const now = new Date();
     const growthData = [];
-    let cumulativeCount = 0;
     
     for (let i = days - 1; i >= 0; i--) {
       const date = new Date(now);
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().split('T')[0];
       
-      // Считаем партнёров зарегистрированных до этой даты
       const partnersUntilDate = team.filter(m => {
-        const regDate = new Date(m.датаРегистрации || m.зарегистрирован);
-        return regDate <= date;
+        return isDateBeforeOrEqual(m.датаРегистрации || m.зарегистрирован, date);
       }).length;
       
       growthData.push({
