@@ -16,6 +16,20 @@ This is a multi-level marketing (MLM) management application for hydrogen powder
 
 ## Recent Changes
 
+**December 4, 2025 - Earnings System & Guest Sale Modal Fix:**
+- **Backend** (index.tsx) - унифицированный формат earnings:
+  - Все 3 места создания earnings теперь записывают ОБА поля: `level` (строка 'L0'|'L1'|'L2'|'L3') и `линия` (число 0|1|2|3)
+  - Добавлены поля `сумма`, `sku`, `isPartner` для полной совместимости
+  - Места: `/orders/:orderId/confirm`, demo-payment, YooKassa webhook
+- **Frontend** (EarningsRu.tsx) - корректный fallback:
+  - Сначала проверяет `e.level` (новый формат), затем `e.линия` (старый)
+  - Формула: `level = e.level ?? ('L' + e.линия) ?? 'L0'`
+- **GuestSaleModal.tsx** - критическое исправление:
+  - Раньше: только создавал заказ (`createOrder`), комиссии НЕ начислялись
+  - Теперь: создаёт И подтверждает заказ (`createOrder` + `confirmOrder`)
+  - Компактный UI: Dialog max-w-md, показывает товар/цену/комиссию
+- **CatalogRu.tsx** - кнопка "Продать гостю" открывает модальное окно вместо добавления в корзину
+
 **December 4, 2025 - Rank System Cache Fix:**
 - **ВРЕМЕННОЕ РЕШЕНИЕ**: `api.getUserRank()` теперь использует `cache=false` по умолчанию
   - Причина: Задеплоенные Edge Functions имеют баг с устаревшим кэшем рангов
