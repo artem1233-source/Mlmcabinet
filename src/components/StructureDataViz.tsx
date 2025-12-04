@@ -563,7 +563,7 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
             onClick={() => setSelectedUserId(node.id)}
             className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
           >
-            <div className={`w-10 h-10 ${getAvatarColor(node.глубина || 1)} rounded-lg flex items-center justify-center ${getAvatarTextColor(node.глубина || 1)} flex-shrink-0 shadow-sm group-hover:scale-110 transition-transform`}>
+            <div className={`w-10 h-10 ${getAvatarColor(node.глубина ?? 0)} rounded-lg flex items-center justify-center ${getAvatarTextColor(node.глубина ?? 0)} flex-shrink-0 shadow-sm group-hover:scale-110 transition-transform`}>
               <span style={{ fontWeight: '700', fontSize: '14px' }}>
                 {node.имя.charAt(0).toUpperCase()}
               </span>
@@ -574,8 +574,8 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
                 <span className="text-[#1E1E1E] truncate group-hover:text-[#39B7FF] transition-colors" style={{ fontWeight: '600', fontSize: '14px' }}>
                   {node.имя} {node.фамилия}
                 </span>
-                <Badge className={`${getLevelColor(node.глубина || 1)} border text-xs`}>
-                  Уровень {node.глубина || 1}
+                <Badge className={`${getLevelColor(node.глубина ?? 0)} border text-xs`}>
+                  Глубина {node.глубина ?? 0}
                 </Badge>
               </div>
               <div className="text-[#666]" style={{ fontSize: '12px' }}>
@@ -755,7 +755,7 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
     
     // ВАЖНО: Для следующих линий добавляем ТОЛЬКО потомков ОТМЕЧЕННЫХ партнеров
     // Предки НЕ должны раскрывать своих детей, если они сами не отмечены!
-    const maxDepth = Math.max(...team.map(m => m.глубина || 1));
+    const maxDepth = Math.max(...team.map(m => m.глубина ?? 0));
     
     for (let depth = 1; depth <= maxDepth; depth++) {
       const partnersOnCurrentLine = team.filter(m => m.глубина === depth);
@@ -784,7 +784,7 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
   const getPartnersByLine = () => {
     const byLine: Record<number, any[]> = {};
     team.forEach(member => {
-      const line = member.глубина || 1;
+      const line = member.глубина ?? 0;
       if (!byLine[line]) byLine[line] = [];
       byLine[line].push(member);
     });
@@ -860,7 +860,7 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
             <div className="flex items-center gap-2.5 p-2.5">
               {/* Avatar with status - mini */}
               <div className="relative flex-shrink-0">
-                <div className={`w-9 h-9 ${getAvatarColor(member.глубина || 1)} rounded-lg flex items-center justify-center ${getAvatarTextColor(member.глубина || 1)} font-bold text-sm`}>
+                <div className={`w-9 h-9 ${getAvatarColor(member.глубина ?? 0)} rounded-lg flex items-center justify-center ${getAvatarTextColor(member.глубина ?? 0)} font-bold text-sm`}>
                   {member.имя.charAt(0).toUpperCase()}
                 </div>
                 <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 ${activityStatus.color} rounded-full border border-white`} />
@@ -965,7 +965,7 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
   }
 
   const teamByLine = team.reduce((acc, member) => {
-    const line = member.глубина || 1;
+    const line = member.глубина ?? 0;
     acc[line] = (acc[line] || 0) + 1;
     return acc;
   }, {} as Record<number, number>);
@@ -1578,7 +1578,7 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
                       <thead>
                         <tr className="border-b border-gray-200">
                           <th className="text-left p-4 text-[#666] font-semibold">Партнер</th>
-                          <th className="text-left p-4 text-[#666] font-semibold">Уровень</th>
+                          <th className="text-left p-4 text-[#666] font-semibold">Глубина</th>
                           <th className="text-left p-4 text-[#666] font-semibold">Код</th>
                           <th className="text-right p-4 text-[#666] font-semibold">Баланс</th>
                           <th className="text-left p-4 text-[#666] font-semibold">Активность</th>
@@ -1596,7 +1596,7 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
                               <td className="p-4">
                                 <div className="flex items-center gap-3">
                                   <div className="relative">
-                                    <div className={`w-10 h-10 ${getAvatarColor(member.глубина || 1)} rounded-lg flex items-center justify-center ${getAvatarTextColor(member.глубина || 1)} shadow-sm`}>
+                                    <div className={`w-10 h-10 ${getAvatarColor(member.глубина ?? 0)} rounded-lg flex items-center justify-center ${getAvatarTextColor(member.глубина ?? 0)} shadow-sm`}>
                                       <span className="font-bold text-sm">
                                         {member.имя.charAt(0).toUpperCase()}
                                       </span>
@@ -1609,8 +1609,8 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
                                 </div>
                               </td>
                               <td className="p-4">
-                                <Badge className={`${getLevelColor(member.глубина || 1)} border`}>
-                                  Уровень {member.глубина || 1}
+                                <Badge className={`${getLevelColor(member.глубина ?? 0)} border`}>
+                                  Глубина {member.глубина ?? 0}
                                 </Badge>
                               </td>
                               <td className="p-4">
@@ -1656,7 +1656,7 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
                           </div>
 
                           <div className="relative">
-                            <div className={`w-12 h-12 ${getAvatarColor(member.глубина || 1)} rounded-lg flex items-center justify-center ${getAvatarTextColor(member.глубина || 1)} shadow-sm`}>
+                            <div className={`w-12 h-12 ${getAvatarColor(member.глубина ?? 0)} rounded-lg flex items-center justify-center ${getAvatarTextColor(member.глубина ?? 0)} shadow-sm`}>
                               <span className="font-bold">
                                 {member.имя.charAt(0).toUpperCase()}
                               </span>
@@ -1669,8 +1669,8 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
                               <p className="text-[#1E1E1E] font-bold truncate">
                                 {member.имя} {member.фамилия}
                               </p>
-                              <Badge className={`${getLevelColor(member.глубина || 1)} border text-xs`}>
-                                Уровень {member.глубина || 1}
+                              <Badge className={`${getLevelColor(member.глубина ?? 0)} border text-xs`}>
+                                Глубина {member.глубина ?? 0}
                               </Badge>
                             </div>
                             <div className="text-[#666] text-sm">

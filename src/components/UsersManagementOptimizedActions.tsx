@@ -58,8 +58,8 @@ export async function changeLevelUser(
 ) {
   const newLevel = prompt(`Текущий уровень: ${user.уровень ?? 0}\n\nВведите новый уровень (0, 1, 2 или 3):`, String(user.уровень ?? 0));
   
-  if (!newLevel || !['1', '2', '3'].includes(newLevel)) {
-    if (newLevel !== null) toast.error('Допустимые значения: 1, 2, 3');
+  if (!newLevel || !['0', '1', '2', '3'].includes(newLevel)) {
+    if (newLevel !== null) toast.error('Допустимые значения: 0, 1, 2, 3');
     return;
   }
 
@@ -87,7 +87,7 @@ export async function changeLevelUser(
     const data = await response.json();
 
     if (data.success) {
-      toast.success(`Уровень изменён: ${user.уровень || 1} → ${level}`);
+      toast.success(`Уровень изменён: ${user.уровень ?? 0} → ${level}`);
       queryClient.invalidateQueries({ queryKey: ['users-optimized'] });
       if (onRefresh) onRefresh();
     } else {
