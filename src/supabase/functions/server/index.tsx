@@ -743,6 +743,74 @@ async function migrateUserToNewCodeSystem(userId: string): Promise<{ success: bo
   return { success: true, migrated: true };
 }
 
+/**
+ * 🆕 ЕДИНАЯ ФУНКЦИЯ создания earnings из подтверждённого заказа
+ * Вызывается из: /orders/:orderId/confirm, demo-payment, YooKassa webhook
+ * 
+ * @param order - заказ с полями комиссии, комиссииУровни, sku, партнёрскаяПокупка
+ * @returns массив созданных earnings
+ */
+async function createEarningsFromOrder(order: any): Promise<any[]> {
+  const createdEarnings: any[] = [];
+  
+  if (!order.комиссии) {
+    console.log(`⚠️ createEarningsFromOrder: No комиссии in order ${order.id}`);
+    return createdEarnings;
+  }
+  
+  console.log(`💰 createEarningsFromOrder: Processing order ${order.id}`);
+  console.log(`   SKU: ${order.sku}, isPartner: ${order.партнёрскаяПокупка}`);
+  console.log(`   Комиссии:`, order.комиссии);
+  console.log(`   КомиссииУровни:`, order.комиссииУровни);
+  
+  for (const [userId, amount] of Object.entries(order.комиссии)) {
+    const numAmount = Number(amount);
+    if (numAmount <= 0) continue;
+    
+    // Обновляем баланс пользователя
+    const user = await kv.get(`user:id:${userId}`);
+    if (!user) {
+      console.log(`⚠️ User ${userId} not found, skipping payout`);
+      continue;
+    }
+    
+    user.баланс = (user.баланс || 0) + numAmount;
+    await kv.set(`user:id:${userId}`, user);
+    
+    if (user.telegramId) {
+      await kv.set(`user:tg:${user.telegramId}`, user);
+    }
+    
+    // Создаём earning запись
+    const earningId = `earning:${Date.now()}-${userId}-${Math.random().toString(36).slice(2, 6)}`;
+    const level = order.комиссииУровни?.[userId] || 'L0';
+    const lineIndex = typeof level === 'string' ? Number(level.replace('L', '')) : 0;
+    
+    const earning = {
+      id: earningId,
+      userId: userId,
+      orderId: order.id,
+      amount: numAmount,
+      сумма: numAmount,
+      level: level,
+      линия: lineIndex,
+      fromUserId: order.покупательId,
+      sku: order.sku,
+      isPartner: order.партнёрскаяПокупка,
+      createdAt: new Date().toISOString()
+    };
+    
+    await kv.set(earningId, earning);
+    await kv.set(`earning:user:${userId}:${earningId}`, earning);
+    
+    createdEarnings.push(earning);
+    console.log(`   ✅ Earning: ${numAmount}₽ → ${userId} (${level}, линия=${lineIndex})`);
+  }
+  
+  console.log(`💰 createEarningsFromOrder: Created ${createdEarnings.length} earnings for order ${order.id}`);
+  return createdEarnings;
+}
+
 // Calculate MLM payouts
 async function calculatePayouts(price: number, isPartner: boolean, sku: string, upline: any) {
   const payouts: any[] = [];
@@ -2941,54 +3009,8 @@ app.post("/make-server-05aa3c8a/orders/:orderId/confirm", async (c) => {
     await kv.set(`order:${orderId}`, order);
     await kv.set(`order:user:${order.покупательId}:${orderId}`, order);
     
-    // Process payouts from комиссии
-    console.log(`💰 Processing payouts for order ${orderId}:`, order.комиссии);
-    console.log(`📊 Commission levels:`, order.комиссииУровни);
-    
-    if (order.комиссии) {
-      for (const [userId, amount] of Object.entries(order.комиссии)) {
-        const numAmount = Number(amount);
-        if (numAmount > 0) {
-          // Update user balance
-          const user = await kv.get(`user:id:${userId}`);
-          if (user) {
-            user.баланс = (user.баланс || 0) + numAmount;
-            await kv.set(`user:id:${userId}`, user);
-            
-            if (user.telegramId) {
-              await kv.set(`user:tg:${user.telegramId}`, user);
-            }
-            
-            // Create earning record with full info
-            const earningId = `earning:${Date.now()}-${userId}-${Math.random().toString(36).slice(2, 6)}`;
-            const level = order.комиссииУровни?.[userId] || 'L0';
-            // Извлекаем числовой индекс линии из строки 'L0'/'L1'/'L2'/'L3'
-            const lineIndex = typeof level === 'string' ? Number(level.replace('L', '')) : 0;
-            const earning = {
-              id: earningId,
-              userId: userId,
-              orderId: orderId,
-              amount: numAmount,
-              сумма: numAmount, // дублируем для совместимости
-              level: level,
-              линия: lineIndex, // числовое поле для фронтенда
-              fromUserId: order.покупательId,
-              sku: order.sku,
-              isPartner: order.партнёрскаяПокупка,
-              createdAt: new Date().toISOString()
-            };
-            await kv.set(earningId, earning);
-            await kv.set(`earning:user:${userId}:${earningId}`, earning);
-            
-            console.log(`✅ Earning created: ${numAmount}₽ to user ${userId} (${level}, линия=${lineIndex}) for order ${orderId}`);
-          } else {
-            console.log(`⚠️ User ${userId} not found, skipping payout`);
-          }
-        }
-      }
-    } else {
-      console.log(`⚠️ No комиссии in order ${orderId}`);
-    }
+    // 🆕 Используем единую функцию для создания earnings
+    await createEarningsFromOrder(order);
     
     // ✨ АВТОМАТИЧЕСКИЙ ПЕРЕСЧЁТ РАНГОВ после оплаты заказа
     console.log(`🏆 [/orders/${orderId}/confirm] Auto-updating ranks for buyer and upline...`);
@@ -3157,41 +3179,8 @@ app.post("/make-server-05aa3c8a/payment/create", async (c) => {
             await kv.set(`order:${orderId}`, confirmOrder);
             await kv.set(`order:user:${confirmOrder.покупательId}:${orderId}`, confirmOrder);
             
-            // Process payouts from комиссии
-            if (confirmOrder.комиссии) {
-              for (const [userId, amount] of Object.entries(confirmOrder.комиссии)) {
-                if (amount > 0) {
-                  const user = await kv.get(`user:id:${userId}`);
-                  if (user) {
-                    user.баланс = (user.баланс || 0) + amount;
-                    await kv.set(`user:id:${userId}`, user);
-                    
-                    if (user.telegramId) {
-                      await kv.set(`user:tg:${user.telegramId}`, user);
-                    }
-                    
-                    const earningId = `earning:${Date.now()}-${userId}`;
-                    const level = confirmOrder.комиссииУровни?.[userId] || 'L0';
-                    const lineIndex = typeof level === 'string' ? Number(level.replace('L', '')) : 0;
-                    const earning = {
-                      id: earningId,
-                      userId: userId,
-                      orderId: orderId,
-                      amount: amount,
-                      сумма: amount,
-                      level: level,
-                      линия: lineIndex,
-                      fromUserId: confirmOrder.покупательId,
-                      sku: confirmOrder.sku,
-                      isPartner: confirmOrder.партнёрскаяПокупка,
-                      createdAt: new Date().toISOString()
-                    };
-                    await kv.set(earningId, earning);
-                    await kv.set(`earning:user:${userId}:${earningId}`, earning);
-                  }
-                }
-              }
-            }
+            // 🆕 Используем единую функцию для создания earnings
+            await createEarningsFromOrder(confirmOrder);
             
             // ✨ АВТОМАТИЧЕСКИЙ ПЕРЕСЧЁТ РАНГОВ после демо-оплаты
             console.log(`🏆 [demo-payment] Auto-updating ranks for buyer and upline...`);
@@ -3265,37 +3254,44 @@ app.post("/make-server-05aa3c8a/webhook/yookassa", async (c) => {
         order.статус = 'paid';
         order.paidAt = new Date().toISOString();
         await kv.set(`order:${orderId}`, order);
-        await kv.set(`order:user:${order.продавецId}:${orderId}`, order);
+        await kv.set(`order:user:${order.покупательId || order.продавецId}:${orderId}`, order);
         
-        // Process payouts
-        for (const payout of order.выплаты) {
-          const user = await kv.get(`user:id:${payout.userId}`);
-          if (user) {
-            user.баланс = (user.баланс || 0) + payout.amount;
-            await kv.set(`user:id:${payout.userId}`, user);
-            
-            if (user.telegramId) {
-              await kv.set(`user:tg:${user.telegramId}`, user);
+        // 🆕 Используем единую функцию для создания earnings
+        // Если есть order.комиссии (новый формат) - используем helper
+        // Если нет - fallback на старый формат order.выплаты
+        if (order.комиссии) {
+          await createEarningsFromOrder(order);
+        } else if (order.выплаты) {
+          // Старый формат для совместимости
+          for (const payout of order.выплаты) {
+            const user = await kv.get(`user:id:${payout.userId}`);
+            if (user) {
+              user.баланс = (user.баланс || 0) + payout.amount;
+              await kv.set(`user:id:${payout.userId}`, user);
+              
+              if (user.telegramId) {
+                await kv.set(`user:tg:${user.telegramId}`, user);
+              }
+              
+              const earningId = `earning:${Date.now()}-${payout.userId}`;
+              const level = payout.level || 'L0';
+              const lineIndex = typeof level === 'string' ? Number(level.replace('L', '')) : 0;
+              const earning = {
+                id: earningId,
+                userId: payout.userId,
+                orderId: orderId,
+                amount: payout.amount,
+                сумма: payout.amount,
+                level: level,
+                линия: lineIndex,
+                fromUserId: order.покупательId || order.продавецId,
+                sku: order.sku,
+                isPartner: order.партнёрскаяПокупка,
+                createdAt: new Date().toISOString()
+              };
+              await kv.set(earningId, earning);
+              await kv.set(`earning:user:${payout.userId}:${earningId}`, earning);
             }
-            
-            const earningId = `earning:${Date.now()}-${payout.userId}`;
-            const level = payout.level || 'L0';
-            const lineIndex = typeof level === 'string' ? Number(level.replace('L', '')) : 0;
-            const earning = {
-              id: earningId,
-              userId: payout.userId,
-              orderId: orderId,
-              amount: payout.amount,
-              сумма: payout.amount,
-              level: level,
-              линия: lineIndex,
-              fromUserId: order.продавецId,
-              sku: order.sku,
-              isPartner: order.партнёрскаяПокупка,
-              createdAt: new Date().toISOString()
-            };
-            await kv.set(earningId, earning);
-            await kv.set(`earning:user:${payout.userId}:${earningId}`, earning);
           }
         }
         
