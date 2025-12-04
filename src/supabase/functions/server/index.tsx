@@ -9433,8 +9433,9 @@ app.post("/make-server-05aa3c8a/admin/recalculate-all-ranks", async (c) => {
         user.уровень = correctRank;
         await kv.set(`user:id:${user.id}`, user);
         
-        // Очищаем кэш
-        await kv.del(`rank:user:${user.id}`);
+        // ✅ Обновляем кэш ранга с правильным значением
+        await kv.set(`rank:user:${user.id}`, correctRank);
+        // Очищаем кэш метрик (они будут пересчитаны)
         await kv.del(`user_metrics:${user.id}`);
         
         updates.push({
@@ -9464,6 +9465,112 @@ app.post("/make-server-05aa3c8a/admin/recalculate-all-ranks", async (c) => {
     console.error('❌ Recalculation error:', error);
     return c.json({ error: `${error}` }, 500);
   }
+});
+
+/**
+ * 🧪 ТЕСТ: Проверка логики рангов (без изменения данных)
+ * Показывает примеры правильного расчёта для понимания логики
+ */
+app.get("/make-server-05aa3c8a/admin/test-rank-logic", async (c) => {
+  console.log('\n' + '='.repeat(80));
+  console.log('🧪 ТЕСТ ЛОГИКИ РАНГОВ');
+  console.log('='.repeat(80) + '\n');
+  
+  const examples = [
+    {
+      scenario: 'C: Новый пользователь без партнёров',
+      expected: 0,
+      explanation: 'команда = [] → ранг = 0'
+    },
+    {
+      scenario: 'B: Пользователь с одним партнёром C (без структуры)',
+      expected: 1,
+      explanation: 'команда = [C], C.ранг = 0 → ранг = max(0) + 1 = 1'
+    },
+    {
+      scenario: 'A: Пользователь с партнёром B, у B есть партнёр C',
+      expected: 2,
+      explanation: 'A.команда = [B], B.ранг = 1 → ранг = max(1) + 1 = 2'
+    },
+    {
+      scenario: 'TOP: A → B → C → D (цепочка из 4 уровней)',
+      expected: 3,
+      explanation: 'D=0, C=1, B=2, A=3 (глубина структуры вниз)'
+    }
+  ];
+  
+  console.log('📋 ПРАВИЛА РАСЧЁТА РАНГА:');
+  console.log('   1. Ранг = максимальная глубина структуры ВНИЗ от пользователя');
+  console.log('   2. Сам пользователь НЕ входит в расчёт глубины');
+  console.log('   3. Если потомков нет → ранг = 0');
+  console.log('   4. Если есть прямые партнёры → ранг = max(ранги партнёров) + 1');
+  console.log('\n📊 ПРИМЕРЫ:\n');
+  
+  for (const ex of examples) {
+    console.log(`   ${ex.scenario}`);
+    console.log(`   Ожидаемый ранг: ${ex.expected}`);
+    console.log(`   Логика: ${ex.explanation}`);
+    console.log('');
+  }
+  
+  // Находим реальные примеры в базе
+  const allUsers = await kv.getByPrefix('user:id:');
+  const users = allUsers.filter((u: any) => u.__type !== 'admin' && !u.isAdmin);
+  
+  const noTeamUsers = users.filter((u: any) => !u.команда || u.команда.length === 0);
+  const withTeamUsers = users.filter((u: any) => u.команда && u.команда.length > 0);
+  
+  console.log('📦 РЕАЛЬНЫЕ ДАННЫЕ В БАЗЕ:');
+  console.log(`   Всего пользователей: ${users.length}`);
+  console.log(`   Без команды (ожидается ранг 0): ${noTeamUsers.length}`);
+  console.log(`   С командой: ${withTeamUsers.length}`);
+  
+  // Проверяем несколько пользователей
+  const samples = [];
+  
+  // Берём 3 пользователя без команды
+  for (const user of noTeamUsers.slice(0, 3)) {
+    samples.push({
+      id: user.id,
+      name: `${user.имя} ${user.фамилия || ''}`,
+      teamSize: 0,
+      currentRank: user.уровень || 0,
+      expectedRank: 0,
+      isCorrect: (user.уровень || 0) === 0
+    });
+  }
+  
+  // Берём 3 пользователя с командой
+  for (const user of withTeamUsers.slice(0, 3)) {
+    samples.push({
+      id: user.id,
+      name: `${user.имя} ${user.фамилия || ''}`,
+      teamSize: user.команда.length,
+      currentRank: user.уровень || 0,
+      expectedRank: 'requires calculation'
+    });
+  }
+  
+  return c.json({
+    success: true,
+    rules: {
+      formula: 'ранг = max(ранги прямых партнёров) + 1',
+      noTeam: 'если команда пуста → ранг = 0',
+      withTeam: 'если есть партнёры → min ранг = 1'
+    },
+    examples,
+    realData: {
+      totalUsers: users.length,
+      noTeamUsers: noTeamUsers.length,
+      withTeamUsers: withTeamUsers.length,
+      samples
+    },
+    howToTest: {
+      step1: 'GET /admin/diagnose-ranks — покажет все проблемы с рангами',
+      step2: 'POST /admin/recalculate-all-ranks — пересчитает все ранги',
+      step3: 'GET /debug/user-rank/:userId — детальная диагностика для пользователя'
+    }
+  });
 });
 
 /**
