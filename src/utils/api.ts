@@ -173,7 +173,9 @@ export async function getUserTeam(userId: string) {
   return apiCall(`/user/${userId}/team`);
 }
 
-export async function getUserRank(userId: string, useCache = true) {
+export async function getUserRank(userId: string, useCache = false) {
+  // ⚠️ ВРЕМЕННО: useCache=false по умолчанию из-за бага с устаревшим кэшем рангов
+  // После деплоя исправленного backend можно вернуть useCache=true
   return apiCall(`/user/${userId}/rank?cache=${useCache}`);
 }
 
