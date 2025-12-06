@@ -5,7 +5,7 @@ import * as kv from "./kv_store.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getUserRank, invalidateRankCache, updateUplineRanks, updateUserRank, calculateUserRank } from "./rank_calculator.tsx";
 import * as metricsCache from "./user_metrics_cache.tsx";
-import { convertToBackendFormat, getProductPrices, BACKEND_DEFAULT_COMMISSIONS, BACKEND_DEFAULT_PRICES } from "./commission_backend.ts";
+import { convertToBackendFormat, getProductPrices, calculateCommissionsFromPrices, extractPriceLadder, BACKEND_DEFAULT_COMMISSIONS, BACKEND_DEFAULT_PRICES } from "./commission_backend.ts";
 
 // 🎯 HELPER: Инвалидация кэша при изменении пользователей
 async function invalidateUsersCache() {
@@ -753,15 +753,62 @@ async function migrateUserToNewCodeSystem(userId: string): Promise<{ success: bo
 async function createEarningsFromOrder(order: any): Promise<any[]> {
   const createdEarnings: any[] = [];
   
+  console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  console.log(`💰 createEarningsFromOrder: Order ${order.id}`);
+  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  
   if (!order.комиссии) {
-    console.log(`⚠️ createEarningsFromOrder: No комиссии in order ${order.id}`);
+    console.log(`⚠️ No комиссии in order — skipping earnings creation`);
     return createdEarnings;
   }
   
-  console.log(`💰 createEarningsFromOrder: Processing order ${order.id}`);
-  console.log(`   SKU: ${order.sku}, isPartner: ${order.партнёрскаяПокупка}`);
-  console.log(`   Комиссии:`, order.комиссии);
-  console.log(`   КомиссииУровни:`, order.комиссииУровни);
+  // 🆕 Получаем товар для логирования ценовой лестницы
+  const products = await kv.getByPrefix('product:');
+  const product = products.find((p: any) => p.sku === order.sku);
+  const ladder = extractPriceLadder(product);
+  
+  console.log(`📦 SKU: ${order.sku}`);
+  console.log(`👤 isPartner: ${order.партнёрскаяПокупка}`);
+  
+  if (ladder) {
+    // Используем СТРОГУЮ логику (без неоднозначных fallbacks)
+    const P0 = ladder.P0;
+    const P1 = ladder.P1;
+    const P2 = ladder.P2 ?? 0;
+    const P3 = ladder.P3 ?? 0;
+    const P_company = ladder.P_company ?? 0;
+    
+    console.log(`💵 Price Ladder:`);
+    console.log(`   P0 (Розничная): ${P0}₽`);
+    console.log(`   P1 (Уровень 1): ${P1}₽`);
+    console.log(`   P2 (Уровень 2): ${P2}₽ ${P2 === 0 ? '(не задано)' : ''}`);
+    console.log(`   P3 (Уровень 3): ${P3}₽ ${P3 === 0 ? '(не задано)' : ''}`);
+    console.log(`   P_company:      ${P_company}₽ ${P_company === 0 ? '(не задано)' : ''}`);
+    
+    // Вычисляем комиссии (строгая логика)
+    const L0 = Math.max(0, P0 - P1);
+    const L1 = P2 > 0 ? Math.max(0, P1 - P2) : 0;
+    const L2 = (P2 > 0 && P3 > 0) ? Math.max(0, P2 - P3) : 0;
+    const L3 = (P3 > 0 && P_company > 0) ? Math.max(0, P3 - P_company) : 0;
+    
+    console.log(`📊 Calculated Commissions (strict logic):`);
+    console.log(`   L0: ${L0}₽ = P0(${P0}) - P1(${P1})`);
+    console.log(`   L1: ${L1}₽ = ${P2 > 0 ? `P1(${P1}) - P2(${P2})` : 'N/A (P2 not set)'}`);
+    console.log(`   L2: ${L2}₽ = ${(P2 > 0 && P3 > 0) ? `P2(${P2}) - P3(${P3})` : 'N/A (P2 or P3 not set)'}`);
+    console.log(`   L3: ${L3}₽ = ${(P3 > 0 && P_company > 0) ? `P3(${P3}) - P_company(${P_company})` : 'N/A (P3 or P_company not set)'}`);
+    
+    // Проверки
+    const guestTotal = L0 + L1 + L2 + L3 + P_company;
+    const partnerTotal = L1 + L2 + L3 + P_company;
+    console.log(`✅ Verification:`);
+    console.log(`   Guest:   L0+L1+L2+L3+P_company = ${guestTotal}₽ (should be P0=${P0}₽) ${guestTotal !== P0 ? '⚠️ MISMATCH' : '✓'}`);
+    console.log(`   Partner: L1+L2+L3+P_company = ${partnerTotal}₽ (should be P1=${P1}₽) ${partnerTotal !== P1 ? '⚠️ MISMATCH' : '✓'}`);
+  } else {
+    console.log(`⚠️ No price ladder found — using stored commissions`);
+  }
+  
+  console.log(`📋 Stored Комиссии:`, order.комиссии);
+  console.log(`📋 Stored КомиссииУровни:`, order.комиссииУровни);
   
   for (const [userId, amount] of Object.entries(order.комиссии)) {
     const numAmount = Number(amount);
@@ -819,16 +866,22 @@ async function calculatePayouts(price: number, isPartner: boolean, sku: string, 
   const products = await kv.getByPrefix('product:');
   const product = products.find((p: any) => p.sku === sku);
   
-  // 🆕 Используем helper для получения комиссий (поддержка product.commission и product.комиссии)
-  // Если product не найден — передаём объект с sku для использования дефолтов
-  const commissions = convertToBackendFormat(product || { sku }, isPartner);
+  // 🆕 ЕДИНСТВЕННЫЙ ИСТОЧНИК ИСТИНЫ: вычисляем комиссии из ценовой лестницы
+  // Формула: L0=P0-P1, L1=P1-P2, L2=P2-P3, L3=P3-P_company
+  const commissions = calculateCommissionsFromPrices(product || { sku }, isPartner);
   
   // 🆕 Получаем цены через helper (с fallback на дефолты)
   const prices = getProductPrices(product || { sku });
   const actualPrice = isPartner ? prices.partner : prices.retail;
   
-  // Логирование для отладки
-  console.log(`💰 calculatePayouts: sku=${sku}, isPartner=${isPartner}, commissions=`, commissions);
+  // Логирование для отладки (включая ценовую лестницу)
+  const ladder = extractPriceLadder(product);
+  console.log(`💰 calculatePayouts: sku=${sku}, isPartner=${isPartner}`);
+  console.log(`   Product found: ${!!product}`);
+  if (ladder) {
+    console.log(`   Price ladder: P0=${ladder.P0}, P1=${ladder.P1}, P2=${ladder.P2}, P3=${ladder.P3}, P_company=${ladder.P_company}`);
+  }
+  console.log(`   Commissions: d0=${commissions.d0}, d1=${commissions.d1}, d2=${commissions.d2}, d3=${commissions.d3}`);
   
   if (!isPartner) {
     // Guest purchase - L0 gets d0

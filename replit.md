@@ -2,129 +2,7 @@
 
 ## Overview
 
-This is a multi-level marketing (MLM) management application for hydrogen powder and wellness products. The system enables partners to manage their sales structure, track earnings through a three-level commission system, and provides comprehensive admin tools for system oversight.
-
-**Core Purpose:** A web-based partner cabinet for managing MLM sales networks with real-time statistics, team visualization, order processing, and automated commission calculations.
-
-**Technology Stack:**
-- Frontend: React 18 + TypeScript + Vite
-- UI Framework: Tailwind CSS + shadcn/ui (Radix UI components)
-- Backend: Supabase Edge Functions (Deno + Hono framework)
-- Database: Supabase KV Store (key-value storage)
-- Authentication: Email/password + Telegram Mini App integration
-- Deployment: Replit (development) + Vercel (production frontend) + Supabase (backend)
-
-## Recent Changes
-
-**December 4, 2025 - Commission System Complete Overhaul:**
-
-### MLM Commission Architecture
-
-**Единая функция создания earnings:**
-```
-createEarningsFromOrder(order) → earnings[]
-```
-- Вызывается из: `/orders/:orderId/confirm`, demo-payment, YooKassa webhook
-- Записывает ВСЕ поля: id, userId, orderId, amount, сумма, level, линия, fromUserId, sku, isPartner, createdAt
-- Логирует: `✅ Earning: 1600₽ → 001 (L0, линия=0)`
-
-**Схема потоков покупок:**
-
-| Поток | Путь | Момент earnings |
-|-------|------|-----------------|
-| A. Продать гостю | GuestSaleModal → createOrder + confirmOrder | Сразу |
-| B. Купить (партнёр) | CatalogRu → CheckoutRu → createPayment(demo) | 2 сек |
-| C. Корзина | CartRu → CheckoutRu → createPayment(demo) | 2 сек |
-| D. YooKassa | webhook → order.статус='paid' | При webhook |
-
-**Логика комиссий:**
-- **Гостевая продажа:** L0→продавец, L1/L2/L3→спонсоры продавца
-- **Партнёрская покупка:** L0=НЕТ (взял скидку), L1/L2/L3→спонсоры покупателя
-
-**Автотест комиссий:**
-```
-POST /admin/debug-mlm-test
-```
-- Создаёт тестовую структуру (U001→U002→U003→U004)
-- Прогоняет 3 сценария: гостевая, партнёрская, корзина
-- Проверяет: L0/L1/L2/L3 начислены правильным людям
-- Очищает тестовые данные после проверки
-
-**Исправления:**
-- GuestSaleModal: теперь вызывает confirmOrder (раньше комиссии не начислялись!)
-- EarningsRu: fallback `e.level ?? ('L' + e.линия) ?? 'L0'`
-
-**December 4, 2025 - Rank System Cache Fix:**
-- **ВРЕМЕННОЕ РЕШЕНИЕ**: `api.getUserRank()` теперь использует `cache=false` по умолчанию
-  - Причина: Задеплоенные Edge Functions имеют баг с устаревшим кэшем рангов
-  - После деплоя исправленного backend вернуть `useCache=true`
-- **Backend fixes (локальные, требуют деплоя)**:
-  - `recalculate-all-ranks` теперь ВСЕГДА обновляет KV-кэш `rank:user:{id}`
-  - `clear-cache` теперь правильно удаляет ключи рангов (исправлен баг с числовыми значениями)
-- **Проверено**: Все ранги отображаются правильно (001=3, 002=1, 003=2, 004=1, 005=0, 007=0)
-
-**December 4, 2025 - Rank System Comprehensive Fix:**
-- **Backend** (rank_calculator.tsx):
-  - Formula: `ранг = max(ранги прямых партнёров) + 1`
-  - If no team → rank = 0 (strictly)
-  - If has team → rank = maxChildRank + 1
-  - New users start with rank 0
-  - Rank cache `rank:user:{id}` = 0 at registration
-  - Server endpoint `POST /admin/recalculate-all-ranks` for recalculation
-- **Frontend** - Removed ALL client-side rank recalculation:
-  - `UsersManagementOptimized.tsx`: Deleted `calculateRankFromTree()` function, `recalculateAllRanksFromTree()` now calls server API only
-  - All rank display uses server data via `userRanks.get(userId)` or `user.уровень`
-- **Frontend** - Fixed `|| 1` fallbacks to `?? 0`:
-  - `FilteredUsersList.tsx:182`: `user.уровень ?? user.level ?? 0`
-  - `MarketingToolsRu.tsx:296`: `currentUser?.уровень ?? 0`
-  - `DashboardRu.tsx:471-484`: `currentUser.уровень ?? 0`
-  - `UsersManagementOptimizedActions.tsx:59,90,93`: `user.уровень ?? 0`
-  - `RankBadge.tsx:11`: `Math.max(0, rank ?? 0)`
-  - `UserTreeRenderer.tsx:60`: Uses server rank only
-- **Frontend** - Fixed depth vs rank confusion in `StructureDataViz.tsx`:
-  - `глубина` (depth in tree display) is now labeled "Глубина" (not "Уровень")
-  - All `глубина || 1` changed to `глубина ?? 0`
-- Rank examples:
-  - D (no team) = 0, C → D = 1, B → C → D = 2, A → B → C → D = 3
-
-**December 2, 2025 - Multiple ID/Code System Implementation:**
-- Implemented new multi-ID system where partners can have multiple permanent codes (numeric and alphanumeric)
-- IDs are never freed for reuse - once assigned to a partner, they belong to that partner forever
-- Added `PartnerCode` data model with fields: value, type, primary, isActive, createdAt, assignedBy
-- Created global code mapping: `id:code:{value}` → userId for fast code resolution
-- New API endpoints for code management:
-  - `GET /admin/user/:userId/codes` - Get all codes for a user
-  - `POST /admin/user/:userId/codes` - Add new code to user
-  - `POST /admin/user/:userId/codes/set-primary` - Set code as primary
-  - `POST /admin/user/:userId/codes/deactivate` - Deactivate a code
-  - `POST /admin/user/:userId/codes/activate` - Reactivate a code
-  - `GET /admin/codes/check/:code` - Check code availability
-  - `GET /admin/codes/resolve/:code` - Find user by any code
-  - `POST /admin/codes/migrate-all` - Migrate existing users to new system
-- Modified `change-user-id` endpoint to preserve old IDs instead of freeing them
-- Modified `assign-reserved-id` endpoint to preserve old IDs when assigning reserved IDs to users:
-  - Old ID is saved as additional code in user's codes[] array
-  - Global code mappings created for both old and new IDs
-  - Old IDs are NEVER returned to free IDs pool
-- Orders now track `usedReferralCode` field to record which specific code was used
-- Created `UserCodesManager.tsx` UI component for managing partner codes
-- Created `CodeLookup.tsx` component for searching users by any code
-- Integrated `UserCodesManager` into user details dialog as "ID/Коды" tab
-- Integrated `CodeLookup` into ID Management page (IdManagementOptimized.tsx)
-
-**December 2, 2025 - Replit Environment Setup:**
-- Configured Vite to run on port 5000 with `allowedHosts: true` for Replit proxy
-- Fixed duplicate `Download` icon import in `UsersManagementOptimized.tsx`
-- Removed misplaced `src/vite.config.ts` file (was causing bundler conflicts)
-- Updated lucide-react to version 0.555.0
-- Added Supabase environment secrets (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-
-## Development Environment
-
-**Running the Application:**
-- Workflow: "Start application" runs `npm run dev`
-- Development server: http://localhost:5000
-- Frontend is proxied through Replit's web preview
+This project is an MLM (Multi-Level Marketing) management application for hydrogen powder and wellness products. It provides a web-based partner cabinet for managing sales networks, tracking earnings via a three-level commission system, and offering comprehensive administrative tools for system oversight. The application aims to deliver real-time statistics, team visualization, order processing, and automated commission calculations to its users.
 
 ## User Preferences
 
@@ -134,155 +12,70 @@ Preferred communication style: Simple, everyday language.
 
 ### Frontend Architecture
 
-**Component Structure:**
-- Main application router (`AppRu.tsx`, `MainApp.tsx`) handles authentication flows and section navigation
-- Modular page components for each feature area (Dashboard, Catalog, Orders, Balance, etc.)
-- Reusable UI components from shadcn/ui library located in `/components/ui/`
-- Dual implementation pattern: Standard and Optimized versions of heavy components (e.g., `UsersManagementRu` vs `UsersManagementOptimized`)
-
-**State Management:**
-- Local component state with React hooks
-- React Query (`@tanstack/react-query`) for server state caching in optimized components
-- LocalStorage for demo mode data and user preferences
-
-**Performance Optimizations:**
-- Virtual scrolling with `@tanstack/react-virtual` for large lists (10,000+ users)
-- Memoization with `useMemo` and `useCallback` hooks
-- Server-side metrics pre-calculation and caching
-- Progressive enhancement: standard version for <100 users, optimized for 1000+
-
-**Key Design Patterns:**
-- Error boundaries for fault isolation
-- Demo mode support for testing without backend
-- Inline admin controls (embedded CRUD operations within user views)
-- Responsive design with mobile-first approach
+The frontend is built with React 18, TypeScript, and Vite. It utilizes Tailwind CSS and shadcn/ui (Radix UI components) for a modular and responsive design with a mobile-first approach. Key features include a robust routing system, reusable UI components, and a dual implementation pattern for performance-critical components (standard vs. optimized versions). State management primarily uses React hooks and `@tanstack/react-query` for server state caching. Performance is optimized through virtual scrolling for large lists, memoization, and server-side metrics pre-calculation. The design incorporates error boundaries, a demo mode for testing, and inline admin controls.
 
 ### Backend Architecture
 
-**Server Framework:**
-- Hono web framework running on Deno runtime
-- Edge functions deployed to Supabase
-- RESTful API endpoints with `/make-server-05aa3c8a/` prefix
-
-**Data Storage Strategy:**
-- Key-value store with structured key naming:
-  - `user:id:{userId}` - partner data
-  - `admin:id:{adminId}` - administrator data
-  - `user:email:{email}` - email lookup index
-  - `product:id:{sku}` - product catalog
-  - `order:id:{orderId}` - order records
-  - `withdrawal:id:{id}` - withdrawal requests
-  - `reserved:id:{number}` - reserved ID numbers
-  - `metrics:user:{userId}` - cached user metrics (1-hour TTL)
-  - `cache:page:{key}` - paginated results cache (5-minute TTL)
-
-**Authentication & Authorization:**
-- Multi-provider auth: Email/password, Telegram OAuth, Google OAuth
-- Token-based authentication with bearer tokens
-- Role-based access control (admin vs partner)
-- Admin detection: `isAdmin` flag or `email === 'admin@admin.com'`
-- Middleware functions: `verifyUser()`, `requireAdmin()` for route protection
-
-**MLM Commission System:**
-- Three-level commission structure (L0, L1, L2, L3)
-- Customizable commissions per product
-- Default commissions: L0=1600₽, L1=900₽, L2=500₽, L3=200₽
-- Automatic commission calculation on order creation
-- Commission distribution to sponsor chain (up to 3 levels)
-
-**API Endpoint Categories:**
-1. Authentication: `/auth/login`, `/auth/register`, `/auth/google`, `/telegram-auth`
-2. User management: `/user/:userId`, `/users/optimized`, `/admin/users`
-3. Product catalog: `/products`, `/admin/products`
-4. Orders: `/orders`, `/admin/orders`
-5. Withdrawals: `/withdrawals`, `/admin/withdrawals`
-6. Metrics: `/metrics/recalculate`, `/users/:userId/metrics`
-7. Admin utilities: `/admin/change-user-id`, `/admin/reserved-ids`
-
-**Caching Strategy:**
-- User metrics cached for 1 hour (`user_metrics_cache.tsx`)
-- Paginated results cached for 5 minutes
-- Manual cache invalidation on data mutations
-- Batch processing for metric recalculation (20 users per batch)
+The backend is developed using the Hono web framework on the Deno runtime, deployed as Supabase Edge Functions. It offers RESTful API endpoints and utilizes Supabase KV Store for data persistence, employing a structured key-value storage strategy for various data types like user profiles, products, orders, and cached metrics. Authentication supports email/password, Telegram OAuth, and Google OAuth, with token-based authentication and role-based access control. The core MLM commission system supports a three-level structure with customizable commissions per product, automatically calculated upon order creation and distributed through the sponsor chain. Caching is implemented for user metrics and paginated results to enhance performance. Admin utilities are in place for data recovery, ID management, and tree visualization.
 
 ### Data Recovery & Integrity Tools
 
-**Admin Utilities:**
-- `DataRecoveryTool` - Analyzes and fixes broken relationships (orphan users, broken sponsor links)
-- `IdManager` - Manages ID number reservations and assignments (001-99999 range)
-- `ManualLinkFixer` - Manual repair of user relationships
-- `SmartOrphanFixer` - Automatic parent detection using referral codes
-- `AutoBackupManager` - Scheduled backups every 24 hours
-
-**Tree Visualization:**
-- Hierarchical team structure rendering
-- Virtual scrolling for large trees (10,000+ nodes)
-- Search and filter by rank, name, email
-- Auto-expansion of search results path
-- Recursive team size calculation
+The system includes admin utilities for data integrity, such as `DataRecoveryTool` for fixing relationships, `IdManager` for managing partner IDs, and `AutoBackupManager` for scheduled backups. A hierarchical team structure visualization supports virtual scrolling, search, and filtering for large networks.
 
 ## External Dependencies
 
 ### Third-Party Services
 
-**Supabase:**
-- KV Store for data persistence
-- Edge Functions for serverless backend
-- Authentication services (email, OAuth providers)
-- Project configuration via environment variables:
-  - `VITE_SUPABASE_PROJECT_ID`
-  - `VITE_SUPABASE_ANON_KEY`
-  - `SUPABASE_URL`
-  - `SUPABASE_SERVICE_ROLE_KEY`
-
-**Telegram:**
-- Mini App integration for mobile experience
-- OAuth login widget for web authentication
-- Bot configuration: @h2enterbot
-- Domain whitelisting required for widget functionality
-
-**Google OAuth:**
-- Client ID and Secret for OAuth flow
-- Configured through Supabase Auth providers
+- **Supabase**: Used for KV Store (data persistence), Edge Functions (serverless backend), and Authentication services (email, OAuth).
+- **Telegram**: Integrated for Mini App functionality and OAuth login, specifically with the @h2enterbot.
+- **Google OAuth**: Utilized for authentication provider integration through Supabase.
 
 ### Key NPM Packages
 
-**UI Framework:**
-- `@radix-ui/*` - 20+ accessible UI primitives (dialogs, dropdowns, tabs, etc.)
-- `lucide-react` - Icon library
-- `tailwindcss` - Utility-first CSS framework
-- `class-variance-authority` - Component variant utilities
-- `cmdk` - Command palette component
-
-**Data & State Management:**
-- `@tanstack/react-query` - Server state synchronization and caching
-- `@tanstack/react-virtual` - Virtual scrolling for performance
-- `@supabase/supabase-js` - Supabase client SDK
-
-**Utilities:**
-- `date-fns` - Date manipulation
-- `html2canvas` + `jspdf` - PDF generation for reports
-- `qr-code-styling` - QR code generation for referral links
-- `embla-carousel-react` - Carousel component
-
-**Backend (Deno):**
-- `hono` - Web framework
-- Web Crypto API - Cryptographic operations (replaces node:crypto for Vercel compatibility)
+- **UI Framework**: `@radix-ui/*`, `lucide-react`, `tailwindcss`, `class-variance-authority`, `cmdk`.
+- **Data & State Management**: `@tanstack/react-query`, `@tanstack/react-virtual`, `@supabase/supabase-js`.
+- **Utilities**: `date-fns`, `html2canvas`, `jspdf`, `qr-code-styling`, `embla-carousel-react`.
+- **Backend (Deno)**: `hono`, Web Crypto API.
 
 ### Build & Development Tools
 
-- Vite - Build tool and dev server
-- `@vitejs/plugin-react-swc` - Fast React refresh
-- TypeScript - Type safety
-- Path aliases configured via `vite.config.ts` (`@/` → `./src/`)
+- **Vite**: Build tool and development server.
+- **TypeScript**: For type safety.
+- `@vitejs/plugin-react-swc`: For fast React refreshing.
 
 ### Deployment Configuration
 
-**Vercel:**
-- Output directory: `dist/`
-- Build command: `npm run build`
-- Custom routing via `vercel.json` for SPA behavior
+- **Vercel**: Used for frontend deployment with custom routing.
+- **Environment Variables**: Frontend requires `VITE_SUPABASE_PROJECT_ID`, `VITE_SUPABASE_ANON_KEY`. Backend requires `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
 
-**Environment Variables Required:**
-- Frontend: `VITE_SUPABASE_PROJECT_ID`, `VITE_SUPABASE_ANON_KEY`
-- Backend: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+## Commission System (December 6, 2025)
+
+### Price Ladder as Single Source of Truth
+
+Commissions are calculated from product price ladder, not from separate commission fields.
+
+**Product price fields:**
+- `цена_розница` (P₀) — Retail price (for guests)
+- `цена1` (P₁) — Level 1 price (partner price)
+- `цена2` (P₂) — Level 2 price
+- `цена3` (P₃) — Level 3 price
+- `цена4` (P_company) — Company price
+
+**Commission formulas (STRICT LOGIC):**
+```
+L0 = max(0, P₀ - P₁)  // Always calculated
+L1 = P₂ > 0 ? max(0, P₁ - P₂) : 0  // Only if P₂ is set
+L2 = (P₂ > 0 && P₃ > 0) ? max(0, P₂ - P₃) : 0  // Only if P₂ and P₃ are set
+L3 = (P₃ > 0 && P_company > 0) ? max(0, P₃ - P_company) : 0  // Only if P₃ and P_company are set
+```
+
+**Important:** If any price level = 0 (not set), the commission for that level = 0. This prevents ambiguous fallback calculations.
+
+**Key files:**
+- `src/supabase/functions/server/commission_backend.ts` — Backend calculation functions
+- `src/supabase/functions/server/index.tsx` — `calculatePayouts()`, `createEarningsFromOrder()`
+- `src/components/CatalogRu.tsx` — Frontend auto-calculation in product form
+
+**Verification (should match if all prices are set):**
+- Guest sale: `L0 + L1 + L2 + L3 + P_company = P₀`
+- Partner purchase: `L1 + L2 + L3 + P_company = P₁`
