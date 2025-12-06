@@ -196,6 +196,7 @@ function isUserAdmin(user: any): boolean {
   return user?.isAdmin === true || 
          user?.email?.toLowerCase() === 'admin@admin.com' || 
          user?.id === 'ceo' || 
+         user?.id === 'seo' ||
          user?.id === '1';
 }
 
