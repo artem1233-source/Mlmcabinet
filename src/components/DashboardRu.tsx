@@ -483,6 +483,7 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
     
     // Требования для уровней (пример)
     const requirements: Record<number, { team: number; revenue: number }> = {
+      1: { team: 5, revenue: 100000 },
       2: { team: 15, revenue: 500000 },
       3: { team: 50, revenue: 2000000 },
     };
@@ -492,6 +493,20 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
     }
     
     const req = requirements[nextLevel];
+    
+    // Защита от undefined (если нет требований для уровня)
+    if (!req) {
+      return { 
+        current: currentLevel, 
+        next: nextLevel, 
+        teamProgress: 0, 
+        revenueProgress: 0, 
+        requirements: null, 
+        currentTeam: team.length, 
+        currentRevenue: 0 
+      };
+    }
+    
     const totalRevenue = orders.reduce((sum, order) => {
       if (order.партнерId === currentUser.id || team.some(m => m.id === order.партнерId)) {
         return sum + (order.итого || 0);
