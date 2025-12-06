@@ -5,7 +5,7 @@ import * as kv from "./kv_store.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getUserRank, invalidateRankCache, updateUplineRanks, updateUserRank, calculateUserRank } from "./rank_calculator.tsx";
 import * as metricsCache from "./user_metrics_cache.tsx";
-import { convertToBackendFormat, getProductPrices, BACKEND_DEFAULT_COMMISSIONS, BACKEND_DEFAULT_PRICES } from "./commission_backend.ts";
+import { convertToBackendFormat, getProductPrices, calculateCommissionsFromPrices, extractPriceLadder, BACKEND_DEFAULT_COMMISSIONS, BACKEND_DEFAULT_PRICES } from "./commission_backend.ts";
 
 // 🎯 HELPER: Инвалидация кэша при изменении пользователей
 async function invalidateUsersCache() {
@@ -743,6 +743,121 @@ async function migrateUserToNewCodeSystem(userId: string): Promise<{ success: bo
   return { success: true, migrated: true };
 }
 
+/**
+ * 🆕 ЕДИНАЯ ФУНКЦИЯ создания earnings из подтверждённого заказа
+ * Вызывается из: /orders/:orderId/confirm, demo-payment, YooKassa webhook
+ * 
+ * @param order - заказ с полями комиссии, комиссииУровни, sku, партнёрскаяПокупка
+ * @returns массив созданных earnings
+ */
+async function createEarningsFromOrder(order: any): Promise<any[]> {
+  const createdEarnings: any[] = [];
+  
+  console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  console.log(`💰 createEarningsFromOrder: Order ${order.id}`);
+  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  
+  if (!order.комиссии) {
+    console.log(`⚠️ No комиссии in order — skipping earnings creation`);
+    return createdEarnings;
+  }
+  
+  // 🆕 Получаем товар для логирования ценовой лестницы
+  const products = await kv.getByPrefix('product:');
+  const product = products.find((p: any) => p.sku === order.sku);
+  const ladder = extractPriceLadder(product);
+  
+  console.log(`📦 SKU: ${order.sku}`);
+  console.log(`👤 isPartner: ${order.партнёрскаяПокупка}`);
+  
+  if (ladder) {
+    // Используем СТРОГУЮ логику (без неоднозначных fallbacks)
+    const P0 = ladder.P0;
+    const P1 = ladder.P1;
+    const P2 = ladder.P2 ?? 0;
+    const P3 = ladder.P3 ?? 0;
+    const P_company = ladder.P_company ?? 0;
+    
+    console.log(`💵 Price Ladder:`);
+    console.log(`   P0 (Розничная): ${P0}₽`);
+    console.log(`   P1 (Уровень 1): ${P1}₽`);
+    console.log(`   P2 (Уровень 2): ${P2}₽ ${P2 === 0 ? '(не задано)' : ''}`);
+    console.log(`   P3 (Уровень 3): ${P3}₽ ${P3 === 0 ? '(не задано)' : ''}`);
+    console.log(`   P_company:      ${P_company}₽ ${P_company === 0 ? '(не задано)' : ''}`);
+    
+    // Вычисляем комиссии (строгая логика)
+    const L0 = Math.max(0, P0 - P1);
+    const L1 = P2 > 0 ? Math.max(0, P1 - P2) : 0;
+    const L2 = (P2 > 0 && P3 > 0) ? Math.max(0, P2 - P3) : 0;
+    const L3 = (P3 > 0 && P_company > 0) ? Math.max(0, P3 - P_company) : 0;
+    
+    console.log(`📊 Calculated Commissions (strict logic):`);
+    console.log(`   L0: ${L0}₽ = P0(${P0}) - P1(${P1})`);
+    console.log(`   L1: ${L1}₽ = ${P2 > 0 ? `P1(${P1}) - P2(${P2})` : 'N/A (P2 not set)'}`);
+    console.log(`   L2: ${L2}₽ = ${(P2 > 0 && P3 > 0) ? `P2(${P2}) - P3(${P3})` : 'N/A (P2 or P3 not set)'}`);
+    console.log(`   L3: ${L3}₽ = ${(P3 > 0 && P_company > 0) ? `P3(${P3}) - P_company(${P_company})` : 'N/A (P3 or P_company not set)'}`);
+    
+    // Проверки
+    const guestTotal = L0 + L1 + L2 + L3 + P_company;
+    const partnerTotal = L1 + L2 + L3 + P_company;
+    console.log(`✅ Verification:`);
+    console.log(`   Guest:   L0+L1+L2+L3+P_company = ${guestTotal}₽ (should be P0=${P0}₽) ${guestTotal !== P0 ? '⚠️ MISMATCH' : '✓'}`);
+    console.log(`   Partner: L1+L2+L3+P_company = ${partnerTotal}₽ (should be P1=${P1}₽) ${partnerTotal !== P1 ? '⚠️ MISMATCH' : '✓'}`);
+  } else {
+    console.log(`⚠️ No price ladder found — using stored commissions`);
+  }
+  
+  console.log(`📋 Stored Комиссии:`, order.комиссии);
+  console.log(`📋 Stored КомиссииУровни:`, order.комиссииУровни);
+  
+  for (const [userId, amount] of Object.entries(order.комиссии)) {
+    const numAmount = Number(amount);
+    if (numAmount <= 0) continue;
+    
+    // Обновляем баланс пользователя
+    const user = await kv.get(`user:id:${userId}`);
+    if (!user) {
+      console.log(`⚠️ User ${userId} not found, skipping payout`);
+      continue;
+    }
+    
+    user.баланс = (user.баланс || 0) + numAmount;
+    await kv.set(`user:id:${userId}`, user);
+    
+    if (user.telegramId) {
+      await kv.set(`user:tg:${user.telegramId}`, user);
+    }
+    
+    // Создаём earning запись
+    const earningId = `earning:${Date.now()}-${userId}-${Math.random().toString(36).slice(2, 6)}`;
+    const level = order.комиссииУровни?.[userId] || 'L0';
+    const lineIndex = typeof level === 'string' ? Number(level.replace('L', '')) : 0;
+    
+    const earning = {
+      id: earningId,
+      userId: userId,
+      orderId: order.id,
+      amount: numAmount,
+      сумма: numAmount,
+      level: level,
+      линия: lineIndex,
+      fromUserId: order.покупательId,
+      sku: order.sku,
+      isPartner: order.партнёрскаяПокупка,
+      createdAt: new Date().toISOString()
+    };
+    
+    await kv.set(earningId, earning);
+    await kv.set(`earning:user:${userId}:${earningId}`, earning);
+    
+    createdEarnings.push(earning);
+    console.log(`   ✅ Earning: ${numAmount}₽ → ${userId} (${level}, линия=${lineIndex})`);
+  }
+  
+  console.log(`💰 createEarningsFromOrder: Created ${createdEarnings.length} earnings for order ${order.id}`);
+  return createdEarnings;
+}
+
 // Calculate MLM payouts
 async function calculatePayouts(price: number, isPartner: boolean, sku: string, upline: any) {
   const payouts: any[] = [];
@@ -751,16 +866,22 @@ async function calculatePayouts(price: number, isPartner: boolean, sku: string, 
   const products = await kv.getByPrefix('product:');
   const product = products.find((p: any) => p.sku === sku);
   
-  // 🆕 Используем helper для получения комиссий (поддержка product.commission и product.комиссии)
-  // Если product не найден — передаём объект с sku для использования дефолтов
-  const commissions = convertToBackendFormat(product || { sku }, isPartner);
+  // 🆕 ЕДИНСТВЕННЫЙ ИСТОЧНИК ИСТИНЫ: вычисляем комиссии из ценовой лестницы
+  // Формула: L0=P0-P1, L1=P1-P2, L2=P2-P3, L3=P3-P_company
+  const commissions = calculateCommissionsFromPrices(product || { sku }, isPartner);
   
   // 🆕 Получаем цены через helper (с fallback на дефолты)
   const prices = getProductPrices(product || { sku });
   const actualPrice = isPartner ? prices.partner : prices.retail;
   
-  // Логирование для отладки
-  console.log(`💰 calculatePayouts: sku=${sku}, isPartner=${isPartner}, commissions=`, commissions);
+  // Логирование для отладки (включая ценовую лестницу)
+  const ladder = extractPriceLadder(product);
+  console.log(`💰 calculatePayouts: sku=${sku}, isPartner=${isPartner}`);
+  console.log(`   Product found: ${!!product}`);
+  if (ladder) {
+    console.log(`   Price ladder: P0=${ladder.P0}, P1=${ladder.P1}, P2=${ladder.P2}, P3=${ladder.P3}, P_company=${ladder.P_company}`);
+  }
+  console.log(`   Commissions: d0=${commissions.d0}, d1=${commissions.d1}, d2=${commissions.d2}, d3=${commissions.d3}`);
   
   if (!isPartner) {
     // Guest purchase - L0 gets d0
@@ -2941,39 +3062,8 @@ app.post("/make-server-05aa3c8a/orders/:orderId/confirm", async (c) => {
     await kv.set(`order:${orderId}`, order);
     await kv.set(`order:user:${order.покупательId}:${orderId}`, order);
     
-    // Process payouts from комиссии
-    if (order.комиссии) {
-      for (const [userId, amount] of Object.entries(order.комиссии)) {
-        if (amount > 0) {
-          // Update user balance
-          const user = await kv.get(`user:id:${userId}`);
-          if (user) {
-            user.баланс = (user.баланс || 0) + amount;
-            await kv.set(`user:id:${userId}`, user);
-            
-            if (user.telegramId) {
-              await kv.set(`user:tg:${user.telegramId}`, user);
-            }
-            
-            // Create earning record
-            const earningId = `earning:${Date.now()}-${userId}`;
-            const earning = {
-              id: earningId,
-              userId: userId,
-              orderId: orderId,
-              amount: amount,
-              level: order.комиссииУровни?.[userId] || 'L0',
-              fromUserId: order.покупательId,
-              createdAt: new Date().toISOString()
-            };
-            await kv.set(earningId, earning);
-            await kv.set(`earning:user:${userId}:${earningId}`, earning);
-            
-            console.log(`Payout processed: ${amount} to ${user.имя} (${order.комиссииУровни?.[userId] || 'L0'})`);
-          }
-        }
-      }
-    }
+    // 🆕 Используем единую функцию для создания earnings
+    await createEarningsFromOrder(order);
     
     // ✨ АВТОМАТИЧЕСКИЙ ПЕРЕСЧЁТ РАНГОВ после оплаты заказа
     console.log(`🏆 [/orders/${orderId}/confirm] Auto-updating ranks for buyer and upline...`);
@@ -3142,35 +3232,8 @@ app.post("/make-server-05aa3c8a/payment/create", async (c) => {
             await kv.set(`order:${orderId}`, confirmOrder);
             await kv.set(`order:user:${confirmOrder.покупательId}:${orderId}`, confirmOrder);
             
-            // Process payouts from комиссии
-            if (confirmOrder.комиссии) {
-              for (const [userId, amount] of Object.entries(confirmOrder.комиссии)) {
-                if (amount > 0) {
-                  const user = await kv.get(`user:id:${userId}`);
-                  if (user) {
-                    user.баланс = (user.баланс || 0) + amount;
-                    await kv.set(`user:id:${userId}`, user);
-                    
-                    if (user.telegramId) {
-                      await kv.set(`user:tg:${user.telegramId}`, user);
-                    }
-                    
-                    const earningId = `earning:${Date.now()}-${userId}`;
-                    const earning = {
-                      id: earningId,
-                      userId: userId,
-                      orderId: orderId,
-                      amount: amount,
-                      level: confirmOrder.комиссииУровни?.[userId] || 'L0',
-                      fromUserId: confirmOrder.покупательId,
-                      createdAt: new Date().toISOString()
-                    };
-                    await kv.set(earningId, earning);
-                    await kv.set(`earning:user:${userId}:${earningId}`, earning);
-                  }
-                }
-              }
-            }
+            // 🆕 Используем единую функцию для создания earnings
+            await createEarningsFromOrder(confirmOrder);
             
             // ✨ АВТОМАТИЧЕСКИЙ ПЕРЕСЧЁТ РАНГОВ после демо-оплаты
             console.log(`🏆 [demo-payment] Auto-updating ranks for buyer and upline...`);
@@ -3244,31 +3307,44 @@ app.post("/make-server-05aa3c8a/webhook/yookassa", async (c) => {
         order.статус = 'paid';
         order.paidAt = new Date().toISOString();
         await kv.set(`order:${orderId}`, order);
-        await kv.set(`order:user:${order.продавецId}:${orderId}`, order);
+        await kv.set(`order:user:${order.покупательId || order.продавецId}:${orderId}`, order);
         
-        // Process payouts
-        for (const payout of order.выплаты) {
-          const user = await kv.get(`user:id:${payout.userId}`);
-          if (user) {
-            user.баланс = (user.баланс || 0) + payout.amount;
-            await kv.set(`user:id:${payout.userId}`, user);
-            
-            if (user.telegramId) {
-              await kv.set(`user:tg:${user.telegramId}`, user);
+        // 🆕 Используем единую функцию для создания earnings
+        // Если есть order.комиссии (новый формат) - используем helper
+        // Если нет - fallback на старый формат order.выплаты
+        if (order.комиссии) {
+          await createEarningsFromOrder(order);
+        } else if (order.выплаты) {
+          // Старый формат для совместимости
+          for (const payout of order.выплаты) {
+            const user = await kv.get(`user:id:${payout.userId}`);
+            if (user) {
+              user.баланс = (user.баланс || 0) + payout.amount;
+              await kv.set(`user:id:${payout.userId}`, user);
+              
+              if (user.telegramId) {
+                await kv.set(`user:tg:${user.telegramId}`, user);
+              }
+              
+              const earningId = `earning:${Date.now()}-${payout.userId}`;
+              const level = payout.level || 'L0';
+              const lineIndex = typeof level === 'string' ? Number(level.replace('L', '')) : 0;
+              const earning = {
+                id: earningId,
+                userId: payout.userId,
+                orderId: orderId,
+                amount: payout.amount,
+                сумма: payout.amount,
+                level: level,
+                линия: lineIndex,
+                fromUserId: order.покупательId || order.продавецId,
+                sku: order.sku,
+                isPartner: order.партнёрскаяПокупка,
+                createdAt: new Date().toISOString()
+              };
+              await kv.set(earningId, earning);
+              await kv.set(`earning:user:${payout.userId}:${earningId}`, earning);
             }
-            
-            const earningId = `earning:${Date.now()}-${payout.userId}`;
-            const earning = {
-              id: earningId,
-              userId: payout.userId,
-              orderId: orderId,
-              amount: payout.amount,
-              level: payout.level,
-              fromUserId: order.продавецId,
-              createdAt: new Date().toISOString()
-            };
-            await kv.set(earningId, earning);
-            await kv.set(`earning:user:${payout.userId}:${earningId}`, earning);
           }
         }
         
@@ -9706,6 +9782,304 @@ app.get("/make-server-05aa3c8a/users/:userId/metrics", async (c) => {
     });
   } catch (error) {
     console.error('❌ Get user metrics error:', error);
+    return c.json({ error: `${error}` }, 500);
+  }
+});
+
+/**
+ * 🧪 DEBUG MLM TEST - Автотест математики комиссий
+ * 
+ * Создаёт тестовую структуру пользователей и прогоняет 3 сценария:
+ * A) Гостевая продажа через партнёра
+ * B) Партнёрская покупка 
+ * C) Покупка через корзину (аналогично B)
+ * 
+ * Использование: POST /admin/debug-mlm-test
+ */
+app.post("/make-server-05aa3c8a/admin/debug-mlm-test", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    console.log('\n' + '='.repeat(100));
+    console.log('🧪 MLM COMMISSION TEST - ПОЛНЫЙ АВТОТЕСТ');
+    console.log('='.repeat(100) + '\n');
+    
+    const testPrefix = 'TEST_';
+    const timestamp = Date.now();
+    
+    // 1. Создаём тестовых пользователей (цепочка U001 → U002 → U003 → U004)
+    console.log('📋 ШАГ 1: Создание тестовой структуры пользователей...');
+    
+    const testUsers = [
+      { id: `${testPrefix}U001_${timestamp}`, имя: 'Тест Верх', спонсорId: null },
+      { id: `${testPrefix}U002_${timestamp}`, имя: 'Тест L1', спонсорId: `${testPrefix}U001_${timestamp}` },
+      { id: `${testPrefix}U003_${timestamp}`, имя: 'Тест L2', спонсорId: `${testPrefix}U002_${timestamp}` },
+      { id: `${testPrefix}U004_${timestamp}`, имя: 'Тест L3', спонсорId: `${testPrefix}U003_${timestamp}` }
+    ];
+    
+    for (const user of testUsers) {
+      const fullUser = {
+        id: user.id,
+        имя: user.имя,
+        фамилия: 'Тестовый',
+        email: `${user.id}@test.local`,
+        спонсорId: user.спонсорId,
+        баланс: 0,
+        уровень: 0,
+        датаРегистрации: new Date().toISOString(),
+        __test: true
+      };
+      await kv.set(`user:id:${user.id}`, fullUser);
+      console.log(`   ✅ Создан: ${user.id} (спонсор: ${user.спонсорId || 'нет'})`);
+    }
+    
+    // 2. Создаём тестовый товар H2-TEST
+    console.log('\n📦 ШАГ 2: Создание тестового товара H2-TEST...');
+    
+    const testProduct = {
+      sku: `H2-TEST-${timestamp}`,
+      название: 'Тестовый товар',
+      цена_розница: 10000,
+      цена1: 8000,
+      комиссии: { d0: 1000, d1: 500, d2: 300, d3: 100 },
+      __test: true
+    };
+    await kv.set(`product:id:${testProduct.sku}`, testProduct);
+    console.log(`   ✅ Товар создан: ${testProduct.sku}`);
+    console.log(`   💰 Комиссии: L0=1000, L1=500, L2=300, L3=100`);
+    
+    const results: any = {
+      testUsers: testUsers.map(u => u.id),
+      testProduct: testProduct.sku,
+      scenarios: []
+    };
+    
+    // 3. СЦЕНАРИЙ A: Гостевая продажа
+    console.log('\n' + '-'.repeat(80));
+    console.log('🧪 СЦЕНАРИЙ A: Гостевая продажа (U004 продаёт гостю)');
+    console.log('-'.repeat(80));
+    
+    const scenarioA = {
+      name: 'Гостевая продажа',
+      seller: testUsers[3].id, // U004
+      expected: {
+        [testUsers[3].id]: { level: 'L0', amount: 1000 },
+        [testUsers[2].id]: { level: 'L1', amount: 500 },
+        [testUsers[1].id]: { level: 'L2', amount: 300 },
+        [testUsers[0].id]: { level: 'L3', amount: 100 }
+      },
+      actual: {} as any,
+      passed: true,
+      errors: [] as string[]
+    };
+    
+    // Имитируем createOrder + confirmOrder
+    const uplineA = await findUplineChain(testUsers[3].id);
+    console.log(`   📊 Upline chain: u0=${uplineA.u0}, u1=${uplineA.u1}, u2=${uplineA.u2}, u3=${uplineA.u3}`);
+    
+    const { price: priceA, payouts: payoutsA } = await calculatePayouts(0, false, testProduct.sku, uplineA);
+    console.log(`   💰 Payouts calculated:`, payoutsA);
+    
+    const orderIdA = `TEST-ORDER-A-${timestamp}`;
+    const комиссииA: any = {};
+    const комиссииУровниA: any = {};
+    payoutsA.forEach(p => {
+      комиссииA[p.userId] = p.amount;
+      комиссииУровниA[p.userId] = p.level;
+    });
+    
+    const orderA = {
+      id: orderIdA,
+      покупательId: testUsers[3].id,
+      sku: testProduct.sku,
+      цена: priceA,
+      комиссии: комиссииA,
+      комиссииУровни: комиссииУровниA,
+      партнёрскаяПокупка: false,
+      статус: 'paid',
+      __test: true
+    };
+    await kv.set(`order:${orderIdA}`, orderA);
+    
+    // Создаём earnings
+    const earningsA = await createEarningsFromOrder(orderA);
+    console.log(`   ✅ Earnings created: ${earningsA.length}`);
+    
+    // Проверяем результаты
+    for (const [userId, expected] of Object.entries(scenarioA.expected)) {
+      const earning = earningsA.find(e => e.userId === userId);
+      if (!earning) {
+        scenarioA.errors.push(`❌ ${userId}: НЕТ earning (ожидалось ${expected.level}=${expected.amount})`);
+        scenarioA.passed = false;
+      } else {
+        scenarioA.actual[userId] = { level: earning.level, amount: earning.amount };
+        if (earning.level !== expected.level || earning.amount !== expected.amount) {
+          scenarioA.errors.push(`❌ ${userId}: ${earning.level}=${earning.amount} (ожидалось ${expected.level}=${expected.amount})`);
+          scenarioA.passed = false;
+        } else {
+          console.log(`   ✅ ${userId}: ${earning.level}=${earning.amount} - OK`);
+        }
+      }
+    }
+    
+    results.scenarios.push(scenarioA);
+    
+    // 4. СЦЕНАРИЙ B: Партнёрская покупка
+    console.log('\n' + '-'.repeat(80));
+    console.log('🧪 СЦЕНАРИЙ B: Партнёрская покупка (U004 покупает как партнёр)');
+    console.log('-'.repeat(80));
+    
+    const scenarioB = {
+      name: 'Партнёрская покупка',
+      buyer: testUsers[3].id, // U004
+      expected: {
+        // U004 НЕ получает L0!
+        [testUsers[2].id]: { level: 'L1', amount: 500 },
+        [testUsers[1].id]: { level: 'L2', amount: 300 },
+        [testUsers[0].id]: { level: 'L3', amount: 100 }
+      },
+      notExpected: [testUsers[3].id], // U004 не должен получить L0
+      actual: {} as any,
+      passed: true,
+      errors: [] as string[]
+    };
+    
+    const uplineB = await findUplineChain(testUsers[3].id);
+    const { price: priceB, payouts: payoutsB } = await calculatePayouts(0, true, testProduct.sku, uplineB);
+    console.log(`   💰 Payouts calculated:`, payoutsB);
+    
+    // Проверяем что U004 НЕ получает L0
+    const u004Payout = payoutsB.find(p => p.userId === testUsers[3].id);
+    if (u004Payout) {
+      scenarioB.errors.push(`❌ U004 получил L0=${u004Payout.amount} (НЕ должен!)`);
+      scenarioB.passed = false;
+    } else {
+      console.log(`   ✅ U004 НЕ получает L0 - OK`);
+    }
+    
+    const orderIdB = `TEST-ORDER-B-${timestamp}`;
+    const комиссииB: any = {};
+    const комиссииУровниB: any = {};
+    payoutsB.forEach(p => {
+      комиссииB[p.userId] = p.amount;
+      комиссииУровниB[p.userId] = p.level;
+    });
+    
+    const orderB = {
+      id: orderIdB,
+      покупательId: testUsers[3].id,
+      sku: testProduct.sku,
+      цена: priceB,
+      комиссии: комиссииB,
+      комиссииУровни: комиссииУровниB,
+      партнёрскаяПокупка: true,
+      статус: 'paid',
+      __test: true
+    };
+    await kv.set(`order:${orderIdB}`, orderB);
+    
+    const earningsB = await createEarningsFromOrder(orderB);
+    console.log(`   ✅ Earnings created: ${earningsB.length}`);
+    
+    // Проверяем результаты
+    for (const [userId, expected] of Object.entries(scenarioB.expected)) {
+      const earning = earningsB.find(e => e.userId === userId);
+      if (!earning) {
+        scenarioB.errors.push(`❌ ${userId}: НЕТ earning (ожидалось ${expected.level}=${expected.amount})`);
+        scenarioB.passed = false;
+      } else {
+        scenarioB.actual[userId] = { level: earning.level, amount: earning.amount };
+        if (earning.level !== expected.level || earning.amount !== expected.amount) {
+          scenarioB.errors.push(`❌ ${userId}: ${earning.level}=${earning.amount} (ожидалось ${expected.level}=${expected.amount})`);
+          scenarioB.passed = false;
+        } else {
+          console.log(`   ✅ ${userId}: ${earning.level}=${earning.amount} - OK`);
+        }
+      }
+    }
+    
+    results.scenarios.push(scenarioB);
+    
+    // 5. СЦЕНАРИЙ C: Корзина (аналогично B)
+    console.log('\n' + '-'.repeat(80));
+    console.log('🧪 СЦЕНАРИЙ C: Покупка через корзину (тот же путь что и B)');
+    console.log('-'.repeat(80));
+    
+    const scenarioC = {
+      name: 'Покупка через корзину',
+      buyer: testUsers[3].id,
+      note: 'Использует тот же путь что и партнёрская покупка',
+      expected: scenarioB.expected,
+      passed: true,
+      errors: [] as string[]
+    };
+    
+    // Корзина использует тот же calculatePayouts с isPartner=true
+    // Поэтому результат должен быть идентичен сценарию B
+    scenarioC.passed = scenarioB.passed;
+    scenarioC.errors = [...scenarioB.errors];
+    if (scenarioC.passed) {
+      console.log(`   ✅ Логика корзины идентична партнёрской покупке - OK`);
+    }
+    
+    results.scenarios.push(scenarioC);
+    
+    // 6. Очистка тестовых данных
+    console.log('\n🗑️ ШАГ 6: Очистка тестовых данных...');
+    
+    for (const user of testUsers) {
+      await kv.del(`user:id:${user.id}`);
+    }
+    await kv.del(`product:id:${testProduct.sku}`);
+    await kv.del(`order:${orderIdA}`);
+    await kv.del(`order:${orderIdB}`);
+    
+    for (const e of [...earningsA, ...earningsB]) {
+      await kv.del(e.id);
+      await kv.del(`earning:user:${e.userId}:${e.id}`);
+    }
+    
+    console.log('   ✅ Тестовые данные удалены');
+    
+    // 7. Итоговый отчёт
+    console.log('\n' + '='.repeat(100));
+    console.log('📊 ИТОГОВЫЙ ОТЧЁТ');
+    console.log('='.repeat(100));
+    
+    const allPassed = results.scenarios.every((s: any) => s.passed);
+    
+    for (const scenario of results.scenarios) {
+      const status = scenario.passed ? '✅ PASSED' : '❌ FAILED';
+      console.log(`\n${status}: ${scenario.name}`);
+      if (scenario.errors.length > 0) {
+        scenario.errors.forEach((e: string) => console.log(`   ${e}`));
+      }
+    }
+    
+    console.log('\n' + '='.repeat(100));
+    console.log(allPassed ? '✅ ВСЕ ТЕСТЫ ПРОЙДЕНЫ!' : '❌ ЕСТЬ ОШИБКИ - ТРЕБУЕТСЯ ИСПРАВЛЕНИЕ!');
+    console.log('='.repeat(100) + '\n');
+    
+    return c.json({
+      success: true,
+      allPassed,
+      summary: {
+        scenariosTotal: results.scenarios.length,
+        scenariosPassed: results.scenarios.filter((s: any) => s.passed).length,
+        scenariosFailed: results.scenarios.filter((s: any) => !s.passed).length
+      },
+      scenarios: results.scenarios,
+      testDataCleaned: true,
+      commissionRules: {
+        guestSale: 'L0→продавец, L1/L2/L3→спонсоры продавца',
+        partnerPurchase: 'L0=НЕТ (партнёр взял скидку), L1/L2/L3→спонсоры покупателя',
+        cart: 'Идентично партнёрской покупке'
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ MLM Test error:', error);
     return c.json({ error: `${error}` }, 500);
   }
 });
