@@ -584,7 +584,11 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       setBalanceConfirmOpen(false);
       setDataConfirmOpen(false);
       setEditingUser(null);
-      queryClient.invalidateQueries({ queryKey: ['users-optimized'] });
+      
+      // Принудительно перезагружаем данные
+      await refetch();
+      await queryClient.invalidateQueries({ queryKey: ['users-all-tree'] });
+      
       if (onRefresh) onRefresh();
     } catch (error: any) {
       console.error('Error updating user:', error);
