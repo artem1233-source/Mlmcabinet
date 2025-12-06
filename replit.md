@@ -79,3 +79,23 @@ L3 = (P₃ > 0 && P_company > 0) ? max(0, P₃ - P_company) : 0  // Only if P₃
 **Verification (should match if all prices are set):**
 - Guest sale: `L0 + L1 + L2 + L3 + P_company = P₀`
 - Partner purchase: `L1 + L2 + L3 + P_company = P₁`
+
+## Deployment Notes (December 6, 2025)
+
+### Edge Functions Deployment
+
+Backend Edge Functions are deployed to Supabase. To deploy updated code:
+
+```bash
+# Copy updated files to deployment directory
+cp src/supabase/functions/server/*.tsx supabase/functions/make-server-05aa3c8a/
+cp src/supabase/functions/server/*.ts supabase/functions/make-server-05aa3c8a/
+
+# Create index.ts (Supabase expects .ts not .tsx)
+cp supabase/functions/make-server-05aa3c8a/index.tsx supabase/functions/make-server-05aa3c8a/index.ts
+
+# Deploy using API method (no Docker required)
+SUPABASE_ACCESS_TOKEN="$SUPABASE_ACCESS_TOKEN" supabase functions deploy make-server-05aa3c8a --project-ref vbjueuhgcyfberivihiv --use-api
+```
+
+**Important:** Changes to `src/supabase/functions/server/` are NOT automatically deployed. You must manually deploy after making backend changes.
