@@ -524,6 +524,12 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
   const handleSaveUser = async () => {
     if (!editingUser) return;
 
+    console.log('🔄 handleSaveUser called', {
+      editFormData,
+      originalBalances,
+      originalUserData
+    });
+
     const balanceChanged = 
       editFormData.баланс !== originalBalances.баланс || 
       editFormData.доступныйБаланс !== originalBalances.доступныйБаланс;
@@ -539,12 +545,16 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       editFormData.vk !== originalUserData.vk ||
       editFormData.датаРождения !== originalUserData.датаРождения;
 
+    console.log('🔍 Changes detected:', { balanceChanged, dataChanged });
+
     if (balanceChanged) {
+      console.log('💰 Opening balance confirm dialog');
       setBalanceConfirmOpen(true);
       return;
     }
 
     if (dataChanged) {
+      console.log('📝 Opening data confirm dialog');
       setDataConfirmOpen(true);
       return;
     }
@@ -554,15 +564,22 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
   };
 
   const saveUserData = async () => {
-    if (!editingUser) return;
+    console.log('💾 saveUserData called', { editingUser, editFormData });
+    
+    if (!editingUser) {
+      console.log('❌ No editingUser - aborting save');
+      return;
+    }
 
     try {
       setSaving(true);
       const userId = localStorage.getItem('userId');
+      
+      const url = `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/update-user/${editingUser.id}`;
+      console.log('🌐 Sending PUT request to:', url);
+      console.log('📦 Request body:', { userData: editFormData });
 
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/update-user/${editingUser.id}`,
-        {
+      const response = await fetch(url, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -574,6 +591,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       );
 
       const data = await response.json();
+      console.log('📡 Response:', { status: response.status, data });
 
       if (!response.ok) {
         throw new Error(data.error || 'Ошибка обновления пользователя');
@@ -587,7 +605,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       queryClient.invalidateQueries({ queryKey: ['users-optimized'] });
       if (onRefresh) onRefresh();
     } catch (error: any) {
-      console.error('Error updating user:', error);
+      console.error('❌ Error updating user:', error);
       toast.error(error.message || 'Ошибка обновления пользователя');
     } finally {
       setSaving(false);
