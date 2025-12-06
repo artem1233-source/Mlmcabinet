@@ -1,2 +1,7 @@
-[project]
-id = "vbjueuhgcyfberivihiv"
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+
+[functions.make-server-05aa3c8a]
+verify_jwt = true
