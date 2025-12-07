@@ -592,9 +592,13 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       setDataConfirmOpen(false);
       setEditingUser(null);
       
-      // Принудительно перезагружаем данные
+      // Сбрасываем кэш и принудительно перезагружаем данные
+      console.log('💾 Resetting cache and refetching...');
+      await queryClient.resetQueries({ queryKey: ['users-optimized'] });
+      await queryClient.resetQueries({ queryKey: ['users-all-tree'] });
+      console.log('💾 Cache reset, calling refetch...');
       await refetch();
-      await queryClient.invalidateQueries({ queryKey: ['users-all-tree'] });
+      console.log('💾 Refetch complete');
       
       if (onRefresh) onRefresh();
       console.log('💾 SAVE COMPLETE!');
