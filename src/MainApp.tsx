@@ -19,7 +19,7 @@ import { MarketingToolsRu } from './components/MarketingToolsRu';
 import { EarningsRu } from './components/EarningsRu';
 import { AdminRu } from './components/AdminRu';
 import { AdminPanel } from './components/AdminPanel';
-import { Menu } from 'lucide-react';
+import { Menu, ShoppingCart } from 'lucide-react';
 import { Button } from './components/ui/button';
 import * as api from './utils/api.ts';
 
@@ -404,17 +404,29 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
         />
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Mobile Header */}
-          <header className="lg:hidden bg-white border-b border-[#E6E9EE] px-4 py-3 flex items-center justify-between">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setMobileMenuOpen(true)}
-              className="text-[#666]"
+          <header className="bg-white border-b border-[#E6E9EE] px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setMobileMenuOpen(true)}
+                className="lg:hidden text-[#666]"
+              >
+                <Menu className="w-5 h-5" />
+              </Button>
+              <h1 className="text-[#39B7FF] font-bold">H₂ Платформа</h1>
+            </div>
+            <button
+              onClick={() => setIsCartOpen(true)}
+              className="relative p-2 hover:bg-gray-50 rounded-xl transition-colors"
             >
-              <Menu className="w-5 h-5" />
-            </Button>
-            <h1 className="text-[#39B7FF] font-bold">H₂ Платформа</h1>
-            <div className="w-9" /> {/* Spacer for centering */}
+              <ShoppingCart className="w-5 h-5 text-[#666]" />
+              {cartItems.length > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white rounded-full flex items-center justify-center text-[10px] font-bold px-1">
+                  {cartItems.reduce((sum, item) => sum + item.quantity, 0)}
+                </span>
+              )}
+            </button>
           </header>
           
           <main className="flex-1 overflow-y-auto">
