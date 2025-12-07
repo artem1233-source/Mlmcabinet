@@ -827,6 +827,13 @@ async function createEarningsFromOrder(order: any): Promise<any[]> {
   
   if (rpcResult?.success) {
     const payouts = rpcResult.payouts || [];
+    
+    // 🆕 Если SQL вернула success но payouts пустой — используем fallback
+    if (payouts.length === 0 && (L0 > 0 || L1 > 0 || L2 > 0 || L3 > 0)) {
+      console.log(`⚠️ SQL RPC returned empty payouts but commissions exist — using KV Store fallback`);
+      return await createEarningsFromOrderFallback(order, L0, L1, L2, L3, isPartner, referrerId, buyerId);
+    }
+    
     for (const payout of payouts) {
       createdEarnings.push({
         userId: payout.user_id,
@@ -841,6 +848,8 @@ async function createEarningsFromOrder(order: any): Promise<any[]> {
     console.log(`💰 Total paid via SQL: ${rpcResult.total_paid}₽`);
   } else {
     console.log(`⚠️ SQL RPC returned: ${rpcResult?.error || 'unknown error'}`);
+    // Используем fallback при любой ошибке
+    return await createEarningsFromOrderFallback(order, L0, L1, L2, L3, isPartner, referrerId, buyerId);
   }
   
   console.log(`💰 createEarningsFromOrder: Created ${createdEarnings.length} earnings for order ${order.id}`);
