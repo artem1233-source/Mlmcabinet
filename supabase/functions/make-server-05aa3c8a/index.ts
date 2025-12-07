@@ -8507,7 +8507,18 @@ app.put('/make-server-05aa3c8a/admin/update-user/:userId', async (c) => {
     // Save updated user
     await kv.set(`user:id:${userId}`, updatedUser);
     
-    console.log(`✅ User ${userId} updated successfully`);
+    // 🔥 КРИТИЧЕСКИ ВАЖНО: Сбрасываем кэш списка пользователей
+    console.log(`🗑️ Clearing user list cache after update...`);
+    await kv.del('cache:all_users_list');
+    
+    // Удаляем все кэшированные страницы пользователей
+    const pageCacheKeys = await kv.getByPrefix('users_page:');
+    for (const key of pageCacheKeys) {
+      if (key && typeof key === 'object' && key.key) {
+        await kv.del(key.key);
+      }
+    }
+    console.log(`✅ User ${userId} updated and cache cleared`);
 
     return c.json({
       success: true,
