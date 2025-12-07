@@ -82,20 +82,33 @@ L3 = (P₃ > 0 && P_company > 0) ? max(0, P₃ - P_company) : 0  // Only if P₃
 
 ## Shopping Cart System (December 7, 2025)
 
-### Cart Implementation
+### Cart UX Design
 
-The catalog now uses a shopping cart instead of direct purchase modals:
+Compact, non-intrusive shopping experience:
 
-**User Flow:**
-1. User clicks "В корзину" (add to cart) button in the catalog
-2. Items are collected in the cart sidebar (Sheet component)
-3. User can adjust quantities, remove items in the cart
-4. Final checkout creates all orders at once
+**Catalog Buttons:**
+- "Продать гостю · ₽XXX" — adds item for guest (retail price)
+- "Купить себе · ₽XXX" — adds item for partner (partner price)
+- Both buttons show toast notification, cart does NOT open automatically
+- User can add multiple items before opening cart
+
+**Cart Icon in Header:**
+- Always visible in TopBarRu (top right)
+- Shows badge with item count
+- Opens cart only when clicked
+
+**Cart Sidebar (Side Drawer):**
+- Width: 420px, slides in from right
+- Compact item cards with small thumbnails (56px)
+- Inline quantity controls (+/-)
+- Clear totals and checkout button
+- "Очистить корзину" link at bottom
 
 **Components:**
-- `src/components/CartRu.tsx` — Cart sidebar with checkout functionality
-- `src/components/CatalogRu.tsx` — Catalog with "add to cart" buttons
-- `src/MainApp.tsx` — Cart state management (`cartItems`, `isCartOpen`, cart handlers)
+- `src/components/CartRu.tsx` — Compact side drawer cart
+- `src/components/CatalogRu.tsx` — Catalog with quick-add buttons
+- `src/components/TopBarRu.tsx` — Cart icon with badge
+- `src/MainApp.tsx` — Cart state management
 
 **Cart Item Structure:**
 ```typescript
@@ -105,12 +118,6 @@ The catalog now uses a shopping cart instead of direct purchase modals:
   isPartner: boolean  // false = guest price, true = partner price
 }
 ```
-
-**Key Functions in MainApp:**
-- `handleAddToCart(product, isPartner, quantity)` — Add/update cart item
-- `handleUpdateQuantity(productId, isPartner, newQuantity)` — Change quantity
-- `handleRemoveItem(productId, isPartner)` — Remove from cart
-- `handleClearCart()` — Clear entire cart
 
 ## Deployment Notes (December 6, 2025)
 
