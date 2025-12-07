@@ -25,13 +25,23 @@ export function GuestSaleModal({ isOpen, onClose, product, onOrderCreated }: Gue
   const розничнаяЦена = Number(product.цена_розница || product.розничнаяЦена || 0);
   
   const getL0Commission = () => {
+    // 1. Если L0 явно задан в данных товара
     if (product.commission?.guest?.L0 !== undefined) {
       return product.commission.guest.L0;
     }
     if (product.комиссии?.d0 !== undefined) {
       return product.комиссии.d0;
     }
-    return product.sku === 'H2-3' ? 4500 : 1600;
+    
+    // 2. Рассчитываем из ценовой лестницы: L0 = цена_розница - цена1
+    const розница = Number(product.цена_розница || 0);
+    const цена1 = Number(product.цена1 || 0);
+    
+    if (розница > 0 && цена1 > 0) {
+      return Math.max(0, розница - цена1);
+    }
+    
+    return 0;
   };
   
   const комиссияПродавца = getL0Commission();
