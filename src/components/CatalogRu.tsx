@@ -1082,13 +1082,17 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
                         <>
                           <Button
                             onClick={() => {
-                              setGuestModalProduct(товар);
-                              setIsGuestModalOpen(true);
+                              if (onAddToCart) {
+                                onAddToCart(товар, false, 1);
+                                toast.success('Добавлено в корзину', {
+                                  description: `${товар.название} — для гостя (₽${розничнаяЦена.toLocaleString()})`
+                                });
+                              }
                             }}
                             className="w-full bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] hover:opacity-90 text-white"
                           >
                             <ShoppingCart size={16} className="mr-2" />
-                            Продать гостю (₽{розничнаяЦена.toLocaleString()})
+                            В корзину (₽{розничнаяЦена.toLocaleString()})
                           </Button>
                           
                           <Button
@@ -1096,7 +1100,7 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
                               if (onAddToCart) {
                                 onAddToCart(товар, true, 1);
                                 toast.success('Добавлено в корзину', {
-                                  description: `${товар.название} (партнёр)`
+                                  description: `${товар.название} — для себя (₽${партнёрскаяЦена.toLocaleString()})`
                                 });
                               }
                             }}
@@ -1104,7 +1108,7 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
                             className="w-full border-[#39B7FF] text-[#39B7FF] hover:bg-[#39B7FF]/5"
                           >
                             <ShoppingCart size={16} className="mr-2" />
-                            Купить (₽{партнёрскаяЦена.toLocaleString()})
+                            Для себя (₽{партнёрскаяЦена.toLocaleString()})
                           </Button>
                         </>
                       )}
