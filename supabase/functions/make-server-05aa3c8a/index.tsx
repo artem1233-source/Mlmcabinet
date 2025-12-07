@@ -2818,27 +2818,53 @@ app.get("/make-server-05aa3c8a/user/:userId/rank", async (c) => {
 
 app.get("/make-server-05aa3c8a/products", async (c) => {
   try {
-    // Get custom products from KV store with keys
+    // 🆕 Сначала пробуем SQL таблицу products
+    const { data: sqlProducts, error: sqlError } = await supabase
+      .from('products')
+      .select('*')
+      .eq('is_active', true)
+      .eq('is_archived', false)
+      .order('created_at', { ascending: false });
+    
+    if (!sqlError && sqlProducts && sqlProducts.length > 0) {
+      console.log(`📦 GET /products - From SQL: ${sqlProducts.length} products`);
+      
+      // Конвертируем из SQL формата в формат фронтенда
+      const products = sqlProducts.map((p: any) => ({
+        id: p.id,
+        sku: p.sku,
+        название: p.name,
+        описание: p.description || '',
+        изображение: p.image_url || '',
+        категория: p.category || 'general',
+        цена_розница: p.price_retail,
+        цена1: p.price_partner,
+        цена2: p.price_l2 || 0,
+        цена3: p.price_l3 || 0,
+        цена4: p.price_company || 0,
+        в_архиве: p.is_archived,
+        активен: p.is_active,
+        создан: p.created_at,
+        обновлён: p.updated_at
+      }));
+      
+      return c.json({ success: true, products, source: 'sql' });
+    }
+    
+    // Fallback на KV Store
+    console.log(`📦 GET /products - SQL empty/error, falling back to KV Store`);
     const allProductEntries = await kv.getByPrefixWithKeys('product:');
     
-    console.log(`📦 GET /products - Total entries from KV: ${allProductEntries.length}`);
-    console.log(`📦 Entry keys preview:`, allProductEntries.slice(0, 5).map((e: any) => e.key));
-    
-    // Filter to get only product records (not SKU lookup keys)
-    // Product keys have format "product:prod_XXX", SKU lookup keys have format "product:sku:XXX"
     const productEntries = allProductEntries.filter((entry: any) => 
       entry.key.startsWith('product:prod_')
     );
     
-    console.log(`📦 Filtered product entries (by key): ${productEntries.length}`);
-    
-    // Extract values and filter active
     const products = productEntries.map((e: any) => e.value);
     const activeProducts = products.filter((p: any) => p.активен !== false);
     
-    console.log(`📦 Active products: ${activeProducts.length}`);
+    console.log(`📦 Active products from KV: ${activeProducts.length}`);
     
-    return c.json({ success: true, products: activeProducts });
+    return c.json({ success: true, products: activeProducts, source: 'kv' });
   } catch (error) {
     console.log(`Get products error: ${error}`);
     return c.json({ error: `Failed to get products: ${error}` }, 500);
@@ -4625,17 +4651,46 @@ app.get("/make-server-05aa3c8a/admin/products", async (c) => {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
+    // 🆕 Сначала пробуем SQL
+    const { data: sqlProducts, error: sqlError } = await supabase
+      .from('products')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (!sqlError && sqlProducts && sqlProducts.length > 0) {
+      console.log(`📦 Admin GET /products - From SQL: ${sqlProducts.length} products`);
+      
+      const products = sqlProducts.map((p: any) => ({
+        id: p.id,
+        sku: p.sku,
+        название: p.name,
+        описание: p.description || '',
+        изображение: p.image_url || '',
+        категория: p.category || 'general',
+        цена_розница: p.price_retail,
+        цена1: p.price_partner,
+        цена2: p.price_l2 || 0,
+        цена3: p.price_l3 || 0,
+        цена4: p.price_company || 0,
+        в_архиве: p.is_archived,
+        активен: p.is_active,
+        создан: p.created_at,
+        обновлён: p.updated_at
+      }));
+      
+      return c.json({ success: true, products, source: 'sql' });
+    }
+    
+    // Fallback на KV Store
     const allProductEntries = await kv.getByPrefixWithKeys('product:');
     
-    // Filter to get only product records by key (not SKU lookup keys)
-    // Product keys: "product:prod_XXX", SKU lookups: "product:sku:XXX"
     const productEntries = allProductEntries.filter((entry: any) => 
       entry.key.startsWith('product:prod_')
     );
     
     const productsArray = productEntries.map((e: any) => e.value);
     
-    return c.json({ success: true, products: productsArray });
+    return c.json({ success: true, products: productsArray, source: 'kv' });
   } catch (error) {
     console.log(`Admin get products error: ${error}`);
     return c.json({ 
@@ -4658,40 +4713,86 @@ app.post("/make-server-05aa3c8a/admin/products", async (c) => {
       return c.json({ error: 'Название и SKU обязательны' }, 400);
     }
     
-    // Check if SKU already exists
-    const existingProduct = await kv.get(`product:sku:${sku}`);
-    if (existingProduct) {
-      return c.json({ error: 'Продукт с таким SKU уже существует' }, 400);
-    }
-    
     const productId = `prod_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    const product = {
+    // 🆕 Сохраняем в SQL таблицу products
+    const sqlProduct = {
       id: productId,
-      название: название || '',
-      описание: описание || '',
       sku: sku,
-      изображение: изображение || '',
-      цена1: Number(цена1) || 0,
-      цена2: Number(цена2) || 0,
-      цена3: Number(цена3) || 0,
-      цена4: Number(цена4) || 0,
-      цена_розница: Number(цена_розница) || 0,
-      категория: категория || 'general',
-      в_архиве: в_архиве === true,  // false = активен, true = в архиве
-      archived: в_архиве === true,   // для совместимости
-      создан: new Date().toISOString(),
-      обновлён: new Date().toISOString()
+      name: название || '',
+      description: описание || '',
+      image_url: изображение || '',
+      category: категория || 'general',
+      price_retail: Number(цена_розница) || 0,
+      price_partner: Number(цена1) || 0,
+      price_l2: Number(цена2) || 0,
+      price_l3: Number(цена3) || 0,
+      price_company: Number(цена4) || 0,
+      is_archived: в_архиве === true,
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
     };
     
-    console.log(`💾 Saving product with ID: ${productId}, SKU: ${sku}`);
-    await kv.set(`product:${productId}`, product);
-    await kv.set(`product:sku:${sku}`, product);
+    console.log(`💾 Saving product to SQL: ${productId}, SKU: ${sku}`);
     
-    console.log(`✅ Product created: ${productId}, SKU: ${sku}`);
-    console.log(`📋 Product data:`, { id: product.id, название: product.название, sku: product.sku });
+    const { data: insertedProduct, error: insertError } = await supabase
+      .from('products')
+      .upsert(sqlProduct, { onConflict: 'sku' })
+      .select()
+      .single();
     
-    return c.json({ success: true, product });
+    if (insertError) {
+      console.error(`❌ SQL insert error:`, insertError);
+      
+      // Fallback на KV Store
+      const kvProduct = {
+        id: productId,
+        название: название || '',
+        описание: описание || '',
+        sku: sku,
+        изображение: изображение || '',
+        цена1: Number(цена1) || 0,
+        цена2: Number(цена2) || 0,
+        цена3: Number(цена3) || 0,
+        цена4: Number(цена4) || 0,
+        цена_розница: Number(цена_розница) || 0,
+        категория: категория || 'general',
+        в_архиве: в_архиве === true,
+        archived: в_архиве === true,
+        создан: new Date().toISOString(),
+        обновлён: new Date().toISOString()
+      };
+      
+      await kv.set(`product:${productId}`, kvProduct);
+      await kv.set(`product:sku:${sku}`, kvProduct);
+      
+      console.log(`✅ Product created in KV (fallback): ${productId}`);
+      return c.json({ success: true, product: kvProduct, source: 'kv' });
+    }
+    
+    // Конвертируем обратно в формат фронтенда
+    const product = {
+      id: insertedProduct.id,
+      sku: insertedProduct.sku,
+      название: insertedProduct.name,
+      описание: insertedProduct.description || '',
+      изображение: insertedProduct.image_url || '',
+      категория: insertedProduct.category || 'general',
+      цена_розница: insertedProduct.price_retail,
+      цена1: insertedProduct.price_partner,
+      цена2: insertedProduct.price_l2 || 0,
+      цена3: insertedProduct.price_l3 || 0,
+      цена4: insertedProduct.price_company || 0,
+      в_архиве: insertedProduct.is_archived,
+      активен: insertedProduct.is_active,
+      создан: insertedProduct.created_at,
+      обновлён: insertedProduct.updated_at
+    };
+    
+    console.log(`✅ Product created in SQL: ${productId}, SKU: ${sku}`);
+    
+    return c.json({ success: true, product, source: 'sql' });
   } catch (error) {
     console.log(`Admin create product error: ${error}`);
     return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
@@ -4707,35 +4808,87 @@ app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
     const productId = c.req.param('productId');
     const updates = await c.req.json();
     
-    const product = await kv.get(`product:${productId}`);
-    if (!product) {
-      return c.json({ error: 'Продукт не найден' }, 404);
-    }
+    console.log(`📝 Updating product: ${productId}`, updates);
     
-    const oldSku = product.sku;
+    // 🆕 Обновляем в SQL таблице
+    const sqlUpdates: any = {
+      updated_at: new Date().toISOString()
+    };
     
-    // Update product fields
-    Object.keys(updates).forEach(key => {
-      if (key !== 'id' && key !== 'создан') {
-        product[key] = updates[key];
+    // Маппинг полей фронтенда -> SQL
+    if (updates.название !== undefined) sqlUpdates.name = updates.название;
+    if (updates.описание !== undefined) sqlUpdates.description = updates.описание;
+    if (updates.sku !== undefined) sqlUpdates.sku = updates.sku;
+    if (updates.изображение !== undefined) sqlUpdates.image_url = updates.изображение;
+    if (updates.категория !== undefined) sqlUpdates.category = updates.категория;
+    if (updates.цена_розница !== undefined) sqlUpdates.price_retail = Number(updates.цена_розница) || 0;
+    if (updates.цена1 !== undefined) sqlUpdates.price_partner = Number(updates.цена1) || 0;
+    if (updates.цена2 !== undefined) sqlUpdates.price_l2 = Number(updates.цена2) || 0;
+    if (updates.цена3 !== undefined) sqlUpdates.price_l3 = Number(updates.цена3) || 0;
+    if (updates.цена4 !== undefined) sqlUpdates.price_company = Number(updates.цена4) || 0;
+    if (updates.в_архиве !== undefined) sqlUpdates.is_archived = updates.в_архиве === true;
+    
+    const { data: updatedProduct, error: updateError } = await supabase
+      .from('products')
+      .update(sqlUpdates)
+      .eq('id', productId)
+      .select()
+      .single();
+    
+    if (updateError) {
+      console.error(`❌ SQL update error:`, updateError);
+      
+      // Fallback на KV Store
+      const product = await kv.get(`product:${productId}`);
+      if (!product) {
+        return c.json({ error: 'Продукт не найден' }, 404);
       }
-    });
-    
-    product.обновлён = new Date().toISOString();
-    
-    await kv.set(`product:${productId}`, product);
-    
-    // Update SKU index if changed
-    if (updates.sku && updates.sku !== oldSku) {
-      await kv.del(`product:sku:${oldSku}`);
-      await kv.set(`product:sku:${updates.sku}`, product);
-    } else {
-      await kv.set(`product:sku:${oldSku}`, product);
+      
+      const oldSku = product.sku;
+      
+      Object.keys(updates).forEach(key => {
+        if (key !== 'id' && key !== 'создан') {
+          product[key] = updates[key];
+        }
+      });
+      
+      product.обновлён = new Date().toISOString();
+      
+      await kv.set(`product:${productId}`, product);
+      
+      if (updates.sku && updates.sku !== oldSku) {
+        await kv.del(`product:sku:${oldSku}`);
+        await kv.set(`product:sku:${updates.sku}`, product);
+      } else {
+        await kv.set(`product:sku:${oldSku}`, product);
+      }
+      
+      console.log(`✅ Product updated in KV (fallback): ${productId}`);
+      return c.json({ success: true, product, source: 'kv' });
     }
     
-    console.log(`Product updated: ${productId}`);
+    // Конвертируем обратно в формат фронтенда
+    const product = {
+      id: updatedProduct.id,
+      sku: updatedProduct.sku,
+      название: updatedProduct.name,
+      описание: updatedProduct.description || '',
+      изображение: updatedProduct.image_url || '',
+      категория: updatedProduct.category || 'general',
+      цена_розница: updatedProduct.price_retail,
+      цена1: updatedProduct.price_partner,
+      цена2: updatedProduct.price_l2 || 0,
+      цена3: updatedProduct.price_l3 || 0,
+      цена4: updatedProduct.price_company || 0,
+      в_архиве: updatedProduct.is_archived,
+      активен: updatedProduct.is_active,
+      создан: updatedProduct.created_at,
+      обновлён: updatedProduct.updated_at
+    };
     
-    return c.json({ success: true, product });
+    console.log(`✅ Product updated in SQL: ${productId}`);
+    
+    return c.json({ success: true, product, source: 'sql' });
   } catch (error) {
     console.log(`Admin update product error: ${error}`);
     return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
