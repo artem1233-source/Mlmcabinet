@@ -163,71 +163,9 @@ async function verifyUser(userIdHeader: string | null) {
     user = await kv.get(`admin:id:${userIdHeader}`);
   }
   
-  // 🆕 Fallback на SQL таблицу profiles если KV Store пустой
-  if (!user) {
-    console.log(`   Not found in KV Store, checking SQL profiles table...`);
-    const { data: sqlProfile, error: sqlError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userIdHeader)
-      .maybeSingle();
-    
-    if (sqlProfile && !sqlError) {
-      console.log(`✅ Found user in SQL profiles: ${sqlProfile.first_name}`);
-      // Конвертируем SQL формат в KV формат
-      user = {
-        id: sqlProfile.id,
-        email: sqlProfile.email,
-        имя: sqlProfile.first_name || '',
-        фамилия: sqlProfile.last_name || '',
-        телефон: sqlProfile.phone || '',
-        спонсорId: sqlProfile.referrer_id || null,
-        баланс: parseFloat(sqlProfile.balance) || 0,
-        доступныйБаланс: parseFloat(sqlProfile.available_balance) || 0,
-        ранг: sqlProfile.rank_level || 0,
-        telegram: sqlProfile.telegram || '',
-        instagram: sqlProfile.instagram || '',
-        vk: sqlProfile.vk || '',
-        facebook: sqlProfile.facebook || '',
-        аватарка: sqlProfile.avatar_url || '',
-        isAdmin: sqlProfile.is_admin || false,
-        type: sqlProfile.is_admin ? 'admin' : 'user',
-        created: sqlProfile.created_at,
-        lastLogin: sqlProfile.last_login,
-        supabaseId: sqlProfile.supabase_id
-      };
-      
-      // Синхронизируем обратно в KV Store
-      await kv.set(`user:id:${userIdHeader}`, user);
-      console.log(`   Synced user ${userIdHeader} from SQL to KV Store`);
-    }
-  }
-  
   if (!user) {
     console.log(`Authorization error: User not found for ID: ${userIdHeader}`);
     throw new Error("User not found");
-  }
-  
-  // 🆕 ВСЕГДА синхронизируем баланс из SQL (единый источник правды)
-  try {
-    const { data: sqlBalance, error: sqlBalanceError } = await supabase
-      .from('profiles')
-      .select('balance, available_balance')
-      .eq('id', userIdHeader)
-      .maybeSingle();
-    
-    if (sqlBalance && !sqlBalanceError) {
-      const sqlBal = parseFloat(sqlBalance.balance) || 0;
-      const sqlAvailBal = parseFloat(sqlBalance.available_balance) || 0;
-      
-      if (user.баланс !== sqlBal || user.доступныйБаланс !== sqlAvailBal) {
-        console.log(`💰 verifyUser: Syncing balance from SQL: ${user.баланс} → ${sqlBal}`);
-        user.баланс = sqlBal;
-        user.доступныйБаланс = sqlAvailBal;
-      }
-    }
-  } catch (balanceErr) {
-    console.log(`⚠️ verifyUser: Could not sync balance from SQL: ${balanceErr}`);
   }
   
   // 🆕 ИСПРАВЛЕНИЕ: Проверяем и восстанавливаем флаг isAdmin для первого пользователя, admin@admin.com и CEO
@@ -2542,76 +2480,12 @@ app.get("/make-server-05aa3c8a/user/:userId", async (c) => {
       userData = await kv.get(`admin:id:${userId}`);
     }
     
-    // 🆕 Fallback на SQL таблицу profiles если KV Store пустой
     if (!userData) {
-      console.log(`   Not found in KV Store, checking SQL profiles table...`);
-      const { data: sqlProfile, error: sqlError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle();
-      
-      if (sqlProfile && !sqlError) {
-        console.log(`✅ Found user in SQL profiles: ${sqlProfile.first_name}`);
-        // Конвертируем SQL формат в KV формат
-        userData = {
-          id: sqlProfile.id,
-          email: sqlProfile.email,
-          имя: sqlProfile.first_name || '',
-          фамилия: sqlProfile.last_name || '',
-          телефон: sqlProfile.phone || '',
-          спонсорId: sqlProfile.referrer_id || null,
-          баланс: parseFloat(sqlProfile.balance) || 0,
-          доступныйБаланс: parseFloat(sqlProfile.available_balance) || 0,
-          ранг: sqlProfile.rank_level || 0,
-          telegram: sqlProfile.telegram || '',
-          instagram: sqlProfile.instagram || '',
-          vk: sqlProfile.vk || '',
-          facebook: sqlProfile.facebook || '',
-          аватарка: sqlProfile.avatar_url || '',
-          isAdmin: sqlProfile.is_admin || false,
-          type: sqlProfile.is_admin ? 'admin' : 'user',
-          created: sqlProfile.created_at,
-          lastLogin: sqlProfile.last_login,
-          supabaseId: sqlProfile.supabase_id
-        };
-        
-        // Синхронизируем обратно в KV Store
-        await kv.set(`user:id:${userId}`, userData);
-        console.log(`   Synced user ${userId} from SQL to KV Store`);
-      }
-    }
-    
-    if (!userData) {
-      console.log(`❌ User ${userId} not found in KV Store or SQL`);
+      console.log(`❌ User ${userId} not found in user:id or admin:id`);
       return c.json({ error: "User not found" }, 404);
     }
     
-    // 🆕 ВСЕГДА синхронизируем баланс из SQL (единый источник правды)
-    try {
-      const { data: sqlBalance, error: sqlBalanceError } = await supabase
-        .from('profiles')
-        .select('balance, available_balance')
-        .eq('id', userId)
-        .maybeSingle();
-      
-      if (sqlBalance && !sqlBalanceError) {
-        const sqlBal = parseFloat(sqlBalance.balance) || 0;
-        const sqlAvailBal = parseFloat(sqlBalance.available_balance) || 0;
-        
-        if (userData.баланс !== sqlBal || userData.доступныйБаланс !== sqlAvailBal) {
-          console.log(`💰 Syncing balance from SQL: ${userData.баланс} → ${sqlBal}`);
-          userData.баланс = sqlBal;
-          userData.доступныйБаланс = sqlAvailBal;
-          // Обновляем KV Store
-          await kv.set(`user:id:${userId}`, userData);
-        }
-      }
-    } catch (balanceErr) {
-      console.log(`⚠️ Could not sync balance from SQL: ${balanceErr}`);
-    }
-    
-    console.log(`✅ Found user: ${userData.имя} ${userData.фамилия} (type: ${userData.type || 'user'}), balance: ${userData.баланс}`);
+    console.log(`✅ Found user: ${userData.имя} ${userData.фамилия} (type: ${userData.type || 'user'})`);
     return c.json({ success: true, user: userData });
   } catch (error) {
     console.log(`Get user error: ${error}`);
