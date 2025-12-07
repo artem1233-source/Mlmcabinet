@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ShoppingCart, Tag, Loader2, Package, Plus, Edit2, Trash2, Save, X, Archive, ArchiveRestore, MoreVertical, FolderOpen, AlertCircle } from 'lucide-react';
+import { Tag, Loader2, Package, Plus, Edit2, Trash2, Save, X, Archive, ArchiveRestore, MoreVertical, FolderOpen, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
@@ -1079,31 +1079,33 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
                             onClick={() => {
                               if (onAddToCart) {
                                 onAddToCart(товар, false, 1);
-                                toast.success('Добавлено в корзину', {
-                                  description: `${товар.название} — для гостя (₽${розничнаяЦена.toLocaleString()})`
+                                toast.success(`${товар.название} добавлен`, {
+                                  description: `Розничная цена: ₽${розничнаяЦена.toLocaleString()}`,
+                                  duration: 2000
                                 });
                               }
                             }}
-                            className="w-full bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] hover:opacity-90 text-white"
+                            className="w-full bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] hover:opacity-90 text-white active:scale-95 transition-transform"
                           >
-                            <ShoppingCart size={16} className="mr-2" />
-                            В корзину (₽{розничнаяЦена.toLocaleString()})
+                            <Plus size={16} className="mr-1.5" />
+                            Продать гостю · ₽{розничнаяЦена.toLocaleString()}
                           </Button>
                           
                           <Button
                             onClick={() => {
                               if (onAddToCart) {
                                 onAddToCart(товар, true, 1);
-                                toast.success('Добавлено в корзину', {
-                                  description: `${товар.название} — для себя (₽${партнёрскаяЦена.toLocaleString()})`
+                                toast.success(`${товар.название} добавлен`, {
+                                  description: `Партнёрская цена: ₽${партнёрскаяЦена.toLocaleString()}`,
+                                  duration: 2000
                                 });
                               }
                             }}
                             variant="outline"
-                            className="w-full border-[#39B7FF] text-[#39B7FF] hover:bg-[#39B7FF]/5"
+                            className="w-full border-[#39B7FF] text-[#39B7FF] hover:bg-[#39B7FF]/5 active:scale-95 transition-transform"
                           >
-                            <ShoppingCart size={16} className="mr-2" />
-                            Для себя (₽{партнёрскаяЦена.toLocaleString()})
+                            <Plus size={16} className="mr-1.5" />
+                            Купить себе · ₽{партнёрскаяЦена.toLocaleString()}
                           </Button>
                         </>
                       )}
