@@ -163,6 +163,46 @@ async function verifyUser(userIdHeader: string | null) {
     user = await kv.get(`admin:id:${userIdHeader}`);
   }
   
+  // 🆕 Fallback на SQL таблицу profiles если KV Store пустой
+  if (!user) {
+    console.log(`   Not found in KV Store, checking SQL profiles table...`);
+    const { data: sqlProfile, error: sqlError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userIdHeader)
+      .maybeSingle();
+    
+    if (sqlProfile && !sqlError) {
+      console.log(`✅ Found user in SQL profiles: ${sqlProfile.first_name}`);
+      // Конвертируем SQL формат в KV формат
+      user = {
+        id: sqlProfile.id,
+        email: sqlProfile.email,
+        имя: sqlProfile.first_name || '',
+        фамилия: sqlProfile.last_name || '',
+        телефон: sqlProfile.phone || '',
+        спонсорId: sqlProfile.referrer_id || null,
+        баланс: parseFloat(sqlProfile.balance) || 0,
+        доступныйБаланс: parseFloat(sqlProfile.available_balance) || 0,
+        ранг: sqlProfile.rank_level || 0,
+        telegram: sqlProfile.telegram || '',
+        instagram: sqlProfile.instagram || '',
+        vk: sqlProfile.vk || '',
+        facebook: sqlProfile.facebook || '',
+        аватарка: sqlProfile.avatar_url || '',
+        isAdmin: sqlProfile.is_admin || false,
+        type: sqlProfile.is_admin ? 'admin' : 'user',
+        created: sqlProfile.created_at,
+        lastLogin: sqlProfile.last_login,
+        supabaseId: sqlProfile.supabase_id
+      };
+      
+      // Синхронизируем обратно в KV Store
+      await kv.set(`user:id:${userIdHeader}`, user);
+      console.log(`   Synced user ${userIdHeader} from SQL to KV Store`);
+    }
+  }
+  
   if (!user) {
     console.log(`Authorization error: User not found for ID: ${userIdHeader}`);
     throw new Error("User not found");
@@ -746,193 +786,105 @@ async function migrateUserToNewCodeSystem(userId: string): Promise<{ success: bo
 
 /**
  * 🆕 ЕДИНАЯ ФУНКЦИЯ создания earnings из подтверждённого заказа
- * Использует SQL RPC функцию process_order_commission для начисления комиссий
+ * Вызывается из: /orders/:orderId/confirm, demo-payment, YooKassa webhook
  * 
- * @param order - заказ с полями sku, партнёрскаяПокупка, покупательId, рефереров
+ * @param order - заказ с полями комиссии, комиссииУровни, sku, партнёрскаяПокупка
  * @returns массив созданных earnings
  */
 async function createEarningsFromOrder(order: any): Promise<any[]> {
   const createdEarnings: any[] = [];
   
   console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-  console.log(`💰 createEarningsFromOrder (SQL RPC): Order ${order.id}`);
+  console.log(`💰 createEarningsFromOrder: Order ${order.id}`);
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   
-  const isPartner = order.партнёрскаяПокупка === true;
-  const buyerId = order.покупательId || null;
-  const referrerId = order.referrerId || order.рефереров || null;
-  const sku = order.sku || 'H2-1';
+  if (!order.комиссии) {
+    console.log(`⚠️ No комиссии in order — skipping earnings creation`);
+    return createdEarnings;
+  }
   
-  console.log(`📦 SKU: ${sku}`);
-  console.log(`👤 isPartner: ${isPartner}`);
-  console.log(`👤 buyerId: ${buyerId}`);
-  console.log(`👤 referrerId: ${referrerId}`);
-  
-  // 🆕 Получаем товар и вычисляем комиссии из ценовой лестницы
+  // 🆕 Получаем товар для логирования ценовой лестницы
   const products = await kv.getByPrefix('product:');
-  const product = products.find((p: any) => p.sku === sku);
+  const product = products.find((p: any) => p.sku === order.sku);
   const ladder = extractPriceLadder(product);
   
-  let L0 = 0, L1 = 0, L2 = 0, L3 = 0;
+  console.log(`📦 SKU: ${order.sku}`);
+  console.log(`👤 isPartner: ${order.партнёрскаяПокупка}`);
   
   if (ladder) {
+    // Используем СТРОГУЮ логику (без неоднозначных fallbacks)
     const P0 = ladder.P0;
     const P1 = ladder.P1;
     const P2 = ladder.P2 ?? 0;
     const P3 = ladder.P3 ?? 0;
     const P_company = ladder.P_company ?? 0;
     
-    console.log(`💵 Price Ladder: P0=${P0}, P1=${P1}, P2=${P2}, P3=${P3}, P_company=${P_company}`);
+    console.log(`💵 Price Ladder:`);
+    console.log(`   P0 (Розничная): ${P0}₽`);
+    console.log(`   P1 (Уровень 1): ${P1}₽`);
+    console.log(`   P2 (Уровень 2): ${P2}₽ ${P2 === 0 ? '(не задано)' : ''}`);
+    console.log(`   P3 (Уровень 3): ${P3}₽ ${P3 === 0 ? '(не задано)' : ''}`);
+    console.log(`   P_company:      ${P_company}₽ ${P_company === 0 ? '(не задано)' : ''}`);
     
-    L0 = isPartner ? 0 : Math.max(0, P0 - P1);
-    L1 = P2 > 0 ? Math.max(0, P1 - P2) : 0;
-    L2 = (P2 > 0 && P3 > 0) ? Math.max(0, P2 - P3) : 0;
-    L3 = (P3 > 0 && P_company > 0) ? Math.max(0, P3 - P_company) : 0;
+    // Вычисляем комиссии (строгая логика)
+    const L0 = Math.max(0, P0 - P1);
+    const L1 = P2 > 0 ? Math.max(0, P1 - P2) : 0;
+    const L2 = (P2 > 0 && P3 > 0) ? Math.max(0, P2 - P3) : 0;
+    const L3 = (P3 > 0 && P_company > 0) ? Math.max(0, P3 - P_company) : 0;
     
-    console.log(`📊 Calculated: L0=${L0}, L1=${L1}, L2=${L2}, L3=${L3}`);
+    console.log(`📊 Calculated Commissions (strict logic):`);
+    console.log(`   L0: ${L0}₽ = P0(${P0}) - P1(${P1})`);
+    console.log(`   L1: ${L1}₽ = ${P2 > 0 ? `P1(${P1}) - P2(${P2})` : 'N/A (P2 not set)'}`);
+    console.log(`   L2: ${L2}₽ = ${(P2 > 0 && P3 > 0) ? `P2(${P2}) - P3(${P3})` : 'N/A (P2 or P3 not set)'}`);
+    console.log(`   L3: ${L3}₽ = ${(P3 > 0 && P_company > 0) ? `P3(${P3}) - P_company(${P_company})` : 'N/A (P3 or P_company not set)'}`);
+    
+    // Проверки
+    const guestTotal = L0 + L1 + L2 + L3 + P_company;
+    const partnerTotal = L1 + L2 + L3 + P_company;
+    console.log(`✅ Verification:`);
+    console.log(`   Guest:   L0+L1+L2+L3+P_company = ${guestTotal}₽ (should be P0=${P0}₽) ${guestTotal !== P0 ? '⚠️ MISMATCH' : '✓'}`);
+    console.log(`   Partner: L1+L2+L3+P_company = ${partnerTotal}₽ (should be P1=${P1}₽) ${partnerTotal !== P1 ? '⚠️ MISMATCH' : '✓'}`);
   } else {
-    console.log(`⚠️ No price ladder — using defaults`);
-    const defaults = BACKEND_DEFAULT_COMMISSIONS[sku] || BACKEND_DEFAULT_COMMISSIONS['H2-1'];
-    L0 = isPartner ? 0 : defaults.d0;
-    L1 = defaults.d1;
-    L2 = defaults.d2;
-    L3 = defaults.d3;
-    console.log(`📊 Default: L0=${L0}, L1=${L1}, L2=${L2}, L3=${L3}`);
+    console.log(`⚠️ No price ladder found — using stored commissions`);
   }
   
-  // 🆕 Вызываем SQL RPC функцию
-  console.log(`🚀 Calling SQL RPC: process_order_commission`);
+  console.log(`📋 Stored Комиссии:`, order.комиссии);
+  console.log(`📋 Stored КомиссииУровни:`, order.комиссииУровни);
   
-  const { data: rpcResult, error: rpcError } = await supabase.rpc('process_order_commission', {
-    p_order_id: order.id,
-    p_buyer_id: isPartner ? buyerId : null,
-    p_referrer_id: isPartner ? null : referrerId,
-    p_is_partner: isPartner,
-    p_product_sku: sku,
-    p_l0: L0,
-    p_l1: L1,
-    p_l2: L2,
-    p_l3: L3
-  });
-  
-  if (rpcError) {
-    console.error(`❌ SQL RPC Error:`, rpcError);
+  for (const [userId, amount] of Object.entries(order.комиссии)) {
+    const numAmount = Number(amount);
+    if (numAmount <= 0) continue;
     
-    // Fallback: используем старую логику через KV Store
-    console.log(`⚠️ Falling back to KV Store logic...`);
-    return await createEarningsFromOrderFallback(order, L0, L1, L2, L3, isPartner, referrerId, buyerId);
-  }
-  
-  console.log(`✅ SQL RPC Result:`, JSON.stringify(rpcResult, null, 2));
-  
-  if (rpcResult?.success) {
-    const payouts = rpcResult.payouts || [];
-    
-    // 🆕 Если SQL вернула success но payouts пустой — используем fallback
-    if (payouts.length === 0 && (L0 > 0 || L1 > 0 || L2 > 0 || L3 > 0)) {
-      console.log(`⚠️ SQL RPC returned empty payouts but commissions exist — using KV Store fallback`);
-      return await createEarningsFromOrderFallback(order, L0, L1, L2, L3, isPartner, referrerId, buyerId);
-    }
-    
-    for (const payout of payouts) {
-      createdEarnings.push({
-        userId: payout.user_id,
-        amount: payout.amount,
-        level: payout.level,
-        orderId: order.id,
-        sku: sku,
-        isPartner: isPartner
-      });
-      console.log(`   ✅ SQL Earning: ${payout.amount}₽ → ${payout.user_id} (${payout.level})`);
-    }
-    console.log(`💰 Total paid via SQL: ${rpcResult.total_paid}₽`);
-  } else {
-    console.log(`⚠️ SQL RPC returned: ${rpcResult?.error || 'unknown error'}`);
-    // Используем fallback при любой ошибке
-    return await createEarningsFromOrderFallback(order, L0, L1, L2, L3, isPartner, referrerId, buyerId);
-  }
-  
-  console.log(`💰 createEarningsFromOrder: Created ${createdEarnings.length} earnings for order ${order.id}`);
-  return createdEarnings;
-}
-
-/**
- * Fallback функция если SQL RPC недоступна (старая логика через KV Store)
- */
-async function createEarningsFromOrderFallback(
-  order: any, 
-  L0: number, L1: number, L2: number, L3: number,
-  isPartner: boolean,
-  referrerId: string | null,
-  buyerId: string | null
-): Promise<any[]> {
-  const createdEarnings: any[] = [];
-  const commissions: Record<string, number> = {};
-  const levels: Record<string, string> = {};
-  
-  // Определяем базового пользователя для поиска upline
-  const baseUserId = isPartner ? buyerId : referrerId;
-  
-  if (!baseUserId) {
-    console.log(`⚠️ No base user for earnings`);
-    return createdEarnings;
-  }
-  
-  // Для гостевых — L0 идёт referrer
-  if (!isPartner && referrerId && L0 > 0) {
-    commissions[referrerId] = L0;
-    levels[referrerId] = 'L0';
-  }
-  
-  // Получаем upline
-  const baseUser = await kv.get(`user:id:${baseUserId}`);
-  if (baseUser) {
-    const u1 = baseUser.спонсорId;
-    if (u1 && L1 > 0) {
-      commissions[u1] = (commissions[u1] || 0) + L1;
-      levels[u1] = levels[u1] || 'L1';
-      
-      const u1User = await kv.get(`user:id:${u1}`);
-      if (u1User) {
-        const u2 = u1User.спонсорId;
-        if (u2 && L2 > 0) {
-          commissions[u2] = (commissions[u2] || 0) + L2;
-          levels[u2] = levels[u2] || 'L2';
-          
-          const u2User = await kv.get(`user:id:${u2}`);
-          if (u2User) {
-            const u3 = u2User.спонсорId;
-            if (u3 && L3 > 0) {
-              commissions[u3] = (commissions[u3] || 0) + L3;
-              levels[u3] = levels[u3] || 'L3';
-            }
-          }
-        }
-      }
-    }
-  }
-  
-  // Начисляем
-  for (const [userId, amount] of Object.entries(commissions)) {
-    if (amount <= 0) continue;
-    
+    // Обновляем баланс пользователя
     const user = await kv.get(`user:id:${userId}`);
-    if (!user) continue;
+    if (!user) {
+      console.log(`⚠️ User ${userId} not found, skipping payout`);
+      continue;
+    }
     
-    user.баланс = (user.баланс || 0) + amount;
+    user.баланс = (user.баланс || 0) + numAmount;
     await kv.set(`user:id:${userId}`, user);
     
+    if (user.telegramId) {
+      await kv.set(`user:tg:${user.telegramId}`, user);
+    }
+    
+    // Создаём earning запись
     const earningId = `earning:${Date.now()}-${userId}-${Math.random().toString(36).slice(2, 6)}`;
-    const level = levels[userId] || 'L0';
+    const level = order.комиссииУровни?.[userId] || 'L0';
+    const lineIndex = typeof level === 'string' ? Number(level.replace('L', '')) : 0;
     
     const earning = {
       id: earningId,
       userId: userId,
       orderId: order.id,
-      amount: amount,
+      amount: numAmount,
+      сумма: numAmount,
       level: level,
+      линия: lineIndex,
+      fromUserId: order.покупательId,
       sku: order.sku,
-      isPartner: isPartner,
+      isPartner: order.партнёрскаяПокупка,
       createdAt: new Date().toISOString()
     };
     
@@ -940,9 +892,10 @@ async function createEarningsFromOrderFallback(
     await kv.set(`earning:user:${userId}:${earningId}`, earning);
     
     createdEarnings.push(earning);
-    console.log(`   ✅ Fallback Earning: ${amount}₽ → ${userId} (${level})`);
+    console.log(`   ✅ Earning: ${numAmount}₽ → ${userId} (${level}, линия=${lineIndex})`);
   }
   
+  console.log(`💰 createEarningsFromOrder: Created ${createdEarnings.length} earnings for order ${order.id}`);
   return createdEarnings;
 }
 
@@ -2567,8 +2520,48 @@ app.get("/make-server-05aa3c8a/user/:userId", async (c) => {
       userData = await kv.get(`admin:id:${userId}`);
     }
     
+    // 🆕 Fallback на SQL таблицу profiles если KV Store пустой
     if (!userData) {
-      console.log(`❌ User ${userId} not found in user:id or admin:id`);
+      console.log(`   Not found in KV Store, checking SQL profiles table...`);
+      const { data: sqlProfile, error: sqlError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+      
+      if (sqlProfile && !sqlError) {
+        console.log(`✅ Found user in SQL profiles: ${sqlProfile.first_name}`);
+        // Конвертируем SQL формат в KV формат
+        userData = {
+          id: sqlProfile.id,
+          email: sqlProfile.email,
+          имя: sqlProfile.first_name || '',
+          фамилия: sqlProfile.last_name || '',
+          телефон: sqlProfile.phone || '',
+          спонсорId: sqlProfile.referrer_id || null,
+          баланс: parseFloat(sqlProfile.balance) || 0,
+          доступныйБаланс: parseFloat(sqlProfile.available_balance) || 0,
+          ранг: sqlProfile.rank_level || 0,
+          telegram: sqlProfile.telegram || '',
+          instagram: sqlProfile.instagram || '',
+          vk: sqlProfile.vk || '',
+          facebook: sqlProfile.facebook || '',
+          аватарка: sqlProfile.avatar_url || '',
+          isAdmin: sqlProfile.is_admin || false,
+          type: sqlProfile.is_admin ? 'admin' : 'user',
+          created: sqlProfile.created_at,
+          lastLogin: sqlProfile.last_login,
+          supabaseId: sqlProfile.supabase_id
+        };
+        
+        // Синхронизируем обратно в KV Store
+        await kv.set(`user:id:${userId}`, userData);
+        console.log(`   Synced user ${userId} from SQL to KV Store`);
+      }
+    }
+    
+    if (!userData) {
+      console.log(`❌ User ${userId} not found in KV Store or SQL`);
       return c.json({ error: "User not found" }, 404);
     }
     
@@ -2818,53 +2811,27 @@ app.get("/make-server-05aa3c8a/user/:userId/rank", async (c) => {
 
 app.get("/make-server-05aa3c8a/products", async (c) => {
   try {
-    // 🆕 Сначала пробуем SQL таблицу products
-    const { data: sqlProducts, error: sqlError } = await supabase
-      .from('products')
-      .select('*')
-      .eq('is_active', true)
-      .eq('is_archived', false)
-      .order('created_at', { ascending: false });
-    
-    if (!sqlError && sqlProducts && sqlProducts.length > 0) {
-      console.log(`📦 GET /products - From SQL: ${sqlProducts.length} products`);
-      
-      // Конвертируем из SQL формата в формат фронтенда
-      const products = sqlProducts.map((p: any) => ({
-        id: p.id,
-        sku: p.sku,
-        название: p.name,
-        описание: p.description || '',
-        изображение: p.image_url || '',
-        категория: p.category || 'general',
-        цена_розница: p.price_retail,
-        цена1: p.price_partner,
-        цена2: p.price_l2 || 0,
-        цена3: p.price_l3 || 0,
-        цена4: p.price_company || 0,
-        в_архиве: p.is_archived,
-        активен: p.is_active,
-        создан: p.created_at,
-        обновлён: p.updated_at
-      }));
-      
-      return c.json({ success: true, products, source: 'sql' });
-    }
-    
-    // Fallback на KV Store
-    console.log(`📦 GET /products - SQL empty/error, falling back to KV Store`);
+    // Get custom products from KV store with keys
     const allProductEntries = await kv.getByPrefixWithKeys('product:');
     
+    console.log(`📦 GET /products - Total entries from KV: ${allProductEntries.length}`);
+    console.log(`📦 Entry keys preview:`, allProductEntries.slice(0, 5).map((e: any) => e.key));
+    
+    // Filter to get only product records (not SKU lookup keys)
+    // Product keys have format "product:prod_XXX", SKU lookup keys have format "product:sku:XXX"
     const productEntries = allProductEntries.filter((entry: any) => 
       entry.key.startsWith('product:prod_')
     );
     
+    console.log(`📦 Filtered product entries (by key): ${productEntries.length}`);
+    
+    // Extract values and filter active
     const products = productEntries.map((e: any) => e.value);
     const activeProducts = products.filter((p: any) => p.активен !== false);
     
-    console.log(`📦 Active products from KV: ${activeProducts.length}`);
+    console.log(`📦 Active products: ${activeProducts.length}`);
     
-    return c.json({ success: true, products: activeProducts, source: 'kv' });
+    return c.json({ success: true, products: activeProducts });
   } catch (error) {
     console.log(`Get products error: ${error}`);
     return c.json({ error: `Failed to get products: ${error}` }, 500);
@@ -3113,18 +3080,11 @@ app.post("/make-server-05aa3c8a/orders", async (c) => {
       статус: 'pending' // pending, paid, cancelled
     };
     
-    // 🆕 Сохраняем referrerId для начисления комиссий
-    // Для гостевых покупок — это спонсор из реферального кода
-    // Для партнёрских покупок — это спонсор текущего пользователя
-    if (!isPartner && usedReferralCode && resolvedSponsorId) {
-      order.referrerId = resolvedSponsorId;
+    // 🆕 Сохраняем использованный реферальный код
+    if (usedReferralCode) {
       order.usedReferralCode = usedReferralCode.toUpperCase().trim();
-    } else if (isPartner && currentUser.спонсорId) {
-      // Партнёрская покупка — L1 идёт спонсору покупателя
-      order.referrerId = currentUser.спонсорId;
+      order.resolvedSponsorId = resolvedSponsorId;
     }
-    
-    console.log(`📦 Order referrerId: ${order.referrerId || 'none'}`);
     
     await kv.set(`order:${orderId}`, order);
     await kv.set(`order:user:${currentUser.id}:${orderId}`, order);
@@ -4658,46 +4618,17 @@ app.get("/make-server-05aa3c8a/admin/products", async (c) => {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    // 🆕 Сначала пробуем SQL
-    const { data: sqlProducts, error: sqlError } = await supabase
-      .from('products')
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    if (!sqlError && sqlProducts && sqlProducts.length > 0) {
-      console.log(`📦 Admin GET /products - From SQL: ${sqlProducts.length} products`);
-      
-      const products = sqlProducts.map((p: any) => ({
-        id: p.id,
-        sku: p.sku,
-        название: p.name,
-        описание: p.description || '',
-        изображение: p.image_url || '',
-        категория: p.category || 'general',
-        цена_розница: p.price_retail,
-        цена1: p.price_partner,
-        цена2: p.price_l2 || 0,
-        цена3: p.price_l3 || 0,
-        цена4: p.price_company || 0,
-        в_архиве: p.is_archived,
-        активен: p.is_active,
-        создан: p.created_at,
-        обновлён: p.updated_at
-      }));
-      
-      return c.json({ success: true, products, source: 'sql' });
-    }
-    
-    // Fallback на KV Store
     const allProductEntries = await kv.getByPrefixWithKeys('product:');
     
+    // Filter to get only product records by key (not SKU lookup keys)
+    // Product keys: "product:prod_XXX", SKU lookups: "product:sku:XXX"
     const productEntries = allProductEntries.filter((entry: any) => 
       entry.key.startsWith('product:prod_')
     );
     
     const productsArray = productEntries.map((e: any) => e.value);
     
-    return c.json({ success: true, products: productsArray, source: 'kv' });
+    return c.json({ success: true, products: productsArray });
   } catch (error) {
     console.log(`Admin get products error: ${error}`);
     return c.json({ 
@@ -4708,184 +4639,99 @@ app.get("/make-server-05aa3c8a/admin/products", async (c) => {
   }
 });
 
-// Create product - БЕЗ FALLBACK, показываем реальные ошибки SQL
+// Create product
 app.post("/make-server-05aa3c8a/admin/products", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    const body = await c.req.json();
-    console.log(`📦 POST /admin/products - Received body:`, JSON.stringify(body));
-    
-    // Маппинг русских полей -> английские колонки SQL
-    const название = body.название || body.name || '';
-    const описание = body.описание || body.description || '';
-    const sku = body.sku || '';
-    const изображение = body.изображение || body.image_url || '';
-    const категория = body.категория || body.category || 'general';
-    const цена_розница = Number(body.цена_розница || body.price_retail) || 0;
-    const цена1 = Number(body.цена1 || body.price_partner) || 0;
-    const цена2 = Number(body.цена2 || body.price_l2) || 0;
-    const цена3 = Number(body.цена3 || body.price_l3) || 0;
-    const цена4 = Number(body.цена4 || body.price_company) || 0;
-    const в_архиве = body.в_архиве === true || body.is_archived === true;
+    const { название, описание, sku, изображение, цена1, цена2, цена3, цена4, цена_розница, категория, в_архиве } = await c.req.json();
     
     if (!название || !sku) {
       return c.json({ error: 'Название и SKU обязательны' }, 400);
     }
     
-    const productId = `prod_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    // SQL объект с английскими колонками
-    const sqlProduct = {
-      id: productId,
-      sku: sku,
-      name: название,
-      description: описание,
-      image_url: изображение,
-      category: категория,
-      price_retail: цена_розница,
-      price_partner: цена1,
-      price_l2: цена2,
-      price_l3: цена3,
-      price_company: цена4,
-      is_archived: в_архиве,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
-    
-    console.log(`💾 Saving to SQL table 'products':`, JSON.stringify(sqlProduct));
-    
-    const { data: insertedProduct, error: insertError } = await supabase
-      .from('products')
-      .upsert(sqlProduct, { onConflict: 'sku' })
-      .select()
-      .single();
-    
-    // ❌ НЕТ FALLBACK - показываем реальную ошибку SQL
-    if (insertError) {
-      console.error(`❌ SQL INSERT ERROR:`, JSON.stringify(insertError));
-      return c.json({ 
-        success: false,
-        error: `SQL Error: ${insertError.message}`,
-        details: insertError,
-        hint: insertError.hint || null,
-        code: insertError.code || null
-      }, 500);
+    // Check if SKU already exists
+    const existingProduct = await kv.get(`product:sku:${sku}`);
+    if (existingProduct) {
+      return c.json({ error: 'Продукт с таким SKU уже существует' }, 400);
     }
     
-    // Конвертируем обратно в формат фронтенда
+    const productId = `prod_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
     const product = {
-      id: insertedProduct.id,
-      sku: insertedProduct.sku,
-      название: insertedProduct.name,
-      описание: insertedProduct.description || '',
-      изображение: insertedProduct.image_url || '',
-      категория: insertedProduct.category || 'general',
-      цена_розница: insertedProduct.price_retail,
-      цена1: insertedProduct.price_partner,
-      цена2: insertedProduct.price_l2 || 0,
-      цена3: insertedProduct.price_l3 || 0,
-      цена4: insertedProduct.price_company || 0,
-      в_архиве: insertedProduct.is_archived,
-      активен: true,
-      создан: insertedProduct.created_at,
-      обновлён: insertedProduct.updated_at
+      id: productId,
+      название: название || '',
+      описание: описание || '',
+      sku: sku,
+      изображение: изображение || '',
+      цена1: Number(цена1) || 0,
+      цена2: Number(цена2) || 0,
+      цена3: Number(цена3) || 0,
+      цена4: Number(цена4) || 0,
+      цена_розница: Number(цена_розница) || 0,
+      категория: категория || 'general',
+      в_архиве: в_архиве === true,  // false = активен, true = в архиве
+      archived: в_архиве === true,   // для совместимости
+      создан: new Date().toISOString(),
+      обновлён: new Date().toISOString()
     };
     
-    console.log(`✅ Product created in SQL: ${productId}, SKU: ${sku}`);
+    console.log(`💾 Saving product with ID: ${productId}, SKU: ${sku}`);
+    await kv.set(`product:${productId}`, product);
+    await kv.set(`product:sku:${sku}`, product);
     
-    return c.json({ success: true, product, source: 'sql' });
+    console.log(`✅ Product created: ${productId}, SKU: ${sku}`);
+    console.log(`📋 Product data:`, { id: product.id, название: product.название, sku: product.sku });
+    
+    return c.json({ success: true, product });
   } catch (error) {
-    console.error(`❌ Admin create product exception:`, error);
-    return c.json({ error: `Exception: ${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+    console.log(`Admin create product error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
   }
 });
 
-// Update product - UPSERT для миграции старых товаров из KV в SQL
+// Update product
 app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
     const productId = c.req.param('productId');
-    const body = await c.req.json();
+    const updates = await c.req.json();
     
-    console.log(`📝 PUT /admin/products/${productId} - Received body:`, JSON.stringify(body));
-    
-    // Собираем полный объект для UPSERT (включая id)
-    const sqlProduct: any = {
-      id: productId,
-      updated_at: new Date().toISOString()
-    };
-    
-    // Маппинг русских полей -> английские колонки SQL
-    // Обязательные поля
-    sqlProduct.name = body.название || body.name || 'Без названия';
-    sqlProduct.sku = body.sku || productId; // fallback на id если sku не передан
-    
-    // Опциональные поля
-    sqlProduct.description = body.описание || body.description || '';
-    sqlProduct.image_url = body.изображение || body.image_url || '';
-    sqlProduct.category = body.категория || body.category || 'general';
-    sqlProduct.price_retail = Number(body.цена_розница || body.price_retail) || 0;
-    sqlProduct.price_partner = Number(body.цена1 || body.price_partner) || 0;
-    sqlProduct.price_l2 = Number(body.цена2 || body.price_l2) || 0;
-    sqlProduct.price_l3 = Number(body.цена3 || body.price_l3) || 0;
-    sqlProduct.price_company = Number(body.цена4 || body.price_company) || 0;
-    sqlProduct.is_archived = body.в_архиве === true || body.is_archived === true;
-    
-    // Для новых записей добавляем created_at
-    if (!body.создан && !body.created_at) {
-      sqlProduct.created_at = new Date().toISOString();
+    const product = await kv.get(`product:${productId}`);
+    if (!product) {
+      return c.json({ error: 'Продукт не найден' }, 404);
     }
     
-    console.log(`💾 UPSERT to SQL table 'products':`, JSON.stringify(sqlProduct));
+    const oldSku = product.sku;
     
-    // UPSERT: создаёт запись если не существует, обновляет если существует
-    const { data: upsertedProduct, error: upsertError } = await supabase
-      .from('products')
-      .upsert(sqlProduct, { onConflict: 'id' })
-      .select()
-      .single();
+    // Update product fields
+    Object.keys(updates).forEach(key => {
+      if (key !== 'id' && key !== 'создан') {
+        product[key] = updates[key];
+      }
+    });
     
-    if (upsertError) {
-      console.error(`❌ SQL UPSERT ERROR:`, JSON.stringify(upsertError));
-      return c.json({ 
-        success: false,
-        error: `SQL Error: ${upsertError.message}`,
-        details: upsertError,
-        hint: upsertError.hint || null,
-        code: upsertError.code || null,
-        productId: productId
-      }, 500);
+    product.обновлён = new Date().toISOString();
+    
+    await kv.set(`product:${productId}`, product);
+    
+    // Update SKU index if changed
+    if (updates.sku && updates.sku !== oldSku) {
+      await kv.del(`product:sku:${oldSku}`);
+      await kv.set(`product:sku:${updates.sku}`, product);
+    } else {
+      await kv.set(`product:sku:${oldSku}`, product);
     }
     
-    // Конвертируем обратно в формат фронтенда
-    const product = {
-      id: upsertedProduct.id,
-      sku: upsertedProduct.sku,
-      название: upsertedProduct.name,
-      описание: upsertedProduct.description || '',
-      изображение: upsertedProduct.image_url || '',
-      категория: upsertedProduct.category || 'general',
-      цена_розница: upsertedProduct.price_retail,
-      цена1: upsertedProduct.price_partner,
-      цена2: upsertedProduct.price_l2 || 0,
-      цена3: upsertedProduct.price_l3 || 0,
-      цена4: upsertedProduct.price_company || 0,
-      в_архиве: upsertedProduct.is_archived,
-      активен: true,
-      создан: upsertedProduct.created_at,
-      обновлён: upsertedProduct.updated_at
-    };
+    console.log(`Product updated: ${productId}`);
     
-    console.log(`✅ Product upserted in SQL: ${productId}`);
-    
-    return c.json({ success: true, product, source: 'sql' });
+    return c.json({ success: true, product });
   } catch (error) {
-    console.error(`❌ Admin update product exception:`, error);
-    return c.json({ error: `Exception: ${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+    console.log(`Admin update product error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
   }
 });
 
@@ -8741,18 +8587,7 @@ app.put('/make-server-05aa3c8a/admin/update-user/:userId', async (c) => {
     // Save updated user
     await kv.set(`user:id:${userId}`, updatedUser);
     
-    // 🔥 КРИТИЧЕСКИ ВАЖНО: Сбрасываем кэш списка пользователей
-    console.log(`🗑️ Clearing user list cache after update...`);
-    await kv.del('cache:all_users_list');
-    
-    // Удаляем все кэшированные страницы пользователей
-    const pageCacheKeys = await kv.getByPrefix('users_page:');
-    for (const key of pageCacheKeys) {
-      if (key && typeof key === 'object' && key.key) {
-        await kv.del(key.key);
-      }
-    }
-    console.log(`✅ User ${userId} updated and cache cleared`);
+    console.log(`✅ User ${userId} updated successfully`);
 
     return c.json({
       success: true,

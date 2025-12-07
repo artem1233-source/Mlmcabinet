@@ -560,10 +560,6 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       setSaving(true);
       const userId = localStorage.getItem('userId');
 
-      console.log('💾 SAVE START: Saving user', editingUser.id);
-      console.log('💾 SAVE DATA:', JSON.stringify(editFormData));
-      console.log('💾 ADMIN USER:', userId);
-
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/update-user/${editingUser.id}`,
         {
@@ -577,33 +573,25 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
         }
       );
 
-      console.log('💾 SAVE RESPONSE STATUS:', response.status);
       const data = await response.json();
-      console.log('💾 SAVE RESPONSE DATA:', JSON.stringify(data));
 
       if (!response.ok) {
         throw new Error(data.error || 'Ошибка обновления пользователя');
       }
 
-      console.log('💾 SAVE SUCCESS! Refreshing data...');
       toast.success('Пользователь обновлён!');
       setEditDialogOpen(false);
       setBalanceConfirmOpen(false);
       setDataConfirmOpen(false);
       setEditingUser(null);
       
-      // Сбрасываем кэш и принудительно перезагружаем данные
-      console.log('💾 Resetting cache and refetching...');
-      await queryClient.resetQueries({ queryKey: ['users-optimized'] });
-      await queryClient.resetQueries({ queryKey: ['users-all-tree'] });
-      console.log('💾 Cache reset, calling refetch...');
+      // Принудительно перезагружаем данные
       await refetch();
-      console.log('💾 Refetch complete');
+      await queryClient.invalidateQueries({ queryKey: ['users-all-tree'] });
       
       if (onRefresh) onRefresh();
-      console.log('💾 SAVE COMPLETE!');
     } catch (error: any) {
-      console.error('💾 SAVE ERROR:', error);
+      console.error('Error updating user:', error);
       toast.error(error.message || 'Ошибка обновления пользователя');
     } finally {
       setSaving(false);
