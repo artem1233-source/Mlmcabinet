@@ -183,3 +183,48 @@ const { data, error } = await supabase.rpc('process_order_commission', {
 - Commissions calculated from price ladder (P0, P1, P2, P3, P_company)
 - Idempotent: won't process the same order twice
 - Balances updated in SQL `profiles` table
+
+## Products SQL Table (December 7, 2025)
+
+Products are now stored in SQL table `products`:
+
+**Table Schema:**
+```sql
+CREATE TABLE products (
+    id TEXT PRIMARY KEY,
+    sku TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    image_url TEXT,
+    category TEXT DEFAULT 'general',
+    
+    price_retail NUMERIC(12, 2) NOT NULL,    -- Розничная цена
+    price_partner NUMERIC(12, 2) NOT NULL,   -- Партнёрская цена (цена1)
+    price_l2 NUMERIC(12, 2),                 -- Цена 2 линии (цена2)
+    price_l3 NUMERIC(12, 2),                 -- Цена 3 линии (цена3)
+    price_company NUMERIC(12, 2),            -- База компании (цена4)
+    
+    is_archived BOOLEAN DEFAULT FALSE,
+    is_active BOOLEAN DEFAULT TRUE,
+    
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**Field Mapping (Frontend → SQL):**
+- `название` → `name`
+- `описание` → `description`
+- `изображение` → `image_url`
+- `категория` → `category`
+- `цена_розница` → `price_retail`
+- `цена1` → `price_partner`
+- `цена2` → `price_l2`
+- `цена3` → `price_l3`
+- `цена4` → `price_company`
+- `в_архиве` → `is_archived`
+
+**Backend Integration:**
+- `GET /products` — loads from SQL, fallback to KV Store
+- `POST /admin/products` — saves to SQL via `supabase.from('products').upsert()`
+- `PUT /admin/products/:id` — updates via `supabase.from('products').update()`
