@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { Tag, Loader2, Package, Plus, Edit2, Trash2, Save, X, Archive, ArchiveRestore, MoreVertical, FolderOpen, AlertCircle } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Tag, Loader2, Package, Plus, Edit2, Trash2, Save, X, Archive, ArchiveRestore, MoreVertical, FolderOpen, AlertCircle, ShoppingCart } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
@@ -41,6 +41,30 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
   const [showCheckout, setShowCheckout] = useState(false);
   const [showArchived, setShowArchived] = useState(false); // Показывать архивные товары
   
+  // 🎯 Анимация "улетания" в корзину
+  const [flyAnimation, setFlyAnimation] = useState<{active: boolean; x: number; y: number}>({active: false, x: 0, y: 0});
+  
+  const handleAddWithAnimation = useCallback((e: React.MouseEvent, product: any, isPartner: boolean) => {
+    if (onAddToCart) {
+      const rect = (e.target as HTMLElement).getBoundingClientRect();
+      setFlyAnimation({ active: true, x: rect.left + rect.width / 2, y: rect.top });
+      
+      setTimeout(() => {
+        setFlyAnimation({ active: false, x: 0, y: 0 });
+      }, 600);
+      
+      onAddToCart(product, isPartner, 1);
+      
+      const price = isPartner 
+        ? (Number(product.цена1) || Number(product.партнёрскаяЦена) || 0)
+        : (Number(product.цена_розница) || Number(product.розничнаяЦена) || 0);
+      
+      toast.success(`${product.название} добавлен`, {
+        description: isPartner ? `Партнёрская цена: ₽${price.toLocaleString()}` : `Розничная цена: ₽${price.toLocaleString()}`,
+        duration: 2000
+      });
+    }
+  }, [onAddToCart]);
   
   // Admin states
   const [showProductModal, setShowProductModal] = useState(false);
@@ -1076,15 +1100,7 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
                       ) : (
                         <>
                           <Button
-                            onClick={() => {
-                              if (onAddToCart) {
-                                onAddToCart(товар, false, 1);
-                                toast.success(`${товар.название} добавлен`, {
-                                  description: `Розничная цена: ₽${розничнаяЦена.toLocaleString()}`,
-                                  duration: 2000
-                                });
-                              }
-                            }}
+                            onClick={(e) => handleAddWithAnimation(e, товар, false)}
                             className="w-full bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] hover:opacity-90 text-white active:scale-95 transition-transform"
                           >
                             <Plus size={16} className="mr-1.5" />
@@ -1092,15 +1108,7 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
                           </Button>
                           
                           <Button
-                            onClick={() => {
-                              if (onAddToCart) {
-                                onAddToCart(товар, true, 1);
-                                toast.success(`${товар.название} добавлен`, {
-                                  description: `Партнёрская цена: ₽${партнёрскаяЦена.toLocaleString()}`,
-                                  duration: 2000
-                                });
-                              }
-                            }}
+                            onClick={(e) => handleAddWithAnimation(e, товар, true)}
                             variant="outline"
                             className="w-full border-[#39B7FF] text-[#39B7FF] hover:bg-[#39B7FF]/5 active:scale-95 transition-transform"
                           >
@@ -1118,6 +1126,43 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
           );
         })()}
       </div>
+
+      {/* 🎯 Анимация улетания в корзину */}
+      {flyAnimation.active && (
+        <div
+          className="fixed pointer-events-none z-[9999]"
+          style={{
+            left: flyAnimation.x - 20,
+            top: flyAnimation.y - 20,
+          }}
+        >
+          <div 
+            className="w-10 h-10 bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] rounded-full flex items-center justify-center shadow-lg animate-fly-to-cart"
+          >
+            <ShoppingCart className="w-5 h-5 text-white" />
+          </div>
+        </div>
+      )}
+      
+      <style>{`
+        @keyframes fly-to-cart {
+          0% {
+            transform: scale(1) translate(0, 0);
+            opacity: 1;
+          }
+          40% {
+            transform: scale(1.2) translate(0, -30px);
+            opacity: 1;
+          }
+          100% {
+            transform: scale(0.3) translate(calc(100vw - 150px), calc(-100vh + 100px));
+            opacity: 0;
+          }
+        }
+        .animate-fly-to-cart {
+          animation: fly-to-cart 0.6s ease-out forwards;
+        }
+      `}</style>
 
       {/* Checkout Modal */}
       {showCheckout && selectedOrder && (

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ShoppingCart, Plus, Minus, Trash2, Loader2, Package } from 'lucide-react';
 import { Button } from './ui/button';
 import { ImageWithFallback } from './figma/ImageWithFallback';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { CheckoutRu } from './CheckoutRu';
 import { toast } from 'sonner';
 import * as api from '../utils/api';
@@ -118,10 +118,10 @@ export function CartRu({
 
   return (
     <>
-      <Sheet open={isOpen} onOpenChange={onClose}>
-        <SheetContent className="w-[420px] max-w-full p-0 flex flex-col">
-          <SheetHeader className="px-5 py-4 border-b border-gray-100">
-            <SheetTitle className="flex items-center gap-2 text-[#1E1E1E] text-base">
+      <Dialog open={isOpen} onOpenChange={onClose}>
+        <DialogContent className="max-w-md p-0 overflow-hidden rounded-2xl">
+          <DialogHeader className="px-5 py-4 border-b border-gray-100 bg-white">
+            <DialogTitle className="flex items-center gap-2 text-[#1E1E1E] text-base">
               <ShoppingCart className="w-5 h-5 text-[#39B7FF]" />
               Корзина
               {totalItems > 0 && (
@@ -129,11 +129,11 @@ export function CartRu({
                   {totalItems}
                 </span>
               )}
-            </SheetTitle>
-          </SheetHeader>
+            </DialogTitle>
+          </DialogHeader>
 
           {cartItems.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center py-16 px-6">
+            <div className="flex flex-col items-center justify-center py-12 px-6">
               <div className="w-14 h-14 bg-gray-50 rounded-full flex items-center justify-center mb-3">
                 <Package className="w-7 h-7 text-gray-300" />
               </div>
@@ -144,7 +144,7 @@ export function CartRu({
             </div>
           ) : (
             <>
-              <div className="flex-1 overflow-y-auto px-4 py-3">
+              <div className="max-h-[320px] overflow-y-auto px-4 py-3">
                 <div className="space-y-2">
                   {cartItems.map((item) => {
                     const price = item.isPartner 
@@ -253,8 +253,8 @@ export function CartRu({
               </div>
             </>
           )}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
 
       {showCheckout && selectedOrder && (
         <CheckoutRu
