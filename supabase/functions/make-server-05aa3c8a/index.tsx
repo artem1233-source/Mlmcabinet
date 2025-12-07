@@ -2653,6 +2653,31 @@ app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
     console.log(`   Level 2: ${teamMembers.filter(m => m.глубина === 2).length}`);
     console.log(`   Level 3: ${teamMembers.filter(m => m.глубина === 3).length}`);
     
+    // 🔄 Синхронизация балансов из SQL (single source of truth)
+    if (teamMembers.length > 0) {
+      try {
+        const teamIds = teamMembers.map((m: any) => m.id);
+        const { data: sqlBalances, error: sqlError } = await supabase
+          .from('profiles')
+          .select('id, balance')
+          .in('id', teamIds);
+        
+        if (!sqlError && sqlBalances && sqlBalances.length > 0) {
+          const balanceMap = new Map(sqlBalances.map((p: any) => [p.id, p.balance || 0]));
+          
+          teamMembers.forEach((member: any) => {
+            if (balanceMap.has(member.id)) {
+              member.баланс = balanceMap.get(member.id);
+            }
+          });
+          
+          console.log(`✅ Synced balances from SQL for ${sqlBalances.length} team members`);
+        }
+      } catch (syncError) {
+        console.log(`⚠️ Failed to sync team balances from SQL: ${syncError}`);
+      }
+    }
+    
     return c.json({ success: true, team: teamMembers });
   } catch (error) {
     console.log(`Get team error: ${error}`);
