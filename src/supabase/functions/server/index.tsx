@@ -208,6 +208,28 @@ async function verifyUser(userIdHeader: string | null) {
     throw new Error("User not found");
   }
   
+  // 🆕 ВСЕГДА синхронизируем баланс из SQL (единый источник правды)
+  try {
+    const { data: sqlBalance, error: sqlBalanceError } = await supabase
+      .from('profiles')
+      .select('balance, available_balance')
+      .eq('id', userIdHeader)
+      .maybeSingle();
+    
+    if (sqlBalance && !sqlBalanceError) {
+      const sqlBal = parseFloat(sqlBalance.balance) || 0;
+      const sqlAvailBal = parseFloat(sqlBalance.available_balance) || 0;
+      
+      if (user.баланс !== sqlBal || user.доступныйБаланс !== sqlAvailBal) {
+        console.log(`💰 verifyUser: Syncing balance from SQL: ${user.баланс} → ${sqlBal}`);
+        user.баланс = sqlBal;
+        user.доступныйБаланс = sqlAvailBal;
+      }
+    }
+  } catch (balanceErr) {
+    console.log(`⚠️ verifyUser: Could not sync balance from SQL: ${balanceErr}`);
+  }
+  
   // 🆕 ИСПРАВЛЕНИЕ: Проверяем и восстанавливаем флаг isAdmin для первого пользователя, admin@admin.com и CEO
   const isFirstUser = user.id === '1';
   const isAdminEmail = user.email?.toLowerCase() === 'admin@admin.com';
@@ -2565,7 +2587,31 @@ app.get("/make-server-05aa3c8a/user/:userId", async (c) => {
       return c.json({ error: "User not found" }, 404);
     }
     
-    console.log(`✅ Found user: ${userData.имя} ${userData.фамилия} (type: ${userData.type || 'user'})`);
+    // 🆕 ВСЕГДА синхронизируем баланс из SQL (единый источник правды)
+    try {
+      const { data: sqlBalance, error: sqlBalanceError } = await supabase
+        .from('profiles')
+        .select('balance, available_balance')
+        .eq('id', userId)
+        .maybeSingle();
+      
+      if (sqlBalance && !sqlBalanceError) {
+        const sqlBal = parseFloat(sqlBalance.balance) || 0;
+        const sqlAvailBal = parseFloat(sqlBalance.available_balance) || 0;
+        
+        if (userData.баланс !== sqlBal || userData.доступныйБаланс !== sqlAvailBal) {
+          console.log(`💰 Syncing balance from SQL: ${userData.баланс} → ${sqlBal}`);
+          userData.баланс = sqlBal;
+          userData.доступныйБаланс = sqlAvailBal;
+          // Обновляем KV Store
+          await kv.set(`user:id:${userId}`, userData);
+        }
+      }
+    } catch (balanceErr) {
+      console.log(`⚠️ Could not sync balance from SQL: ${balanceErr}`);
+    }
+    
+    console.log(`✅ Found user: ${userData.имя} ${userData.фамилия} (type: ${userData.type || 'user'}), balance: ${userData.баланс}`);
     return c.json({ success: true, user: userData });
   } catch (error) {
     console.log(`Get user error: ${error}`);
