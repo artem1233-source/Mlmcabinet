@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web"]
+modules = ["nodejs-20", "web", "postgresql-16"]
 [agent]
 expertMode = true
 
@@ -43,12 +43,12 @@ localPort = 5173
 externalPort = 5173
 
 [[ports]]
-localPort = 41135
-externalPort = 3001
+localPort = 34067
+externalPort = 3002
 
 [[ports]]
-localPort = 43201
-externalPort = 3002
+localPort = 41135
+externalPort = 3001
 
 [deployment]
 deploymentTarget = "cloudrun"
