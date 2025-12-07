@@ -4796,7 +4796,7 @@ app.post("/make-server-05aa3c8a/admin/products", async (c) => {
   }
 });
 
-// Update product - БЕЗ FALLBACK, показываем реальные ошибки SQL
+// Update product - UPSERT для миграции старых товаров из KV в SQL
 app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
@@ -4807,88 +4807,75 @@ app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
     
     console.log(`📝 PUT /admin/products/${productId} - Received body:`, JSON.stringify(body));
     
-    // Маппинг русских полей -> английские колонки SQL
-    const sqlUpdates: any = {
+    // Собираем полный объект для UPSERT (включая id)
+    const sqlProduct: any = {
+      id: productId,
       updated_at: new Date().toISOString()
     };
     
-    // Поддержка обоих форматов (русский и английский)
-    if (body.название !== undefined || body.name !== undefined) {
-      sqlUpdates.name = body.название || body.name;
-    }
-    if (body.описание !== undefined || body.description !== undefined) {
-      sqlUpdates.description = body.описание || body.description || '';
-    }
-    if (body.sku !== undefined) {
-      sqlUpdates.sku = body.sku;
-    }
-    if (body.изображение !== undefined || body.image_url !== undefined) {
-      sqlUpdates.image_url = body.изображение || body.image_url || '';
-    }
-    if (body.категория !== undefined || body.category !== undefined) {
-      sqlUpdates.category = body.категория || body.category || 'general';
-    }
-    if (body.цена_розница !== undefined || body.price_retail !== undefined) {
-      sqlUpdates.price_retail = Number(body.цена_розница || body.price_retail) || 0;
-    }
-    if (body.цена1 !== undefined || body.price_partner !== undefined) {
-      sqlUpdates.price_partner = Number(body.цена1 || body.price_partner) || 0;
-    }
-    if (body.цена2 !== undefined || body.price_l2 !== undefined) {
-      sqlUpdates.price_l2 = Number(body.цена2 || body.price_l2) || 0;
-    }
-    if (body.цена3 !== undefined || body.price_l3 !== undefined) {
-      sqlUpdates.price_l3 = Number(body.цена3 || body.price_l3) || 0;
-    }
-    if (body.цена4 !== undefined || body.price_company !== undefined) {
-      sqlUpdates.price_company = Number(body.цена4 || body.price_company) || 0;
-    }
-    if (body.в_архиве !== undefined || body.is_archived !== undefined) {
-      sqlUpdates.is_archived = body.в_архиве === true || body.is_archived === true;
+    // Маппинг русских полей -> английские колонки SQL
+    // Обязательные поля
+    sqlProduct.name = body.название || body.name || 'Без названия';
+    sqlProduct.sku = body.sku || productId; // fallback на id если sku не передан
+    
+    // Опциональные поля
+    sqlProduct.description = body.описание || body.description || '';
+    sqlProduct.image_url = body.изображение || body.image_url || '';
+    sqlProduct.category = body.категория || body.category || 'general';
+    sqlProduct.price_retail = Number(body.цена_розница || body.price_retail) || 0;
+    sqlProduct.price_partner = Number(body.цена1 || body.price_partner) || 0;
+    sqlProduct.price_l2 = Number(body.цена2 || body.price_l2) || 0;
+    sqlProduct.price_l3 = Number(body.цена3 || body.price_l3) || 0;
+    sqlProduct.price_company = Number(body.цена4 || body.price_company) || 0;
+    sqlProduct.is_archived = body.в_архиве === true || body.is_archived === true;
+    sqlProduct.is_active = true;
+    
+    // Для новых записей добавляем created_at
+    if (!body.создан && !body.created_at) {
+      sqlProduct.created_at = new Date().toISOString();
     }
     
-    console.log(`💾 Updating SQL table 'products':`, JSON.stringify(sqlUpdates));
+    console.log(`💾 UPSERT to SQL table 'products':`, JSON.stringify(sqlProduct));
     
-    const { data: updatedProduct, error: updateError } = await supabase
+    // UPSERT: создаёт запись если не существует, обновляет если существует
+    const { data: upsertedProduct, error: upsertError } = await supabase
       .from('products')
-      .update(sqlUpdates)
-      .eq('id', productId)
+      .upsert(sqlProduct, { onConflict: 'id' })
       .select()
       .single();
     
-    // ❌ НЕТ FALLBACK - показываем реальную ошибку SQL
-    if (updateError) {
-      console.error(`❌ SQL UPDATE ERROR:`, JSON.stringify(updateError));
+    if (upsertError) {
+      console.error(`❌ SQL UPSERT ERROR:`, JSON.stringify(upsertError));
       return c.json({ 
         success: false,
-        error: `SQL Error: ${updateError.message}`,
-        details: updateError,
-        hint: updateError.hint || null,
-        code: updateError.code || null,
+        error: `SQL Error: ${upsertError.message}`,
+        details: upsertError,
+        hint: upsertError.hint || null,
+        code: upsertError.code || null,
         productId: productId
       }, 500);
     }
     
     // Конвертируем обратно в формат фронтенда
     const product = {
-      id: updatedProduct.id,
-      sku: updatedProduct.sku,
-      название: updatedProduct.name,
-      описание: updatedProduct.description || '',
-      изображение: updatedProduct.image_url || '',
-      категория: updatedProduct.category || 'general',
-      цена_розница: updatedProduct.price_retail,
-      цена1: updatedProduct.price_partner,
-      цена2: updatedProduct.price_l2 || 0,
-      цена3: updatedProduct.price_l3 || 0,
-      цена4: updatedProduct.price_company || 0,
-      в_архиве: updatedProduct.is_archived,
-      активен: updatedProduct.is_active,
-      создан: updatedProduct.created_at,
-      обновлён: updatedProduct.updated_at
+      id: upsertedProduct.id,
+      sku: upsertedProduct.sku,
+      название: upsertedProduct.name,
+      описание: upsertedProduct.description || '',
+      изображение: upsertedProduct.image_url || '',
+      категория: upsertedProduct.category || 'general',
+      цена_розница: upsertedProduct.price_retail,
+      цена1: upsertedProduct.price_partner,
+      цена2: upsertedProduct.price_l2 || 0,
+      цена3: upsertedProduct.price_l3 || 0,
+      цена4: upsertedProduct.price_company || 0,
+      в_архиве: upsertedProduct.is_archived,
+      активен: upsertedProduct.is_active,
+      создан: upsertedProduct.created_at,
+      обновлён: upsertedProduct.updated_at
     };
     
-    console.log(`✅ Product updated in SQL: ${productId}`);
+    console.log(`✅ Product upserted in SQL: ${productId}`);
     
     return c.json({ success: true, product, source: 'sql' });
   } catch (error) {
