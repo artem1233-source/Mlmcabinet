@@ -162,3 +162,24 @@ This migration moves data from `kv_store_05aa3c8a` (KV Store) to proper SQL tabl
 - `process_order_commission(...)` — Main function with idempotency
 - `get_user_earnings_stats(user_id)` — User earnings statistics
 - `get_team_stats(user_id)` — Team structure statistics
+
+### Backend Integration (December 7, 2025)
+
+The `createEarningsFromOrder()` function now calls SQL RPC `process_order_commission`:
+
+```typescript
+const { data, error } = await supabase.rpc('process_order_commission', {
+  p_order_id: order.id,
+  p_buyer_id: isPartner ? buyerId : null,
+  p_referrer_id: isPartner ? null : referrerId,
+  p_is_partner: isPartner,
+  p_product_sku: sku,
+  p_l0: L0, p_l1: L1, p_l2: L2, p_l3: L3
+});
+```
+
+**Features:**
+- Automatic fallback to KV Store if SQL RPC fails
+- Commissions calculated from price ladder (P0, P1, P2, P3, P_company)
+- Idempotent: won't process the same order twice
+- Balances updated in SQL `profiles` table

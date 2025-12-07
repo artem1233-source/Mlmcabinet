@@ -746,105 +746,184 @@ async function migrateUserToNewCodeSystem(userId: string): Promise<{ success: bo
 
 /**
  * 🆕 ЕДИНАЯ ФУНКЦИЯ создания earnings из подтверждённого заказа
- * Вызывается из: /orders/:orderId/confirm, demo-payment, YooKassa webhook
+ * Использует SQL RPC функцию process_order_commission для начисления комиссий
  * 
- * @param order - заказ с полями комиссии, комиссииУровни, sku, партнёрскаяПокупка
+ * @param order - заказ с полями sku, партнёрскаяПокупка, покупательId, рефереров
  * @returns массив созданных earnings
  */
 async function createEarningsFromOrder(order: any): Promise<any[]> {
   const createdEarnings: any[] = [];
   
   console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-  console.log(`💰 createEarningsFromOrder: Order ${order.id}`);
+  console.log(`💰 createEarningsFromOrder (SQL RPC): Order ${order.id}`);
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   
-  if (!order.комиссии) {
-    console.log(`⚠️ No комиссии in order — skipping earnings creation`);
-    return createdEarnings;
-  }
+  const isPartner = order.партнёрскаяПокупка === true;
+  const buyerId = order.покупательId || null;
+  const referrerId = order.referrerId || order.рефереров || null;
+  const sku = order.sku || 'H2-1';
   
-  // 🆕 Получаем товар для логирования ценовой лестницы
+  console.log(`📦 SKU: ${sku}`);
+  console.log(`👤 isPartner: ${isPartner}`);
+  console.log(`👤 buyerId: ${buyerId}`);
+  console.log(`👤 referrerId: ${referrerId}`);
+  
+  // 🆕 Получаем товар и вычисляем комиссии из ценовой лестницы
   const products = await kv.getByPrefix('product:');
-  const product = products.find((p: any) => p.sku === order.sku);
+  const product = products.find((p: any) => p.sku === sku);
   const ladder = extractPriceLadder(product);
   
-  console.log(`📦 SKU: ${order.sku}`);
-  console.log(`👤 isPartner: ${order.партнёрскаяПокупка}`);
+  let L0 = 0, L1 = 0, L2 = 0, L3 = 0;
   
   if (ladder) {
-    // Используем СТРОГУЮ логику (без неоднозначных fallbacks)
     const P0 = ladder.P0;
     const P1 = ladder.P1;
     const P2 = ladder.P2 ?? 0;
     const P3 = ladder.P3 ?? 0;
     const P_company = ladder.P_company ?? 0;
     
-    console.log(`💵 Price Ladder:`);
-    console.log(`   P0 (Розничная): ${P0}₽`);
-    console.log(`   P1 (Уровень 1): ${P1}₽`);
-    console.log(`   P2 (Уровень 2): ${P2}₽ ${P2 === 0 ? '(не задано)' : ''}`);
-    console.log(`   P3 (Уровень 3): ${P3}₽ ${P3 === 0 ? '(не задано)' : ''}`);
-    console.log(`   P_company:      ${P_company}₽ ${P_company === 0 ? '(не задано)' : ''}`);
+    console.log(`💵 Price Ladder: P0=${P0}, P1=${P1}, P2=${P2}, P3=${P3}, P_company=${P_company}`);
     
-    // Вычисляем комиссии (строгая логика)
-    const L0 = Math.max(0, P0 - P1);
-    const L1 = P2 > 0 ? Math.max(0, P1 - P2) : 0;
-    const L2 = (P2 > 0 && P3 > 0) ? Math.max(0, P2 - P3) : 0;
-    const L3 = (P3 > 0 && P_company > 0) ? Math.max(0, P3 - P_company) : 0;
+    L0 = isPartner ? 0 : Math.max(0, P0 - P1);
+    L1 = P2 > 0 ? Math.max(0, P1 - P2) : 0;
+    L2 = (P2 > 0 && P3 > 0) ? Math.max(0, P2 - P3) : 0;
+    L3 = (P3 > 0 && P_company > 0) ? Math.max(0, P3 - P_company) : 0;
     
-    console.log(`📊 Calculated Commissions (strict logic):`);
-    console.log(`   L0: ${L0}₽ = P0(${P0}) - P1(${P1})`);
-    console.log(`   L1: ${L1}₽ = ${P2 > 0 ? `P1(${P1}) - P2(${P2})` : 'N/A (P2 not set)'}`);
-    console.log(`   L2: ${L2}₽ = ${(P2 > 0 && P3 > 0) ? `P2(${P2}) - P3(${P3})` : 'N/A (P2 or P3 not set)'}`);
-    console.log(`   L3: ${L3}₽ = ${(P3 > 0 && P_company > 0) ? `P3(${P3}) - P_company(${P_company})` : 'N/A (P3 or P_company not set)'}`);
-    
-    // Проверки
-    const guestTotal = L0 + L1 + L2 + L3 + P_company;
-    const partnerTotal = L1 + L2 + L3 + P_company;
-    console.log(`✅ Verification:`);
-    console.log(`   Guest:   L0+L1+L2+L3+P_company = ${guestTotal}₽ (should be P0=${P0}₽) ${guestTotal !== P0 ? '⚠️ MISMATCH' : '✓'}`);
-    console.log(`   Partner: L1+L2+L3+P_company = ${partnerTotal}₽ (should be P1=${P1}₽) ${partnerTotal !== P1 ? '⚠️ MISMATCH' : '✓'}`);
+    console.log(`📊 Calculated: L0=${L0}, L1=${L1}, L2=${L2}, L3=${L3}`);
   } else {
-    console.log(`⚠️ No price ladder found — using stored commissions`);
+    console.log(`⚠️ No price ladder — using defaults`);
+    const defaults = BACKEND_DEFAULT_COMMISSIONS[sku] || BACKEND_DEFAULT_COMMISSIONS['H2-1'];
+    L0 = isPartner ? 0 : defaults.d0;
+    L1 = defaults.d1;
+    L2 = defaults.d2;
+    L3 = defaults.d3;
+    console.log(`📊 Default: L0=${L0}, L1=${L1}, L2=${L2}, L3=${L3}`);
   }
   
-  console.log(`📋 Stored Комиссии:`, order.комиссии);
-  console.log(`📋 Stored КомиссииУровни:`, order.комиссииУровни);
+  // 🆕 Вызываем SQL RPC функцию
+  console.log(`🚀 Calling SQL RPC: process_order_commission`);
   
-  for (const [userId, amount] of Object.entries(order.комиссии)) {
-    const numAmount = Number(amount);
-    if (numAmount <= 0) continue;
+  const { data: rpcResult, error: rpcError } = await supabase.rpc('process_order_commission', {
+    p_order_id: order.id,
+    p_buyer_id: isPartner ? buyerId : null,
+    p_referrer_id: isPartner ? null : referrerId,
+    p_is_partner: isPartner,
+    p_product_sku: sku,
+    p_l0: L0,
+    p_l1: L1,
+    p_l2: L2,
+    p_l3: L3
+  });
+  
+  if (rpcError) {
+    console.error(`❌ SQL RPC Error:`, rpcError);
     
-    // Обновляем баланс пользователя
-    const user = await kv.get(`user:id:${userId}`);
-    if (!user) {
-      console.log(`⚠️ User ${userId} not found, skipping payout`);
-      continue;
+    // Fallback: используем старую логику через KV Store
+    console.log(`⚠️ Falling back to KV Store logic...`);
+    return await createEarningsFromOrderFallback(order, L0, L1, L2, L3, isPartner, referrerId, buyerId);
+  }
+  
+  console.log(`✅ SQL RPC Result:`, JSON.stringify(rpcResult, null, 2));
+  
+  if (rpcResult?.success) {
+    const payouts = rpcResult.payouts || [];
+    for (const payout of payouts) {
+      createdEarnings.push({
+        userId: payout.user_id,
+        amount: payout.amount,
+        level: payout.level,
+        orderId: order.id,
+        sku: sku,
+        isPartner: isPartner
+      });
+      console.log(`   ✅ SQL Earning: ${payout.amount}₽ → ${payout.user_id} (${payout.level})`);
     }
+    console.log(`💰 Total paid via SQL: ${rpcResult.total_paid}₽`);
+  } else {
+    console.log(`⚠️ SQL RPC returned: ${rpcResult?.error || 'unknown error'}`);
+  }
+  
+  console.log(`💰 createEarningsFromOrder: Created ${createdEarnings.length} earnings for order ${order.id}`);
+  return createdEarnings;
+}
+
+/**
+ * Fallback функция если SQL RPC недоступна (старая логика через KV Store)
+ */
+async function createEarningsFromOrderFallback(
+  order: any, 
+  L0: number, L1: number, L2: number, L3: number,
+  isPartner: boolean,
+  referrerId: string | null,
+  buyerId: string | null
+): Promise<any[]> {
+  const createdEarnings: any[] = [];
+  const commissions: Record<string, number> = {};
+  const levels: Record<string, string> = {};
+  
+  // Определяем базового пользователя для поиска upline
+  const baseUserId = isPartner ? buyerId : referrerId;
+  
+  if (!baseUserId) {
+    console.log(`⚠️ No base user for earnings`);
+    return createdEarnings;
+  }
+  
+  // Для гостевых — L0 идёт referrer
+  if (!isPartner && referrerId && L0 > 0) {
+    commissions[referrerId] = L0;
+    levels[referrerId] = 'L0';
+  }
+  
+  // Получаем upline
+  const baseUser = await kv.get(`user:id:${baseUserId}`);
+  if (baseUser) {
+    const u1 = baseUser.спонсорId;
+    if (u1 && L1 > 0) {
+      commissions[u1] = (commissions[u1] || 0) + L1;
+      levels[u1] = levels[u1] || 'L1';
+      
+      const u1User = await kv.get(`user:id:${u1}`);
+      if (u1User) {
+        const u2 = u1User.спонсорId;
+        if (u2 && L2 > 0) {
+          commissions[u2] = (commissions[u2] || 0) + L2;
+          levels[u2] = levels[u2] || 'L2';
+          
+          const u2User = await kv.get(`user:id:${u2}`);
+          if (u2User) {
+            const u3 = u2User.спонсорId;
+            if (u3 && L3 > 0) {
+              commissions[u3] = (commissions[u3] || 0) + L3;
+              levels[u3] = levels[u3] || 'L3';
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  // Начисляем
+  for (const [userId, amount] of Object.entries(commissions)) {
+    if (amount <= 0) continue;
     
-    user.баланс = (user.баланс || 0) + numAmount;
+    const user = await kv.get(`user:id:${userId}`);
+    if (!user) continue;
+    
+    user.баланс = (user.баланс || 0) + amount;
     await kv.set(`user:id:${userId}`, user);
     
-    if (user.telegramId) {
-      await kv.set(`user:tg:${user.telegramId}`, user);
-    }
-    
-    // Создаём earning запись
     const earningId = `earning:${Date.now()}-${userId}-${Math.random().toString(36).slice(2, 6)}`;
-    const level = order.комиссииУровни?.[userId] || 'L0';
-    const lineIndex = typeof level === 'string' ? Number(level.replace('L', '')) : 0;
+    const level = levels[userId] || 'L0';
     
     const earning = {
       id: earningId,
       userId: userId,
       orderId: order.id,
-      amount: numAmount,
-      сумма: numAmount,
+      amount: amount,
       level: level,
-      линия: lineIndex,
-      fromUserId: order.покупательId,
       sku: order.sku,
-      isPartner: order.партнёрскаяПокупка,
+      isPartner: isPartner,
       createdAt: new Date().toISOString()
     };
     
@@ -852,10 +931,9 @@ async function createEarningsFromOrder(order: any): Promise<any[]> {
     await kv.set(`earning:user:${userId}:${earningId}`, earning);
     
     createdEarnings.push(earning);
-    console.log(`   ✅ Earning: ${numAmount}₽ → ${userId} (${level}, линия=${lineIndex})`);
+    console.log(`   ✅ Fallback Earning: ${amount}₽ → ${userId} (${level})`);
   }
   
-  console.log(`💰 createEarningsFromOrder: Created ${createdEarnings.length} earnings for order ${order.id}`);
   return createdEarnings;
 }
 
