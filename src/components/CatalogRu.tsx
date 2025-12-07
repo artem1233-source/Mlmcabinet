@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ShoppingCart, Tag, Loader2, Package, Plus, Edit2, Trash2, Save, X, Upload, Archive, ArchiveRestore, MoreVertical, FolderOpen, AlertCircle } from 'lucide-react';
+import { ShoppingCart, Tag, Loader2, Package, Plus, Edit2, Trash2, Save, X, Archive, ArchiveRestore, MoreVertical, FolderOpen, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
@@ -8,10 +8,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { ImageWithFallback } from './figma/ImageWithFallback';
-import { CatalogDebug } from './CatalogDebug';
 import { toast } from 'sonner';
 import { CheckoutRu } from './CheckoutRu';
-import { GuestSaleModal } from './GuestSaleModal';
 import * as api from '../utils/api';
 import { CommissionEditor } from './CommissionEditor';
 import type { ProductCommission } from '../utils/types/commission';
@@ -43,9 +41,6 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
   const [showCheckout, setShowCheckout] = useState(false);
   const [showArchived, setShowArchived] = useState(false); // Показывать архивные товары
   
-  // Guest sale modal
-  const [isGuestModalOpen, setIsGuestModalOpen] = useState(false);
-  const [guestModalProduct, setGuestModalProduct] = useState<any>(null);
   
   // Admin states
   const [showProductModal, setShowProductModal] = useState(false);
@@ -1854,16 +1849,6 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
         </DialogContent>
       </Dialog>
 
-      {/* Guest Sale Modal */}
-      <GuestSaleModal
-        isOpen={isGuestModalOpen}
-        onClose={() => {
-          setIsGuestModalOpen(false);
-          setGuestModalProduct(null);
-        }}
-        product={guestModalProduct}
-        onOrderCreated={onOrderCreated}
-      />
     </>
   );
 }
