@@ -4701,13 +4701,27 @@ app.get("/make-server-05aa3c8a/admin/products", async (c) => {
   }
 });
 
-// Create product
+// Create product - БЕЗ FALLBACK, показываем реальные ошибки SQL
 app.post("/make-server-05aa3c8a/admin/products", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    const { название, описание, sku, изображение, цена1, цена2, цена3, цена4, цена_розница, категория, в_архиве } = await c.req.json();
+    const body = await c.req.json();
+    console.log(`📦 POST /admin/products - Received body:`, JSON.stringify(body));
+    
+    // Маппинг русских полей -> английские колонки SQL
+    const название = body.название || body.name || '';
+    const описание = body.описание || body.description || '';
+    const sku = body.sku || '';
+    const изображение = body.изображение || body.image_url || '';
+    const категория = body.категория || body.category || 'general';
+    const цена_розница = Number(body.цена_розница || body.price_retail) || 0;
+    const цена1 = Number(body.цена1 || body.price_partner) || 0;
+    const цена2 = Number(body.цена2 || body.price_l2) || 0;
+    const цена3 = Number(body.цена3 || body.price_l3) || 0;
+    const цена4 = Number(body.цена4 || body.price_company) || 0;
+    const в_архиве = body.в_архиве === true || body.is_archived === true;
     
     if (!название || !sku) {
       return c.json({ error: 'Название и SKU обязательны' }, 400);
@@ -4715,26 +4729,26 @@ app.post("/make-server-05aa3c8a/admin/products", async (c) => {
     
     const productId = `prod_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // 🆕 Сохраняем в SQL таблицу products
+    // SQL объект с английскими колонками
     const sqlProduct = {
       id: productId,
       sku: sku,
-      name: название || '',
-      description: описание || '',
-      image_url: изображение || '',
-      category: категория || 'general',
-      price_retail: Number(цена_розница) || 0,
-      price_partner: Number(цена1) || 0,
-      price_l2: Number(цена2) || 0,
-      price_l3: Number(цена3) || 0,
-      price_company: Number(цена4) || 0,
-      is_archived: в_архиве === true,
+      name: название,
+      description: описание,
+      image_url: изображение,
+      category: категория,
+      price_retail: цена_розница,
+      price_partner: цена1,
+      price_l2: цена2,
+      price_l3: цена3,
+      price_company: цена4,
+      is_archived: в_архиве,
       is_active: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
     
-    console.log(`💾 Saving product to SQL: ${productId}, SKU: ${sku}`);
+    console.log(`💾 Saving to SQL table 'products':`, JSON.stringify(sqlProduct));
     
     const { data: insertedProduct, error: insertError } = await supabase
       .from('products')
@@ -4742,33 +4756,16 @@ app.post("/make-server-05aa3c8a/admin/products", async (c) => {
       .select()
       .single();
     
+    // ❌ НЕТ FALLBACK - показываем реальную ошибку SQL
     if (insertError) {
-      console.error(`❌ SQL insert error:`, insertError);
-      
-      // Fallback на KV Store
-      const kvProduct = {
-        id: productId,
-        название: название || '',
-        описание: описание || '',
-        sku: sku,
-        изображение: изображение || '',
-        цена1: Number(цена1) || 0,
-        цена2: Number(цена2) || 0,
-        цена3: Number(цена3) || 0,
-        цена4: Number(цена4) || 0,
-        цена_розница: Number(цена_розница) || 0,
-        категория: категория || 'general',
-        в_архиве: в_архиве === true,
-        archived: в_архиве === true,
-        создан: new Date().toISOString(),
-        обновлён: new Date().toISOString()
-      };
-      
-      await kv.set(`product:${productId}`, kvProduct);
-      await kv.set(`product:sku:${sku}`, kvProduct);
-      
-      console.log(`✅ Product created in KV (fallback): ${productId}`);
-      return c.json({ success: true, product: kvProduct, source: 'kv' });
+      console.error(`❌ SQL INSERT ERROR:`, JSON.stringify(insertError));
+      return c.json({ 
+        success: false,
+        error: `SQL Error: ${insertError.message}`,
+        details: insertError,
+        hint: insertError.hint || null,
+        code: insertError.code || null
+      }, 500);
     }
     
     // Конвертируем обратно в формат фронтенда
@@ -4794,39 +4791,63 @@ app.post("/make-server-05aa3c8a/admin/products", async (c) => {
     
     return c.json({ success: true, product, source: 'sql' });
   } catch (error) {
-    console.log(`Admin create product error: ${error}`);
-    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+    console.error(`❌ Admin create product exception:`, error);
+    return c.json({ error: `Exception: ${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
   }
 });
 
-// Update product
+// Update product - БЕЗ FALLBACK, показываем реальные ошибки SQL
 app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
     const productId = c.req.param('productId');
-    const updates = await c.req.json();
+    const body = await c.req.json();
     
-    console.log(`📝 Updating product: ${productId}`, updates);
+    console.log(`📝 PUT /admin/products/${productId} - Received body:`, JSON.stringify(body));
     
-    // 🆕 Обновляем в SQL таблице
+    // Маппинг русских полей -> английские колонки SQL
     const sqlUpdates: any = {
       updated_at: new Date().toISOString()
     };
     
-    // Маппинг полей фронтенда -> SQL
-    if (updates.название !== undefined) sqlUpdates.name = updates.название;
-    if (updates.описание !== undefined) sqlUpdates.description = updates.описание;
-    if (updates.sku !== undefined) sqlUpdates.sku = updates.sku;
-    if (updates.изображение !== undefined) sqlUpdates.image_url = updates.изображение;
-    if (updates.категория !== undefined) sqlUpdates.category = updates.категория;
-    if (updates.цена_розница !== undefined) sqlUpdates.price_retail = Number(updates.цена_розница) || 0;
-    if (updates.цена1 !== undefined) sqlUpdates.price_partner = Number(updates.цена1) || 0;
-    if (updates.цена2 !== undefined) sqlUpdates.price_l2 = Number(updates.цена2) || 0;
-    if (updates.цена3 !== undefined) sqlUpdates.price_l3 = Number(updates.цена3) || 0;
-    if (updates.цена4 !== undefined) sqlUpdates.price_company = Number(updates.цена4) || 0;
-    if (updates.в_архиве !== undefined) sqlUpdates.is_archived = updates.в_архиве === true;
+    // Поддержка обоих форматов (русский и английский)
+    if (body.название !== undefined || body.name !== undefined) {
+      sqlUpdates.name = body.название || body.name;
+    }
+    if (body.описание !== undefined || body.description !== undefined) {
+      sqlUpdates.description = body.описание || body.description || '';
+    }
+    if (body.sku !== undefined) {
+      sqlUpdates.sku = body.sku;
+    }
+    if (body.изображение !== undefined || body.image_url !== undefined) {
+      sqlUpdates.image_url = body.изображение || body.image_url || '';
+    }
+    if (body.категория !== undefined || body.category !== undefined) {
+      sqlUpdates.category = body.категория || body.category || 'general';
+    }
+    if (body.цена_розница !== undefined || body.price_retail !== undefined) {
+      sqlUpdates.price_retail = Number(body.цена_розница || body.price_retail) || 0;
+    }
+    if (body.цена1 !== undefined || body.price_partner !== undefined) {
+      sqlUpdates.price_partner = Number(body.цена1 || body.price_partner) || 0;
+    }
+    if (body.цена2 !== undefined || body.price_l2 !== undefined) {
+      sqlUpdates.price_l2 = Number(body.цена2 || body.price_l2) || 0;
+    }
+    if (body.цена3 !== undefined || body.price_l3 !== undefined) {
+      sqlUpdates.price_l3 = Number(body.цена3 || body.price_l3) || 0;
+    }
+    if (body.цена4 !== undefined || body.price_company !== undefined) {
+      sqlUpdates.price_company = Number(body.цена4 || body.price_company) || 0;
+    }
+    if (body.в_архиве !== undefined || body.is_archived !== undefined) {
+      sqlUpdates.is_archived = body.в_архиве === true || body.is_archived === true;
+    }
+    
+    console.log(`💾 Updating SQL table 'products':`, JSON.stringify(sqlUpdates));
     
     const { data: updatedProduct, error: updateError } = await supabase
       .from('products')
@@ -4835,36 +4856,17 @@ app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
       .select()
       .single();
     
+    // ❌ НЕТ FALLBACK - показываем реальную ошибку SQL
     if (updateError) {
-      console.error(`❌ SQL update error:`, updateError);
-      
-      // Fallback на KV Store
-      const product = await kv.get(`product:${productId}`);
-      if (!product) {
-        return c.json({ error: 'Продукт не найден' }, 404);
-      }
-      
-      const oldSku = product.sku;
-      
-      Object.keys(updates).forEach(key => {
-        if (key !== 'id' && key !== 'создан') {
-          product[key] = updates[key];
-        }
-      });
-      
-      product.обновлён = new Date().toISOString();
-      
-      await kv.set(`product:${productId}`, product);
-      
-      if (updates.sku && updates.sku !== oldSku) {
-        await kv.del(`product:sku:${oldSku}`);
-        await kv.set(`product:sku:${updates.sku}`, product);
-      } else {
-        await kv.set(`product:sku:${oldSku}`, product);
-      }
-      
-      console.log(`✅ Product updated in KV (fallback): ${productId}`);
-      return c.json({ success: true, product, source: 'kv' });
+      console.error(`❌ SQL UPDATE ERROR:`, JSON.stringify(updateError));
+      return c.json({ 
+        success: false,
+        error: `SQL Error: ${updateError.message}`,
+        details: updateError,
+        hint: updateError.hint || null,
+        code: updateError.code || null,
+        productId: productId
+      }, 500);
     }
     
     // Конвертируем обратно в формат фронтенда
@@ -4890,8 +4892,8 @@ app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
     
     return c.json({ success: true, product, source: 'sql' });
   } catch (error) {
-    console.log(`Admin update product error: ${error}`);
-    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+    console.error(`❌ Admin update product exception:`, error);
+    return c.json({ error: `Exception: ${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
   }
 });
 
