@@ -64,7 +64,7 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
       
       return [...prev, { product, quantity, isPartner }];
     });
-    setIsCartOpen(true); // Открываем корзину при добавлении
+    // Корзина НЕ открывается — товар добавляется с анимацией, можно продолжать покупки
   };
 
   const handleUpdateQuantity = (productId: string, isPartner: boolean, quantity: number) => {
