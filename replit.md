@@ -129,3 +129,36 @@ SELECT process_order_commission('{
 ```
 
 **Idempotency:** The function checks if order was already processed and returns error if so.
+
+### Full Migration to SQL Tables (December 7, 2025)
+
+**Migration file:** `supabase/migrations/migration_fix_mlm.sql`
+
+This migration moves data from `kv_store_05aa3c8a` (KV Store) to proper SQL tables:
+
+**Tables Created:**
+1. `profiles` — User profiles with proper columns:
+   - `id` (TEXT, PRIMARY KEY)
+   - `referrer_id` (TEXT, REFERENCES profiles)
+   - `email`, `first_name`, `last_name`, `phone`
+   - `balance`, `available_balance`, `rank_level`
+   - `ref_code`, `team` (JSONB array)
+   - Social links, timestamps
+
+2. `earnings` — Commission history with idempotency constraint
+
+**Key Field Mapping (KV → SQL):**
+- `спонсорId` → `referrer_id`
+- `имя` → `first_name`
+- `фамилия` → `last_name`
+- `баланс` → `balance`
+- `уровень` → `rank_level`
+- `рефКод` → `ref_code`
+- `команда` → `team`
+
+**SQL Functions:**
+- `get_upline(user_id, max_depth)` — RECURSIVE CTE for sponsor chain
+- `calculate_commission(P0, P1, P2, P3, P_company, is_partner)` — Commission calculation
+- `process_order_commission(...)` — Main function with idempotency
+- `get_user_earnings_stats(user_id)` — User earnings statistics
+- `get_team_stats(user_id)` — Team structure statistics
