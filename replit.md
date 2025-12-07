@@ -80,6 +80,38 @@ L3 = (P₃ > 0 && P_company > 0) ? max(0, P₃ - P_company) : 0  // Only if P₃
 - Guest sale: `L0 + L1 + L2 + L3 + P_company = P₀`
 - Partner purchase: `L1 + L2 + L3 + P_company = P₁`
 
+## Shopping Cart System (December 7, 2025)
+
+### Cart Implementation
+
+The catalog now uses a shopping cart instead of direct purchase modals:
+
+**User Flow:**
+1. User clicks "В корзину" (add to cart) button in the catalog
+2. Items are collected in the cart sidebar (Sheet component)
+3. User can adjust quantities, remove items in the cart
+4. Final checkout creates all orders at once
+
+**Components:**
+- `src/components/CartRu.tsx` — Cart sidebar with checkout functionality
+- `src/components/CatalogRu.tsx` — Catalog with "add to cart" buttons
+- `src/MainApp.tsx` — Cart state management (`cartItems`, `isCartOpen`, cart handlers)
+
+**Cart Item Structure:**
+```typescript
+{
+  product: ProductData,
+  quantity: number,
+  isPartner: boolean  // false = guest price, true = partner price
+}
+```
+
+**Key Functions in MainApp:**
+- `handleAddToCart(product, isPartner, quantity)` — Add/update cart item
+- `handleUpdateQuantity(productId, isPartner, newQuantity)` — Change quantity
+- `handleRemoveItem(productId, isPartner)` — Remove from cart
+- `handleClearCart()` — Clear entire cart
+
 ## Deployment Notes (December 6, 2025)
 
 ### Edge Functions Deployment
