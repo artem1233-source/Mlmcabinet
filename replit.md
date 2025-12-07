@@ -99,3 +99,33 @@ SUPABASE_ACCESS_TOKEN="$SUPABASE_ACCESS_TOKEN" supabase functions deploy make-se
 ```
 
 **Important:** Changes to `src/supabase/functions/server/` are NOT automatically deployed. You must manually deploy after making backend changes.
+
+## SQL Commission Functions (December 7, 2025)
+
+### PostgreSQL Migration
+
+Commission logic has been migrated to PostgreSQL for better performance and data integrity.
+
+**Migration file:** `supabase/migrations/20251207_move_commission_to_sql.sql`
+
+**Key SQL Functions:**
+
+1. `get_upline(user_id, max_depth)` — Returns sponsor chain via RECURSIVE CTE
+2. `calculate_commission_from_prices(P0, P1, P2, P3, P_company, is_partner)` — Calculates L0-L3 from price ladder
+3. `process_order_commission(json_plan)` — Main function: creates earnings with idempotency check
+4. `get_user_earnings_stats(user_id)` — Returns user's earnings statistics
+
+**New Table:** `earnings` — Stores all commission payouts with unique constraint on (order_id, user_id, level)
+
+**Usage Example:**
+```sql
+SELECT process_order_commission('{
+    "order_id": "order_001",
+    "referrer_id": "partner_123",
+    "product_sku": "H2-1",
+    "is_partner": false,
+    "commissions": {"L0": 1600, "L1": 900, "L2": 500, "L3": 200}
+}'::JSONB);
+```
+
+**Idempotency:** The function checks if order was already processed and returns error if so.
