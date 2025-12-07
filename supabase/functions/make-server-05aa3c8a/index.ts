@@ -3113,11 +3113,18 @@ app.post("/make-server-05aa3c8a/orders", async (c) => {
       статус: 'pending' // pending, paid, cancelled
     };
     
-    // 🆕 Сохраняем использованный реферальный код
-    if (usedReferralCode) {
+    // 🆕 Сохраняем referrerId для начисления комиссий
+    // Для гостевых покупок — это спонсор из реферального кода
+    // Для партнёрских покупок — это спонсор текущего пользователя
+    if (!isPartner && usedReferralCode && resolvedSponsorId) {
+      order.referrerId = resolvedSponsorId;
       order.usedReferralCode = usedReferralCode.toUpperCase().trim();
-      order.resolvedSponsorId = resolvedSponsorId;
+    } else if (isPartner && currentUser.спонсорId) {
+      // Партнёрская покупка — L1 идёт спонсору покупателя
+      order.referrerId = currentUser.спонсорId;
     }
+    
+    console.log(`📦 Order referrerId: ${order.referrerId || 'none'}`);
     
     await kv.set(`order:${orderId}`, order);
     await kv.set(`order:user:${currentUser.id}:${orderId}`, order);
@@ -4743,7 +4750,6 @@ app.post("/make-server-05aa3c8a/admin/products", async (c) => {
       price_l3: цена3,
       price_company: цена4,
       is_archived: в_архиве,
-      is_active: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -4782,7 +4788,7 @@ app.post("/make-server-05aa3c8a/admin/products", async (c) => {
       цена3: insertedProduct.price_l3 || 0,
       цена4: insertedProduct.price_company || 0,
       в_архиве: insertedProduct.is_archived,
-      активен: insertedProduct.is_active,
+      активен: true,
       создан: insertedProduct.created_at,
       обновлён: insertedProduct.updated_at
     };
@@ -4828,7 +4834,6 @@ app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
     sqlProduct.price_l3 = Number(body.цена3 || body.price_l3) || 0;
     sqlProduct.price_company = Number(body.цена4 || body.price_company) || 0;
     sqlProduct.is_archived = body.в_архиве === true || body.is_archived === true;
-    sqlProduct.is_active = true;
     
     // Для новых записей добавляем created_at
     if (!body.создан && !body.created_at) {
@@ -4870,7 +4875,7 @@ app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
       цена3: upsertedProduct.price_l3 || 0,
       цена4: upsertedProduct.price_company || 0,
       в_архиве: upsertedProduct.is_archived,
-      активен: upsertedProduct.is_active,
+      активен: true,
       создан: upsertedProduct.created_at,
       обновлён: upsertedProduct.updated_at
     };
