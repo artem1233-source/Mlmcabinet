@@ -4842,7 +4842,9 @@ app.post("/make-server-05aa3c8a/admin/products", async (c) => {
       цена4: Number(цена4) || 0,
       цена_розница: Number(цена_розница) || 0,
       категория: категория || 'general',
-      в_архиве: в_архиве === true,
+      is_archived: в_архиве === true,
+      is_active: true,
+      in_stock: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -4891,21 +4893,33 @@ app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
     const productId = c.req.param('productId');
     const updates = await c.req.json();
     
-    // Build update object (exclude id and created_at)
+    // Build update object with field mapping (Russian → SQL columns)
     const updateData: any = {};
-    const allowedFields = ['название', 'описание', 'sku', 'изображение', 'цена1', 'цена2', 'цена3', 'цена4', 'цена_розница', 'категория', 'в_архиве'];
     
-    allowedFields.forEach(key => {
-      if (updates[key] !== undefined) {
-        if (['цена1', 'цена2', 'цена3', 'цена4', 'цена_розница'].includes(key)) {
-          updateData[key] = Number(updates[key]) || 0;
-        } else if (key === 'в_архиве') {
-          updateData[key] = updates[key] === true;
-        } else {
-          updateData[key] = updates[key];
-        }
-      }
-    });
+    // Direct fields
+    if (updates.название !== undefined) updateData.название = updates.название;
+    if (updates.описание !== undefined) updateData.описание = updates.описание;
+    if (updates.sku !== undefined) updateData.sku = updates.sku;
+    if (updates.изображение !== undefined) updateData.изображение = updates.изображение;
+    if (updates.категория !== undefined) updateData.категория = updates.категория;
+    
+    // Price fields
+    if (updates.цена1 !== undefined) updateData.цена1 = Number(updates.цена1) || 0;
+    if (updates.цена2 !== undefined) updateData.цена2 = Number(updates.цена2) || 0;
+    if (updates.цена3 !== undefined) updateData.цена3 = Number(updates.цена3) || 0;
+    if (updates.цена4 !== undefined) updateData.цена4 = Number(updates.цена4) || 0;
+    if (updates.цена_розница !== undefined) updateData.цена_розница = Number(updates.цена_розница) || 0;
+    
+    // Boolean fields with mapping (Russian → English SQL columns)
+    if (updates.в_архиве !== undefined || updates.isArchived !== undefined || updates.is_archived !== undefined) {
+      updateData.is_archived = updates.в_архиве === true || updates.isArchived === true || updates.is_archived === true;
+    }
+    if (updates.активен !== undefined || updates.isActive !== undefined || updates.is_active !== undefined) {
+      updateData.is_active = updates.активен !== false && updates.isActive !== false && updates.is_active !== false;
+    }
+    if (updates.в_наличии !== undefined || updates.inStock !== undefined || updates.in_stock !== undefined) {
+      updateData.in_stock = updates.в_наличии !== false && updates.inStock !== false && updates.in_stock !== false;
+    }
     
     updateData.updated_at = new Date().toISOString();
     
