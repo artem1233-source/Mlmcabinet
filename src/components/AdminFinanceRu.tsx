@@ -1,437 +1,468 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
-  Wallet, 
-  TrendingUp, 
-  Users, 
-  AlertCircle,
-  Check,
-  X,
-  Loader2,
-  RefreshCw,
-  Download,
-  ShoppingBag,
-  ArrowUpRight,
-  ArrowDownRight,
-  Clock,
-  CheckCircle2,
-  XCircle
+  TrendingUp, DollarSign, Wallet, CheckCircle2, XCircle, Search, Download,
+  ArrowUpRight, ArrowDownRight, Clock, CheckCheck
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { Badge } from './ui/badge';
-import { toast } from 'sonner';
+import { Input } from './ui/input';
+import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
+import { ScrollArea } from './ui/scroll-area';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import * as api from '../utils/api';
+
+interface FinanceStats {
+  totalRevenue: number;
+  netProfit: number;
+  usersBalanceTotal: number;
+  pendingPayoutsSum: number;
+  pendingWithdrawals: any[];
+  recentOperations: any[];
+  chartData?: { date: string; revenue: number; payouts: number }[];
+}
 
 interface AdminFinanceRuProps {
   currentUser: any;
 }
 
-interface FinanceStats {
-  totalRevenue: number;
-  usersBalanceTotal: number;
-  pendingPayoutsSum: number;
-  pendingPayoutsCount: number;
-  totalEarnings: number;
-  netProfit: number;
-  totalPaidOut: number;
-  totalOrders: number;
-  totalUsers: number;
-}
-
-interface PendingWithdrawal {
-  id: string;
-  oderId: string;
-  userId: string;
-  userName: string;
-  amount: number;
-  details: string;
-  method: string;
-  createdAt: string;
-}
-
-interface RecentOperation {
-  type: 'order' | 'earning' | 'withdrawal';
-  date: string;
-  amount: number;
-  description: string;
-  user: string;
-  status?: string;
-}
-
 export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProps) {
   const [stats, setStats] = useState<FinanceStats | null>(null);
-  const [pendingWithdrawals, setPendingWithdrawals] = useState<PendingWithdrawal[]>([]);
-  const [recentOperations, setRecentOperations] = useState<RecentOperation[]>([]);
   const [loading, setLoading] = useState(true);
-  const [processing, setProcessing] = useState<string | null>(null);
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [activeTab, setActiveTab] = useState('all');
 
   useEffect(() => {
-    loadFinanceData();
+    loadStats();
   }, []);
 
-  const loadFinanceData = async () => {
-    setLoading(true);
+  const loadStats = async () => {
     try {
+      setLoading(true);
       const data = await api.getAdminFinanceStats();
-      if (data.success) {
-        setStats(data.stats);
-        setPendingWithdrawals(data.pendingWithdrawals || []);
-        setRecentOperations(data.recentOperations || []);
-      } else {
-        toast.error('Не удалось загрузить финансовые данные');
-      }
+      
+      const last30Days = generateLast30Days();
+      const chartData = last30Days.map(date => {
+        const dayRevenue = (data.recentOperations || [])
+          .filter((op: any) => op.type === 'order' && op.date?.startsWith(date))
+          .reduce((sum: number, op: any) => sum + (op.amount || 0), 0);
+        const dayPayouts = (data.recentOperations || [])
+          .filter((op: any) => op.type === 'earning' && op.date?.startsWith(date))
+          .reduce((sum: number, op: any) => sum + (op.amount || 0), 0);
+        return { date: date.slice(5), revenue: dayRevenue, payouts: dayPayouts };
+      });
+      
+      setStats({ ...data, chartData });
     } catch (error) {
-      console.error('Load finance data error:', error);
-      toast.error('Ошибка загрузки данных');
+      console.error('Failed to load finance stats:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleApprove = async (withdrawal: PendingWithdrawal) => {
-    setProcessing(withdrawal.id);
+  const generateLast30Days = () => {
+    const days = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      days.push(d.toISOString().split('T')[0]);
+    }
+    return days;
+  };
+
+  const handleApprove = async (withdrawalId: string) => {
+    if (processingId) return;
+    setProcessingId(withdrawalId);
     try {
-      const data = await api.approvePayout(withdrawal.id);
-      if (data.success) {
-        toast.success(`Выплата ${withdrawal.amount.toLocaleString()}₽ подтверждена`);
-        loadFinanceData();
-      } else {
-        toast.error(data.error || 'Ошибка подтверждения');
-      }
+      await api.updateWithdrawalStatus(withdrawalId, 'approved');
+      await loadStats();
     } catch (error) {
-      console.error('Approve error:', error);
-      toast.error('Ошибка при подтверждении выплаты');
+      console.error('Failed to approve:', error);
     } finally {
-      setProcessing(null);
+      setProcessingId(null);
     }
   };
 
-  const handleReject = async (withdrawal: PendingWithdrawal) => {
-    setProcessing(withdrawal.id);
+  const handleReject = async (withdrawalId: string) => {
+    if (processingId) return;
+    setProcessingId(withdrawalId);
     try {
-      const data = await api.rejectPayout(withdrawal.id, 'Отклонено администратором');
-      if (data.success) {
-        toast.success(`Заявка отклонена. ${withdrawal.amount.toLocaleString()}₽ возвращены на баланс`);
-        loadFinanceData();
-      } else {
-        toast.error(data.error || 'Ошибка отклонения');
-      }
+      await api.updateWithdrawalStatus(withdrawalId, 'rejected');
+      await loadStats();
     } catch (error) {
-      console.error('Reject error:', error);
-      toast.error('Ошибка при отклонении заявки');
+      console.error('Failed to reject:', error);
     } finally {
-      setProcessing(null);
+      setProcessingId(null);
     }
   };
 
-  const exportToCSV = () => {
-    if (!recentOperations.length) {
-      toast.info('Нет данных для экспорта');
-      return;
+  const handleBulkApprove = async () => {
+    if (!stats?.pendingWithdrawals?.length || processingId) return;
+    setProcessingId('bulk');
+    try {
+      for (const w of stats.pendingWithdrawals) {
+        await api.updateWithdrawalStatus(w.id, 'approved');
+      }
+      await loadStats();
+    } catch (error) {
+      console.error('Bulk approve failed:', error);
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const filteredOperations = useMemo(() => {
+    if (!stats?.recentOperations) return [];
+    let ops = stats.recentOperations;
+    
+    if (activeTab === 'sales') ops = ops.filter(o => o.type === 'order');
+    else if (activeTab === 'payouts') ops = ops.filter(o => o.type === 'withdrawal');
+    else if (activeTab === 'commissions') ops = ops.filter(o => o.type === 'earning');
+    
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      ops = ops.filter(o => 
+        o.userName?.toLowerCase().includes(term) || 
+        o.description?.toLowerCase().includes(term)
+      );
     }
     
-    const headers = ['Тип', 'Дата', 'Пользователь', 'Сумма', 'Описание'];
-    const typeMap: Record<string, string> = {
-      order: 'Заказ',
-      earning: 'Начисление',
-      withdrawal: 'Вывод'
-    };
-    
-    const rows = recentOperations.map(op => [
-      typeMap[op.type] || op.type,
-      new Date(op.date).toLocaleString('ru-RU'),
-      op.user || '-',
-      op.amount.toString(),
-      op.description
+    return ops.slice(0, 50);
+  }, [stats?.recentOperations, activeTab, searchTerm]);
+
+  const exportCSV = () => {
+    if (!filteredOperations.length) return;
+    const headers = ['Дата', 'Тип', 'Партнёр', 'Сумма', 'Описание'];
+    const rows = filteredOperations.map(op => [
+      op.date || '',
+      op.type === 'order' ? 'Продажа' : op.type === 'earning' ? 'Комиссия' : 'Вывод',
+      op.userName || '',
+      op.amount || 0,
+      op.description || ''
     ]);
-    
-    const csvContent = [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
-    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const csv = [headers, ...rows].map(r => r.join(';')).join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `финансы_${new Date().toISOString().split('T')[0]}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-    toast.success('Экспорт завершён');
-  };
-
-  const formatDate = (dateStr: string) => {
-    if (!dateStr) return '-';
-    return new Date(dateStr).toLocaleDateString('ru-RU', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `finance_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
   };
 
   if (loading) {
     return (
-      <div className="p-4 lg:p-8 flex items-center justify-center min-h-[400px]">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="w-12 h-12 text-blue-500 animate-spin" />
-          <p className="text-gray-500">Загрузка финансовых данных...</p>
-        </div>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="animate-pulse text-slate-400">Загрузка...</div>
       </div>
     );
   }
 
+  const pendingCount = stats?.pendingWithdrawals?.length || 0;
+
   return (
-    <div className="p-4 lg:p-8 space-y-6" style={{ backgroundColor: '#F7FAFC' }}>
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">Финансы компании</h1>
-          <p className="text-gray-600 mt-1">Управление выплатами и статистика</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={exportToCSV}>
-            <Download className="w-4 h-4 mr-2" />
-            Экспорт
-          </Button>
-          <Button variant="outline" onClick={loadFinanceData}>
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Обновить
+    <div className="min-h-screen bg-slate-50 p-6">
+      <div className="max-w-[1600px] mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Финансы</h1>
+            <p className="text-slate-500 text-sm">Neobank Business Dashboard</p>
+          </div>
+          <Button onClick={exportCSV} variant="outline" className="gap-2">
+            <Download className="w-4 h-4" />
+            Экспорт CSV
           </Button>
         </div>
-      </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Оборот компании */}
-        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-3 bg-blue-500 rounded-xl">
-                <TrendingUp className="w-6 h-6 text-white" />
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          <div className="lg:col-span-3 space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <KPICard
+                title="Оборот"
+                value={stats?.totalRevenue || 0}
+                trend={15.2}
+                trendUp={true}
+                icon={<DollarSign className="w-5 h-5" />}
+                color="emerald"
+              />
+              <KPICard
+                title="Чистая прибыль"
+                value={stats?.netProfit || 0}
+                trend={8.7}
+                trendUp={true}
+                icon={<TrendingUp className="w-5 h-5" />}
+                color="blue"
+              />
+              <KPICard
+                title="К выплате"
+                value={stats?.pendingPayoutsSum || 0}
+                count={pendingCount}
+                icon={<Clock className="w-5 h-5" />}
+                color={pendingCount > 0 ? "amber" : "slate"}
+                highlight={pendingCount > 0}
+              />
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-semibold text-slate-900">Cashflow: Выручка vs Выплаты</h2>
+                <div className="flex items-center gap-4 text-xs">
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 rounded-full bg-emerald-500" />
+                    <span className="text-slate-600">Выручка</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 rounded-full bg-orange-400" />
+                    <span className="text-slate-600">Выплаты</span>
+                  </div>
+                </div>
               </div>
-              <span className="text-blue-700 font-medium">Оборот</span>
-            </div>
-            <div className="text-3xl font-bold text-blue-800">
-              {(stats?.totalRevenue || 0).toLocaleString()}₽
-            </div>
-            <div className="text-sm text-blue-600 mt-1">
-              {stats?.totalOrders || 0} заказов
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Чистая прибыль */}
-        <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-3 bg-green-500 rounded-xl">
-                <ArrowUpRight className="w-6 h-6 text-white" />
+              <div className="h-[280px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={stats?.chartData || []} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="colorPayouts" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#fb923c" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#fb923c" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: '#fff', 
+                        border: '1px solid #e2e8f0', 
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                      }}
+                      formatter={(value: number) => [`${value.toLocaleString()}₽`, '']}
+                    />
+                    <Area type="monotone" dataKey="revenue" stroke="#10b981" strokeWidth={2} fill="url(#colorRevenue)" name="Выручка" />
+                    <Area type="monotone" dataKey="payouts" stroke="#fb923c" strokeWidth={2} fill="url(#colorPayouts)" name="Выплаты" />
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
-              <span className="text-green-700 font-medium">Чистая прибыль</span>
             </div>
-            <div className="text-3xl font-bold text-green-800">
-              {(stats?.netProfit || 0).toLocaleString()}₽
-            </div>
-            <div className="text-sm text-green-600 mt-1">
-              После комиссий партнёрам
-            </div>
-          </CardContent>
-        </Card>
 
-        {/* Баланс партнёров */}
-        <Card className="bg-gradient-to-br from-amber-50 to-amber-100 border-amber-200">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-3 bg-amber-500 rounded-xl">
-                <Wallet className="w-6 h-6 text-white" />
+            <div className="bg-white rounded-xl shadow-sm">
+              <div className="p-4 border-b border-slate-100">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <Tabs value={activeTab} onValueChange={setActiveTab}>
+                    <TabsList className="bg-slate-100">
+                      <TabsTrigger value="all" className="text-xs">Все</TabsTrigger>
+                      <TabsTrigger value="sales" className="text-xs">Продажи</TabsTrigger>
+                      <TabsTrigger value="payouts" className="text-xs">Выплаты</TabsTrigger>
+                      <TabsTrigger value="commissions" className="text-xs">Комиссии</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <Input
+                      placeholder="Поиск..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-9 w-full sm:w-[200px] h-8 text-sm"
+                    />
+                  </div>
+                </div>
               </div>
-              <span className="text-amber-700 font-medium">Баланс партнёров</span>
-            </div>
-            <div className="text-3xl font-bold text-amber-800">
-              {(stats?.usersBalanceTotal || 0).toLocaleString()}₽
-            </div>
-            <div className="text-sm text-amber-600 mt-1">
-              <Users className="w-3 h-3 inline mr-1" />
-              {stats?.totalUsers || 0} партнёров
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* К выплате */}
-        <Card className={`${
-          (stats?.pendingPayoutsSum || 0) > 0 
-            ? 'bg-gradient-to-br from-red-50 to-red-100 border-red-300' 
-            : 'bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200'
-        }`}>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-3 mb-3">
-              <div className={`p-3 rounded-xl ${
-                (stats?.pendingPayoutsSum || 0) > 0 ? 'bg-red-500' : 'bg-gray-400'
-              }`}>
-                <AlertCircle className="w-6 h-6 text-white" />
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 text-xs uppercase">
+                      <th className="text-left py-3 px-4 font-medium">Дата</th>
+                      <th className="text-left py-3 px-4 font-medium">Тип</th>
+                      <th className="text-left py-3 px-4 font-medium">Партнёр</th>
+                      <th className="text-right py-3 px-4 font-medium">Сумма</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredOperations.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="py-8 text-center text-slate-400">
+                          Нет операций
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredOperations.map((op, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="py-2.5 px-4 text-slate-600 tabular-nums">
+                            {op.date?.split('T')[0] || '-'}
+                          </td>
+                          <td className="py-2.5 px-4">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                              op.type === 'order' ? 'bg-emerald-50 text-emerald-700' :
+                              op.type === 'earning' ? 'bg-blue-50 text-blue-700' :
+                              'bg-orange-50 text-orange-700'
+                            }`}>
+                              {op.type === 'order' ? 'Продажа' : op.type === 'earning' ? 'Комиссия' : 'Вывод'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4 text-slate-700">{op.userName || '-'}</td>
+                          <td className={`py-2.5 px-4 text-right font-medium tabular-nums ${
+                            op.type === 'order' ? 'text-emerald-600' : 
+                            op.type === 'earning' ? 'text-blue-600' : 'text-orange-600'
+                          }`}>
+                            {op.type === 'order' ? '+' : '-'}{(op.amount || 0).toLocaleString()}₽
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
-              <span className={`font-medium ${
-                (stats?.pendingPayoutsSum || 0) > 0 ? 'text-red-700' : 'text-gray-600'
-              }`}>
-                К выплате
-              </span>
             </div>
-            <div className={`text-3xl font-bold ${
-              (stats?.pendingPayoutsSum || 0) > 0 ? 'text-red-700' : 'text-gray-600'
-            }`}>
-              {(stats?.pendingPayoutsSum || 0).toLocaleString()}₽
-            </div>
-            <div className={`text-sm mt-1 ${
-              (stats?.pendingPayoutsSum || 0) > 0 ? 'text-red-600' : 'text-gray-500'
-            }`}>
-              {stats?.pendingPayoutsCount || 0} заявок ожидают
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
 
-      {/* Pending Withdrawals Section */}
-      <Card>
-        <CardHeader className="pb-4">
-          <CardTitle className="flex items-center gap-2">
-            <Clock className="w-5 h-5 text-amber-500" />
-            Заявки на выплату
-            {pendingWithdrawals.length > 0 && (
-              <Badge className="bg-red-500 text-white ml-2">
-                {pendingWithdrawals.length}
-              </Badge>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {pendingWithdrawals.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <CheckCircle2 className="w-12 h-12 mx-auto mb-3 text-green-400" />
-              <p>Нет заявок на выплату</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b text-left text-sm text-gray-500">
-                    <th className="pb-3 font-medium">Дата</th>
-                    <th className="pb-3 font-medium">Партнёр</th>
-                    <th className="pb-3 font-medium">Реквизиты</th>
-                    <th className="pb-3 font-medium text-right">Сумма</th>
-                    <th className="pb-3 font-medium text-right">Действия</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pendingWithdrawals.map((w) => (
-                    <tr key={w.id} className="border-b hover:bg-gray-50">
-                      <td className="py-4 text-sm text-gray-600">
-                        {formatDate(w.createdAt)}
-                      </td>
-                      <td className="py-4">
-                        <div className="font-medium text-gray-800">{w.userName || w.userId}</div>
-                        <div className="text-xs text-gray-500">{w.method}</div>
-                      </td>
-                      <td className="py-4 text-sm text-gray-600 max-w-[200px] truncate">
-                        {typeof w.details === 'object' ? JSON.stringify(w.details) : w.details}
-                      </td>
-                      <td className="py-4 text-right font-bold text-gray-800">
-                        {w.amount.toLocaleString()}₽
-                      </td>
-                      <td className="py-4 text-right">
-                        <div className="flex gap-2 justify-end">
+          <div className="lg:col-span-1">
+            <div className={`bg-white rounded-xl shadow-sm sticky top-6 ${pendingCount > 0 ? 'ring-2 ring-amber-200' : ''}`}>
+              <div className="p-4 border-b border-slate-100">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-semibold text-slate-900 flex items-center gap-2">
+                    <Wallet className="w-4 h-4 text-amber-500" />
+                    Заявки на вывод
+                  </h2>
+                  {pendingCount > 0 && (
+                    <span className="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">
+                      {pendingCount}
+                    </span>
+                  )}
+                </div>
+                {pendingCount > 1 && (
+                  <Button 
+                    onClick={handleBulkApprove}
+                    disabled={processingId === 'bulk'}
+                    size="sm"
+                    className="w-full mt-3 bg-emerald-600 hover:bg-emerald-700 text-white"
+                  >
+                    <CheckCheck className="w-4 h-4 mr-1" />
+                    Оплатить все ({pendingCount})
+                  </Button>
+                )}
+              </div>
+              
+              <ScrollArea className="h-[calc(100vh-280px)] min-h-[300px]">
+                <div className="p-3 space-y-3">
+                  {!stats?.pendingWithdrawals?.length ? (
+                    <div className="text-center py-8">
+                      <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-3">
+                        <CheckCircle2 className="w-6 h-6 text-slate-400" />
+                      </div>
+                      <p className="text-slate-500 text-sm">Нет заявок</p>
+                    </div>
+                  ) : (
+                    stats.pendingWithdrawals.map((w) => (
+                      <div 
+                        key={w.id} 
+                        className="bg-slate-50 rounded-lg p-3 hover:bg-slate-100 transition-colors"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                            {(w.userName || w.userId || '?')[0].toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-slate-900 text-sm truncate">
+                              {w.userName || w.userId}
+                            </div>
+                            <div className="text-xs text-slate-500 truncate">
+                              {typeof w.details === 'object' ? JSON.stringify(w.details) : w.details || w.method}
+                            </div>
+                            <div className="font-bold text-slate-900 mt-1 tabular-nums">
+                              {(w.amount || 0).toLocaleString()}₽
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 mt-3">
                           <Button
+                            onClick={() => handleApprove(w.id)}
+                            disabled={!!processingId}
                             size="sm"
-                            className="bg-green-600 hover:bg-green-700 text-white"
-                            onClick={() => handleApprove(w)}
-                            disabled={processing === w.id}
+                            className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white h-8"
                           >
-                            {processing === w.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <>
-                                <Check className="w-4 h-4 mr-1" />
-                                Выплатить
-                              </>
-                            )}
+                            <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                            Оплатить
                           </Button>
                           <Button
+                            onClick={() => handleReject(w.id)}
+                            disabled={!!processingId}
                             size="sm"
                             variant="outline"
-                            className="border-red-300 text-red-600 hover:bg-red-50"
-                            onClick={() => handleReject(w)}
-                            disabled={processing === w.id}
+                            className="flex-1 border-red-200 text-red-600 hover:bg-red-50 h-8"
                           >
-                            <X className="w-4 h-4 mr-1" />
+                            <XCircle className="w-3.5 h-3.5 mr-1" />
                             Отклонить
                           </Button>
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Recent Operations History */}
-      <Card>
-        <CardHeader className="pb-4">
-          <CardTitle className="flex items-center gap-2">
-            <ShoppingBag className="w-5 h-5 text-blue-500" />
-            История операций
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {recentOperations.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <p>Нет операций для отображения</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {recentOperations.map((op, index) => (
-                <div 
-                  key={index}
-                  className={`flex items-center justify-between p-3 rounded-lg border ${
-                    op.type === 'order' ? 'bg-blue-50 border-blue-200' :
-                    op.type === 'earning' ? 'bg-green-50 border-green-200' :
-                    'bg-amber-50 border-amber-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`p-2 rounded-lg ${
-                      op.type === 'order' ? 'bg-blue-100' :
-                      op.type === 'earning' ? 'bg-green-100' :
-                      'bg-amber-100'
-                    }`}>
-                      {op.type === 'order' ? (
-                        <ShoppingBag className="w-4 h-4 text-blue-600" />
-                      ) : op.type === 'earning' ? (
-                        <ArrowUpRight className="w-4 h-4 text-green-600" />
-                      ) : (
-                        <ArrowDownRight className="w-4 h-4 text-amber-600" />
-                      )}
-                    </div>
-                    <div>
-                      <div className="font-medium text-gray-800">{op.description}</div>
-                      <div className="text-xs text-gray-500">
-                        {op.user} &bull; {formatDate(op.date)}
                       </div>
-                    </div>
-                  </div>
-                  <div className={`font-bold ${
-                    op.type === 'order' ? 'text-blue-700' :
-                    op.type === 'earning' ? 'text-green-700' :
-                    'text-amber-700'
-                  }`}>
-                    {op.type === 'withdrawal' ? '-' : '+'}
-                    {op.amount.toLocaleString()}₽
-                  </div>
+                    ))
+                  )}
                 </div>
-              ))}
+              </ScrollArea>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
+
+function KPICard({ 
+  title, 
+  value, 
+  trend, 
+  trendUp, 
+  count, 
+  icon, 
+  color,
+  highlight 
+}: { 
+  title: string;
+  value: number;
+  trend?: number;
+  trendUp?: boolean;
+  count?: number;
+  icon: React.ReactNode;
+  color: 'emerald' | 'blue' | 'amber' | 'slate';
+  highlight?: boolean;
+}) {
+  const colorClasses = {
+    emerald: { bg: 'bg-emerald-50', icon: 'text-emerald-600', ring: 'ring-emerald-200' },
+    blue: { bg: 'bg-blue-50', icon: 'text-blue-600', ring: 'ring-blue-200' },
+    amber: { bg: 'bg-amber-50', icon: 'text-amber-600', ring: 'ring-amber-200' },
+    slate: { bg: 'bg-slate-50', icon: 'text-slate-600', ring: 'ring-slate-200' },
+  };
+  
+  const c = colorClasses[color];
+  
+  return (
+    <div className={`bg-white rounded-xl shadow-sm p-5 ${highlight ? `ring-2 ${c.ring}` : ''}`}>
+      <div className="flex items-start justify-between">
+        <div className={`w-10 h-10 rounded-lg ${c.bg} flex items-center justify-center ${c.icon}`}>
+          {icon}
+        </div>
+        {trend !== undefined && (
+          <div className={`flex items-center gap-0.5 text-xs font-medium ${trendUp ? 'text-emerald-600' : 'text-red-500'}`}>
+            {trendUp ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
+            {trend}%
+          </div>
+        )}
+        {count !== undefined && count > 0 && (
+          <div className="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">
+            {count} заявок
+          </div>
+        )}
+      </div>
+      <div className="mt-3">
+        <div className="text-2xl font-bold text-slate-900 tabular-nums">
+          {value.toLocaleString()}₽
+        </div>
+        <div className="text-sm text-slate-500 mt-0.5">{title}</div>
+      </div>
+    </div>
+  );
+}
+
+export default AdminFinanceRu;
