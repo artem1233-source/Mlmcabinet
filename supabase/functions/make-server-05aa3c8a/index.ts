@@ -4816,7 +4816,7 @@ app.get("/make-server-05aa3c8a/admin/products", async (c) => {
   }
 });
 
-// Create product
+// Create product (SQL only - NO KV fallback)
 app.post("/make-server-05aa3c8a/admin/products", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
@@ -4828,15 +4828,9 @@ app.post("/make-server-05aa3c8a/admin/products", async (c) => {
       return c.json({ error: 'Название и SKU обязательны' }, 400);
     }
     
-    // Check if SKU already exists
-    const existingProduct = await kv.get(`product:sku:${sku}`);
-    if (existingProduct) {
-      return c.json({ error: 'Продукт с таким SKU уже существует' }, 400);
-    }
-    
     const productId = `prod_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    const product = {
+    const productData = {
       id: productId,
       название: название || '',
       описание: описание || '',
@@ -4848,27 +4842,47 @@ app.post("/make-server-05aa3c8a/admin/products", async (c) => {
       цена4: Number(цена4) || 0,
       цена_розница: Number(цена_розница) || 0,
       категория: категория || 'general',
-      в_архиве: в_архиве === true,  // false = активен, true = в архиве
-      archived: в_архиве === true,   // для совместимости
-      создан: new Date().toISOString(),
-      обновлён: new Date().toISOString()
+      в_архиве: в_архиве === true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
     };
     
-    console.log(`💾 Saving product with ID: ${productId}, SKU: ${sku}`);
-    await kv.set(`product:${productId}`, product);
-    await kv.set(`product:sku:${sku}`, product);
+    console.log(`💾 [SQL] Creating product: ${productId}, SKU: ${sku}`);
+    console.log(`📋 Product data:`, productData);
     
-    console.log(`✅ Product created: ${productId}, SKU: ${sku}`);
-    console.log(`📋 Product data:`, { id: product.id, название: product.название, sku: product.sku });
+    // 🔥 SQL INSERT - NO FALLBACK
+    const { data: insertedProduct, error: insertError } = await supabase
+      .from('products')
+      .insert(productData)
+      .select()
+      .single();
     
-    return c.json({ success: true, product });
+    if (insertError) {
+      console.error(`❌ [SQL ERROR] Product insert failed:`);
+      console.error(`   message: ${insertError.message}`);
+      console.error(`   details: ${insertError.details}`);
+      console.error(`   hint: ${insertError.hint}`);
+      console.error(`   code: ${insertError.code}`);
+      
+      return c.json({ 
+        success: false,
+        error: `SQL Error: ${insertError.message}`,
+        details: insertError.details || null,
+        hint: insertError.hint || null,
+        code: insertError.code || null
+      }, 500);
+    }
+    
+    console.log(`✅ [SQL] Product created successfully: ${productId}`);
+    
+    return c.json({ success: true, product: insertedProduct });
   } catch (error) {
-    console.log(`Admin create product error: ${error}`);
+    console.error(`❌ Admin create product exception: ${error}`);
     return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
   }
 });
 
-// Update product
+// Update product (SQL only - NO KV fallback)
 app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
@@ -4877,37 +4891,60 @@ app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
     const productId = c.req.param('productId');
     const updates = await c.req.json();
     
-    const product = await kv.get(`product:${productId}`);
-    if (!product) {
-      return c.json({ error: 'Продукт не найден' }, 404);
-    }
+    // Build update object (exclude id and created_at)
+    const updateData: any = {};
+    const allowedFields = ['название', 'описание', 'sku', 'изображение', 'цена1', 'цена2', 'цена3', 'цена4', 'цена_розница', 'категория', 'в_архиве'];
     
-    const oldSku = product.sku;
-    
-    // Update product fields
-    Object.keys(updates).forEach(key => {
-      if (key !== 'id' && key !== 'создан') {
-        product[key] = updates[key];
+    allowedFields.forEach(key => {
+      if (updates[key] !== undefined) {
+        if (['цена1', 'цена2', 'цена3', 'цена4', 'цена_розница'].includes(key)) {
+          updateData[key] = Number(updates[key]) || 0;
+        } else if (key === 'в_архиве') {
+          updateData[key] = updates[key] === true;
+        } else {
+          updateData[key] = updates[key];
+        }
       }
     });
     
-    product.обновлён = new Date().toISOString();
+    updateData.updated_at = new Date().toISOString();
     
-    await kv.set(`product:${productId}`, product);
+    console.log(`💾 [SQL] Updating product: ${productId}`);
+    console.log(`📋 Update data:`, updateData);
     
-    // Update SKU index if changed
-    if (updates.sku && updates.sku !== oldSku) {
-      await kv.del(`product:sku:${oldSku}`);
-      await kv.set(`product:sku:${updates.sku}`, product);
-    } else {
-      await kv.set(`product:sku:${oldSku}`, product);
+    // 🔥 SQL UPDATE - NO FALLBACK
+    const { data: updatedProduct, error: updateError } = await supabase
+      .from('products')
+      .update(updateData)
+      .eq('id', productId)
+      .select()
+      .single();
+    
+    if (updateError) {
+      console.error(`❌ [SQL ERROR] Product update failed:`);
+      console.error(`   message: ${updateError.message}`);
+      console.error(`   details: ${updateError.details}`);
+      console.error(`   hint: ${updateError.hint}`);
+      console.error(`   code: ${updateError.code}`);
+      
+      return c.json({ 
+        success: false,
+        error: `SQL Error: ${updateError.message}`,
+        details: updateError.details || null,
+        hint: updateError.hint || null,
+        code: updateError.code || null
+      }, 500);
     }
     
-    console.log(`Product updated: ${productId}`);
+    if (!updatedProduct) {
+      return c.json({ error: 'Продукт не найден' }, 404);
+    }
     
-    return c.json({ success: true, product });
+    console.log(`✅ [SQL] Product updated successfully: ${productId}`);
+    
+    return c.json({ success: true, product: updatedProduct });
   } catch (error) {
-    console.log(`Admin update product error: ${error}`);
+    console.error(`❌ Admin update product exception: ${error}`);
     return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
   }
 });
