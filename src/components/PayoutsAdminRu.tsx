@@ -71,7 +71,7 @@ export function PayoutsAdminRu({ currentUser: _currentUser }: PayoutsAdminRuProp
             userName: w.userName || w.userИмя || w.userId,
             amount: w.amount || 0,
             method: w.method || 'card',
-            details: w.details || '',
+            details: typeof w.details === 'object' ? (w.details?.details || JSON.stringify(w.details)) : (w.details || ''),
             status: w.status || 'pending',
             createdAt: w.createdAt || w.requestedAt || new Date().toISOString(),
             processedAt: w.processedAt,
