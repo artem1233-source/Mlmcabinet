@@ -4950,19 +4950,35 @@ app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
     
     updateData.updated_at = new Date().toISOString();
     
-    console.log(`💾 [SQL] Updating product: ${productId}`);
-    console.log(`📋 Update data:`, updateData);
+    // Add id explicitly for upsert
+    updateData.id = productId;
     
-    // 🔥 SQL UPDATE - NO FALLBACK
+    // Set defaults for new products (upsert may create)
+    if (!updateData.created_at) {
+      updateData.created_at = new Date().toISOString();
+    }
+    if (updateData.is_active === undefined) {
+      updateData.is_active = true;
+    }
+    if (updateData.in_stock === undefined) {
+      updateData.in_stock = true;
+    }
+    if (updateData.is_archived === undefined) {
+      updateData.is_archived = false;
+    }
+    
+    console.log(`💾 [SQL] Upserting product: ${productId}`);
+    console.log(`📋 Upsert data:`, updateData);
+    
+    // 🔥 SQL UPSERT - creates if not exists, updates if exists
     const { data: updatedProduct, error: updateError } = await supabase
       .from('products')
-      .update(updateData)
-      .eq('id', productId)
+      .upsert(updateData, { onConflict: 'id' })
       .select()
       .single();
     
     if (updateError) {
-      console.error(`❌ [SQL ERROR] Product update failed:`);
+      console.error(`❌ [SQL ERROR] Product upsert failed:`);
       console.error(`   message: ${updateError.message}`);
       console.error(`   details: ${updateError.details}`);
       console.error(`   hint: ${updateError.hint}`);
@@ -4978,10 +4994,10 @@ app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
     }
     
     if (!updatedProduct) {
-      return c.json({ error: 'Продукт не найден' }, 404);
+      return c.json({ error: 'Не удалось сохранить продукт' }, 500);
     }
     
-    console.log(`✅ [SQL] Product updated successfully: ${productId}`);
+    console.log(`✅ [SQL] Product upserted successfully: ${productId}`);
     
     return c.json({ success: true, product: updatedProduct });
   } catch (error) {
