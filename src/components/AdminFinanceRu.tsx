@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { 
   TrendingUp, DollarSign, Wallet, CheckCircle2, XCircle, Search, Download,
-  ArrowUpRight, ArrowDownRight, Clock, CheckCheck, Landmark, CreditCard, PartyPopper
+  ArrowUpRight, ArrowDownRight, Clock, CheckCheck, Landmark, CreditCard, PartyPopper,
+  Calendar, ChevronDown, Check
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -29,7 +30,18 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('all');
-  const [dateRange, setDateRange] = useState('30d');
+  const [dateRange, setDateRange] = useState('365d');
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  const dateRangeOptions = [
+    { value: '7d', label: 'Последние 7 дней' },
+    { value: '30d', label: 'Последние 30 дней' },
+    { value: '90d', label: 'Последние 90 дней' },
+    { value: '365d', label: 'Последний год' },
+    { value: 'all', label: 'Всё время' },
+  ];
+
+  const selectedLabel = dateRangeOptions.find(o => o.value === dateRange)?.label || 'Последний год';
 
   useEffect(() => {
     loadStats();
@@ -174,17 +186,41 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
             <p className="text-slate-500 text-sm">Управление денежными потоками компании</p>
           </div>
           <div className="flex items-center gap-3">
-            <select
-              value={dateRange}
-              onChange={(e) => setDateRange(e.target.value)}
-              className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-600"
-            >
-              <option value="7d">Последние 7 дней</option>
-              <option value="30d">Последний месяц</option>
-              <option value="90d">Последний квартал</option>
-              <option value="365d">Последний год</option>
-            </select>
-            <Button onClick={exportCSV} variant="outline" className="gap-2">
+            <div className="relative">
+              <button
+                onClick={() => setDropdownOpen(!dropdownOpen)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-full text-sm text-slate-700 hover:border-slate-300 transition-colors shadow-sm"
+              >
+                <Calendar className="w-4 h-4 text-slate-400" />
+                <span className="font-medium">{selectedLabel}</span>
+                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {dropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
+                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl border border-slate-100 shadow-lg z-50 py-2">
+                    {dateRangeOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        onClick={() => {
+                          setDateRange(option.value);
+                          setDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left hover:bg-slate-50 transition-colors ${
+                          dateRange === option.value ? 'bg-blue-50 text-blue-600' : 'text-slate-700'
+                        }`}
+                      >
+                        <span>{option.label}</span>
+                        {dateRange === option.value && (
+                          <Check className="w-4 h-4 text-blue-600" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <Button onClick={exportCSV} variant="outline" className="gap-2 rounded-full px-4">
               <Download className="w-4 h-4" />
               Экспорт
             </Button>
