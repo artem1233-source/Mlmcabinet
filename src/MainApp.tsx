@@ -19,6 +19,7 @@ import { MarketingToolsRu } from './components/MarketingToolsRu';
 import { EarningsRu } from './components/EarningsRu';
 import { AdminRu } from './components/AdminRu';
 import { AdminPanel } from './components/AdminPanel';
+import { PayoutsAdminRu } from './components/PayoutsAdminRu';
 import { Menu, ShoppingCart } from 'lucide-react';
 import { Button } from './components/ui/button';
 import * as api from './utils/api.ts';
@@ -395,6 +396,9 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
       case 'админ':
       case 'admin':
         return <AdminRu currentUser={currentUser} />;
+      case 'выплаты':
+      case 'payouts':
+        return <PayoutsAdminRu currentUser={currentUser} />;
       case 'управление-админами':
       case 'admin-management':
         return <AdminPanel currentUser={currentUser} />;

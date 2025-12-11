@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, ShoppingBag, Wallet, Package, GraduationCap, UserCircle, Settings, Droplet, TrendingUp, Bell, Shield, Trophy, Sparkles } from 'lucide-react';
+import { LayoutDashboard, Users, ShoppingBag, Wallet, Package, GraduationCap, UserCircle, Settings, Droplet, TrendingUp, Bell, Shield, Trophy, Sparkles, CreditCard } from 'lucide-react';
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from './ui/sheet';
 
 interface SidebarProps {
@@ -32,6 +32,8 @@ export function SidebarRu({ текущаяВкладка, изменитьВкл
     { id: 'настройки', label: 'Настройки', icon: Settings },
     // 🆕 Админ-панель (только для админов)
     ...(isAdmin ? [{ id: 'админ', label: 'Админ-панель', icon: Shield }] : []),
+    // 💸 Выплаты (только для админов)
+    ...(isAdmin ? [{ id: 'выплаты', label: 'Выплаты', icon: CreditCard }] : []),
     // 👑 Управление админами (только для CEO)
     ...(isCEO ? [{ id: 'управление-админами', label: 'Управление админами', icon: Shield }] : []),
   ];
