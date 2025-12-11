@@ -3137,7 +3137,7 @@ app.get("/make-server-05aa3c8a/earnings", async (c) => {
   }
 });
 
-// Request withdrawal
+// Request withdrawal (SQL payouts table)
 app.post("/make-server-05aa3c8a/withdrawal", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
@@ -3151,20 +3151,23 @@ app.post("/make-server-05aa3c8a/withdrawal", async (c) => {
       return c.json({ error: "Insufficient balance" }, 400);
     }
     
-    // Create withdrawal request
-    const withdrawalId = `withdrawal:${Date.now()}`;
-    const withdrawal = {
-      id: withdrawalId,
-      userId: currentUser.id,
-      amount,
-      method, // USDT, bank, etc.
-      details, // wallet address, bank account, etc.
-      status: 'pending', // pending, processing, completed, rejected
-      createdAt: new Date().toISOString()
-    };
+    // Insert into SQL payouts table
+    const { data: payout, error: insertError } = await supabase
+      .from('payouts')
+      .insert({
+        user_id: currentUser.id,
+        amount: amount,
+        method: method || 'bank',
+        details: typeof details === 'object' ? JSON.stringify(details) : details,
+        status: 'pending'
+      })
+      .select()
+      .single();
     
-    await kv.set(withdrawalId, withdrawal);
-    await kv.set(`withdrawal:user:${currentUser.id}:${withdrawalId}`, withdrawal);
+    if (insertError) {
+      console.log(`Supabase insert error: ${insertError.message}`);
+      return c.json({ error: `Failed to create payout: ${insertError.message}` }, 500);
+    }
     
     // Deduct from balance (will be refunded if rejected)
     currentUser.баланс -= amount;
@@ -3173,9 +3176,21 @@ app.post("/make-server-05aa3c8a/withdrawal", async (c) => {
       await kv.set(`user:tg:${currentUser.telegramId}`, currentUser);
     }
     
-    console.log(`Withdrawal requested: ${amount} by ${currentUser.имя}`);
+    console.log(`💸 Withdrawal requested: ${amount}₽ by ${currentUser.имя} (SQL payout id: ${payout.id})`);
     
-    return c.json({ success: true, withdrawal });
+    return c.json({ 
+      success: true, 
+      withdrawal: {
+        id: payout.id,
+        oderId: payout.id,
+        userId: payout.user_id,
+        amount: payout.amount,
+        method: payout.method,
+        details: payout.details,
+        status: payout.status,
+        createdAt: payout.created_at
+      }
+    });
     
   } catch (error) {
     console.log(`Withdrawal error: ${error}`);
@@ -3183,15 +3198,37 @@ app.post("/make-server-05aa3c8a/withdrawal", async (c) => {
   }
 });
 
-// Get withdrawal history
+// Get withdrawal history (SQL payouts table)
 app.get("/make-server-05aa3c8a/withdrawals", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     
-    const withdrawals = await kv.getByPrefix(`withdrawal:user:${currentUser.id}:`);
-    const withdrawalsArray = Array.isArray(withdrawals) ? withdrawals : [];
+    const { data: payouts, error: selectError } = await supabase
+      .from('payouts')
+      .select('*')
+      .eq('user_id', currentUser.id)
+      .order('created_at', { ascending: false });
     
-    return c.json({ success: true, withdrawals: withdrawalsArray });
+    if (selectError) {
+      console.log(`Supabase select error: ${selectError.message}`);
+      return c.json({ success: false, error: selectError.message, withdrawals: [] }, 500);
+    }
+    
+    const withdrawals = (payouts || []).map((p: any) => ({
+      id: p.id,
+      oderId: p.id,
+      userId: p.user_id,
+      amount: p.amount,
+      method: p.method,
+      details: p.details,
+      status: p.status,
+      createdAt: p.created_at,
+      processedAt: p.processed_at,
+      processedBy: p.processed_by,
+      adminComment: p.admin_comment
+    }));
+    
+    return c.json({ success: true, withdrawals });
   } catch (error) {
     console.log(`Get withdrawals error: ${error}`);
     return c.json({ 
@@ -4053,13 +4090,13 @@ app.post("/make-server-05aa3c8a/admin/orders/:orderId/status", async (c) => {
   }
 });
 
-// 💰 Admin Finance Stats - Global company metrics
+// 💰 Admin Finance Stats - Global company metrics (SQL payouts)
 app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    // 1. Total Revenue - сумма всех оплаченных заказов
+    // 1. Total Revenue - сумма всех оплаченных заказов (KV)
     const allOrders = await kv.getByPrefix('order:');
     const ordersArray = Array.isArray(allOrders) ? allOrders : [];
     const completedOrders = ordersArray.filter((o: any) => 
@@ -4069,26 +4106,26 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
       sum + (o.итого || o.total || o.сумма || 0), 0
     );
     
-    // 2. Users Balance Total - долг системы перед партнёрами
+    // 2. Users Balance Total - долг системы перед партнёрами (KV)
     const allUsers = await kv.getByPrefix('user:id:');
     const usersArray = Array.isArray(allUsers) ? allUsers : [];
     const usersBalanceTotal = usersArray.reduce((sum: number, u: any) => 
       sum + (u.баланс || u.balance || 0), 0
     );
     
-    // 3. Pending Payouts - заявки ожидающие выплаты
-    const allWithdrawals = await kv.getByPrefix('withdrawal:');
-    const withdrawalsArray = Array.isArray(allWithdrawals) ? allWithdrawals : [];
-    // Фильтруем дубликаты по id
-    const uniqueWithdrawals = withdrawalsArray.filter((w: any, index: number, self: any[]) =>
-      w.id && index === self.findIndex((t: any) => t.id === w.id)
-    );
-    const pendingWithdrawals = uniqueWithdrawals.filter((w: any) => w.status === 'pending');
-    const pendingPayoutsSum = pendingWithdrawals.reduce((sum: number, w: any) => 
-      sum + (w.amount || w.сумма || 0), 0
+    // 3. Pending Payouts - заявки ожидающие выплаты (SQL payouts table)
+    const { data: pendingPayoutsData } = await supabase
+      .from('payouts')
+      .select('*, profiles:user_id(id, имя, email)')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false });
+    
+    const pendingWithdrawals = pendingPayoutsData || [];
+    const pendingPayoutsSum = pendingWithdrawals.reduce((sum: number, p: any) => 
+      sum + (p.amount || 0), 0
     );
     
-    // 4. Total Earnings - все начисления партнёрам
+    // 4. Total Earnings - все начисления партнёрам (KV)
     const allEarnings = await kv.getByPrefix('earning:');
     const earningsArray = Array.isArray(allEarnings) ? allEarnings : [];
     const totalEarnings = earningsArray.reduce((sum: number, e: any) => 
@@ -4098,15 +4135,24 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
     // 5. Net Profit - чистая прибыль компании
     const netProfit = totalRevenue - totalEarnings;
     
-    // 6. Completed payouts
-    const completedWithdrawals = uniqueWithdrawals.filter((w: any) => 
-      w.status === 'completed' || w.status === 'approved'
-    );
-    const totalPaidOut = completedWithdrawals.reduce((sum: number, w: any) => 
-      sum + (w.amount || w.сумма || 0), 0
+    // 6. Completed payouts (SQL)
+    const { data: completedPayoutsData } = await supabase
+      .from('payouts')
+      .select('amount')
+      .eq('status', 'approved');
+    
+    const totalPaidOut = (completedPayoutsData || []).reduce((sum: number, p: any) => 
+      sum + (p.amount || 0), 0
     );
     
-    // 7. Recent operations for history
+    // 7. All payouts for history (SQL)
+    const { data: allPayoutsData } = await supabase
+      .from('payouts')
+      .select('*, profiles:user_id(id, имя, email)')
+      .order('created_at', { ascending: false })
+      .limit(20);
+    
+    // 8. Recent operations for history
     const recentOperations = [
       ...completedOrders.slice(-10).map((o: any) => ({
         type: 'order',
@@ -4122,17 +4168,17 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
         description: `Начисление L${e.level || 0}`,
         user: e.userName || e.userId
       })),
-      ...uniqueWithdrawals.slice(-10).map((w: any) => ({
+      ...(allPayoutsData || []).map((p: any) => ({
         type: 'withdrawal',
-        date: w.createdAt,
-        amount: w.amount || 0,
-        status: w.status,
-        description: `Вывод ${w.status === 'completed' ? '✓' : w.status === 'pending' ? '⏳' : '✗'}`,
-        user: w.userName || w.userId
+        date: p.created_at,
+        amount: p.amount || 0,
+        status: p.status,
+        description: `Вывод ${p.status === 'approved' ? '✓' : p.status === 'pending' ? '⏳' : '✗'}`,
+        user: p.profiles?.имя || p.profiles?.email || p.user_id
       }))
     ].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()).slice(0, 20);
     
-    console.log(`📊 Admin finance stats: revenue=${totalRevenue}, balance=${usersBalanceTotal}, pending=${pendingPayoutsSum}`);
+    console.log(`📊 Admin finance stats (SQL): revenue=${totalRevenue}, balance=${usersBalanceTotal}, pending=${pendingPayoutsSum}`);
     
     return c.json({
       success: true,
@@ -4147,15 +4193,15 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
         totalOrders: completedOrders.length,
         totalUsers: usersArray.length
       },
-      pendingWithdrawals: pendingWithdrawals.map((w: any) => ({
-        id: w.id,
-        oderId: w.id,
-        userId: w.userId,
-        userName: w.userName,
-        amount: w.amount || 0,
-        details: typeof w.details === 'object' ? JSON.stringify(w.details) : w.details,
-        method: w.method,
-        createdAt: w.createdAt
+      pendingWithdrawals: pendingWithdrawals.map((p: any) => ({
+        id: p.id,
+        oderId: p.id,
+        userId: p.user_id,
+        userName: p.profiles?.имя || p.profiles?.email || p.user_id,
+        amount: p.amount || 0,
+        details: p.details,
+        method: p.method,
+        createdAt: p.created_at
       })),
       recentOperations
     });
@@ -4171,16 +4217,38 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
   }
 });
 
-// Get all withdrawals
+// Get all withdrawals (SQL payouts table)
 app.get("/make-server-05aa3c8a/admin/withdrawals", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    const withdrawals = await kv.getByPrefix('withdrawal:');
-    const withdrawalsArray = Array.isArray(withdrawals) ? withdrawals : [];
+    const { data: payouts, error: selectError } = await supabase
+      .from('payouts')
+      .select('*, profiles:user_id(id, имя, email)')
+      .order('created_at', { ascending: false });
     
-    return c.json({ success: true, withdrawals: withdrawalsArray });
+    if (selectError) {
+      console.log(`Supabase select error: ${selectError.message}`);
+      return c.json({ success: false, error: selectError.message, withdrawals: [] }, 500);
+    }
+    
+    const withdrawals = (payouts || []).map((p: any) => ({
+      id: p.id,
+      oderId: p.id,
+      userId: p.user_id,
+      userName: p.profiles?.имя || p.profiles?.email || p.user_id,
+      amount: p.amount,
+      method: p.method,
+      details: p.details,
+      status: p.status,
+      createdAt: p.created_at,
+      processedAt: p.processed_at,
+      processedBy: p.processed_by,
+      adminComment: p.admin_comment
+    }));
+    
+    return c.json({ success: true, withdrawals });
   } catch (error) {
     console.log(`Admin get withdrawals error: ${error}`);
     return c.json({ 
@@ -4191,7 +4259,7 @@ app.get("/make-server-05aa3c8a/admin/withdrawals", async (c) => {
   }
 });
 
-// Update withdrawal status (approve/reject)
+// Update withdrawal status (approve/reject) - SQL payouts table
 app.post("/make-server-05aa3c8a/admin/withdrawals/:withdrawalId/status", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
@@ -4204,55 +4272,74 @@ app.post("/make-server-05aa3c8a/admin/withdrawals/:withdrawalId/status", async (
       return c.json({ error: 'Неверный статус. Допустимые: pending, approved, rejected' }, 400);
     }
     
-    const withdrawal = await kv.get(`withdrawal:${withdrawalId}`);
-    if (!withdrawal) {
+    // Get current payout from SQL
+    const { data: payout, error: getError } = await supabase
+      .from('payouts')
+      .select('*')
+      .eq('id', withdrawalId)
+      .single();
+    
+    if (getError || !payout) {
       return c.json({ error: 'Заявка на вывод не найдена' }, 404);
     }
     
-    const previousStatus = withdrawal.status;
-    withdrawal.status = status;
-    withdrawal.adminComment = adminComment || withdrawal.adminComment;
-    withdrawal.processedAt = new Date().toISOString();
-    withdrawal.processedBy = currentUser.id;
+    const previousStatus = payout.status;
     
-    // 🔄 Если отклонено — вернуть деньги на баланс пользователя
+    // Update payout in SQL
+    const { data: updatedPayout, error: updateError } = await supabase
+      .from('payouts')
+      .update({
+        status: status,
+        admin_comment: adminComment || payout.admin_comment,
+        processed_at: new Date().toISOString(),
+        processed_by: currentUser.id
+      })
+      .eq('id', withdrawalId)
+      .select()
+      .single();
+    
+    if (updateError) {
+      console.log(`Supabase update error: ${updateError.message}`);
+      return c.json({ error: `Failed to update payout: ${updateError.message}` }, 500);
+    }
+    
+    // 🔄 Если отклонено — вернуть деньги на баланс пользователя (KV)
     if (status === 'rejected' && previousStatus === 'pending') {
-      const user = await kv.get(`user:id:${withdrawal.userId}`);
+      const user = await kv.get(`user:id:${payout.user_id}`);
       if (user) {
-        user.баланс = (user.баланс || 0) + withdrawal.amount;
-        user.доступныйБаланс = (user.доступныйБаланс || 0) + withdrawal.amount;
-        await kv.set(`user:id:${withdrawal.userId}`, user);
+        user.баланс = (user.баланс || 0) + payout.amount;
+        user.доступныйБаланс = (user.доступныйБаланс || 0) + payout.amount;
+        await kv.set(`user:id:${payout.user_id}`, user);
         if (user.telegramId) {
           await kv.set(`user:tg:${user.telegramId}`, user);
         }
-        console.log(`💸 Возврат ${withdrawal.amount}₽ на баланс пользователя ${withdrawal.userId}`);
+        console.log(`💸 Возврат ${payout.amount}₽ на баланс пользователя ${payout.user_id}`);
       }
     }
     
-    // ✅ Если одобрено — создаём запись в истории выплат
+    // ✅ Если одобрено — логируем
     if (status === 'approved') {
-      const payoutHistoryId = `payout_history:${Date.now()}`;
-      const payoutRecord = {
-        id: payoutHistoryId,
-        withdrawalId: withdrawal.id,
-        userId: withdrawal.userId,
-        amount: withdrawal.amount,
-        details: withdrawal.details,
-        approvedAt: new Date().toISOString(),
-        approvedBy: currentUser.id,
-        adminComment: adminComment || ''
-      };
-      await kv.set(payoutHistoryId, payoutRecord);
-      await kv.set(`payout_history:user:${withdrawal.userId}:${payoutHistoryId}`, payoutRecord);
-      console.log(`✅ Выплата ${withdrawal.amount}₽ одобрена для ${withdrawal.userId}`);
+      console.log(`✅ Выплата ${payout.amount}₽ одобрена для ${payout.user_id}`);
     }
     
-    await kv.set(`withdrawal:${withdrawalId}`, withdrawal);
-    await kv.set(`withdrawal:user:${withdrawal.userId}:${withdrawalId}`, withdrawal);
+    console.log(`Admin ${currentUser.id} updated payout ${withdrawalId} to ${status}`);
     
-    console.log(`Admin ${currentUser.id} updated withdrawal ${withdrawalId} to ${status}`);
-    
-    return c.json({ success: true, withdrawal });
+    return c.json({ 
+      success: true, 
+      withdrawal: {
+        id: updatedPayout.id,
+        oderId: updatedPayout.id,
+        userId: updatedPayout.user_id,
+        amount: updatedPayout.amount,
+        method: updatedPayout.method,
+        details: updatedPayout.details,
+        status: updatedPayout.status,
+        createdAt: updatedPayout.created_at,
+        processedAt: updatedPayout.processed_at,
+        processedBy: updatedPayout.processed_by,
+        adminComment: updatedPayout.admin_comment
+      }
+    });
   } catch (error) {
     console.log(`Admin update withdrawal error: ${error}`);
     return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
