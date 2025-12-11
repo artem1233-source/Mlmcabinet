@@ -4830,17 +4830,24 @@ app.post("/make-server-05aa3c8a/admin/products", async (c) => {
     
     const productId = `prod_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
+    // Map prices: цена_розница→price_retail, цена1→price_partner, цена2→price_l2, цена3→price_l3, цена4→price_company
+    const priceRetail = Number(цена_розница) || Number(цена1) || 0;
+    const pricePartner = Number(цена1) || Number(цена2) || 0;
+    const priceL2 = Number(цена2) || Number(цена3) || 0;
+    const priceL3 = Number(цена3) || Number(цена4) || 0;
+    const priceCompany = Number(цена4) || Math.round(priceL3 * 0.9) || 0;
+    
     const productData = {
       id: productId,
       name: название || '',
       description: описание || '',
       sku: sku,
       image_url: изображение || '',
-      price1: Number(цена1) || 0,
-      price2: Number(цена2) || 0,
-      price3: Number(цена3) || 0,
-      price4: Number(цена4) || 0,
-      retail_price: Number(цена_розница) || 0,
+      price_retail: priceRetail,
+      price_partner: pricePartner,
+      price_l2: priceL2,
+      price_l3: priceL3,
+      price_company: priceCompany,
       category: категория || 'general',
       is_archived: в_архиве === true,
       is_active: true,
@@ -4913,21 +4920,21 @@ app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
       updateData.category = updates.категория || updates.category || 'general';
     }
     
-    // Price fields mapping
-    if (updates.цена1 !== undefined || updates.price1 !== undefined) {
-      updateData.price1 = Number(updates.цена1 ?? updates.price1) || 0;
+    // Price fields mapping (цена_розница→price_retail, цена1→price_partner, цена2→price_l2, цена3→price_l3, цена4→price_company)
+    if (updates.цена_розница !== undefined || updates.price_retail !== undefined || updates.price1 !== undefined) {
+      updateData.price_retail = Number(updates.цена_розница ?? updates.price_retail ?? updates.price1) || 0;
     }
-    if (updates.цена2 !== undefined || updates.price2 !== undefined) {
-      updateData.price2 = Number(updates.цена2 ?? updates.price2) || 0;
+    if (updates.цена1 !== undefined || updates.price_partner !== undefined || updates.price2 !== undefined) {
+      updateData.price_partner = Number(updates.цена1 ?? updates.price_partner ?? updates.price2) || 0;
     }
-    if (updates.цена3 !== undefined || updates.price3 !== undefined) {
-      updateData.price3 = Number(updates.цена3 ?? updates.price3) || 0;
+    if (updates.цена2 !== undefined || updates.price_l2 !== undefined || updates.price3 !== undefined) {
+      updateData.price_l2 = Number(updates.цена2 ?? updates.price_l2 ?? updates.price3) || 0;
     }
-    if (updates.цена4 !== undefined || updates.price4 !== undefined) {
-      updateData.price4 = Number(updates.цена4 ?? updates.price4) || 0;
+    if (updates.цена3 !== undefined || updates.price_l3 !== undefined || updates.price4 !== undefined) {
+      updateData.price_l3 = Number(updates.цена3 ?? updates.price_l3 ?? updates.price4) || 0;
     }
-    if (updates.цена_розница !== undefined || updates.retail_price !== undefined) {
-      updateData.retail_price = Number(updates.цена_розница ?? updates.retail_price) || 0;
+    if (updates.цена4 !== undefined || updates.price_company !== undefined || updates.price5 !== undefined) {
+      updateData.price_company = Number(updates.цена4 ?? updates.price_company ?? updates.price5) || 0;
     }
     
     // Boolean fields mapping
