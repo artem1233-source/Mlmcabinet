@@ -222,7 +222,9 @@ export function BalanceRu({ currentUser, onRefresh, refreshTrigger }: BalanceRuP
                         {withdrawal.method || withdrawal.метод} • {new Date(withdrawal.createdAt).toLocaleDateString('ru-RU')}
                       </p>
                       <p className="text-[#666] mt-1" style={{ fontSize: '12px' }}>
-                        Реквизиты: {withdrawal.details || withdrawal.реквизиты}
+                        Реквизиты: {typeof (withdrawal.details || withdrawal.реквизиты) === 'object' 
+                          ? JSON.stringify(withdrawal.details || withdrawal.реквизиты) 
+                          : (withdrawal.details || withdrawal.реквизиты)}
                       </p>
                       {withdrawal.adminNote && (
                         <p className="text-amber-600 mt-2" style={{ fontSize: '12px', fontWeight: '600' }}>

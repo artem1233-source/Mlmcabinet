@@ -382,7 +382,7 @@ export function PayoutsAdminRu({ currentUser: _currentUser }: PayoutsAdminRuProp
                       </div>
                       
                       <div className="text-sm text-gray-600 bg-white rounded p-2 border">
-                        <span className="font-medium">Реквизиты:</span> {payout.details}
+                        <span className="font-medium">Реквизиты:</span> {typeof payout.details === 'object' ? JSON.stringify(payout.details) : payout.details}
                       </div>
                       
                       {payout.rejectionReason && (
