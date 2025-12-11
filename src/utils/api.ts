@@ -283,6 +283,27 @@ export async function getAllUsers() {
   return apiCall('/admin/users');
 }
 
+// ======================
+// PAYOUTS (Admin)
+// ======================
+
+export async function getPayouts() {
+  return apiCall('/payouts');
+}
+
+export async function approvePayout(payoutId: string) {
+  return apiCall(`/payouts/${payoutId}/approve`, {
+    method: 'POST',
+  });
+}
+
+export async function rejectPayout(payoutId: string, reason?: string) {
+  return apiCall(`/payouts/${payoutId}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
 // Debug function - get all users without admin check
 export async function debugGetAllUsers() {
   try {
