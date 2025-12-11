@@ -330,7 +330,7 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
                         <div className="text-xs text-gray-500">{w.method}</div>
                       </td>
                       <td className="py-4 text-sm text-gray-600 max-w-[200px] truncate">
-                        {w.details}
+                        {typeof w.details === 'object' ? JSON.stringify(w.details) : w.details}
                       </td>
                       <td className="py-4 text-right font-bold text-gray-800">
                         {w.amount.toLocaleString()}₽
