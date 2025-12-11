@@ -4090,30 +4090,32 @@ app.post("/make-server-05aa3c8a/admin/orders/:orderId/status", async (c) => {
   }
 });
 
-// 💰 Admin Finance Stats - Global company metrics (SQL payouts)
+// 💰 Admin Finance Stats - Global company metrics (SQL RPC)
 app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    // 1. Total Revenue - сумма всех оплаченных заказов (KV)
-    const allOrders = await kv.getByPrefix('order:');
-    const ordersArray = Array.isArray(allOrders) ? allOrders : [];
-    const completedOrders = ordersArray.filter((o: any) => 
-      o.статус === 'completed' || o.статус === 'оплачен' || o.status === 'completed'
-    );
-    const totalRevenue = completedOrders.reduce((sum: number, o: any) => 
-      sum + (o.итого || o.total || o.сумма || 0), 0
-    );
+    // 🔥 Call Supabase RPC function for accurate stats
+    const { data: rpcStats, error: rpcError } = await supabase.rpc('get_admin_finance_stats');
     
-    // 2. Users Balance Total - долг системы перед партнёрами (KV)
-    const allUsers = await kv.getByPrefix('user:id:');
-    const usersArray = Array.isArray(allUsers) ? allUsers : [];
-    const usersBalanceTotal = usersArray.reduce((sum: number, u: any) => 
-      sum + (u.баланс || u.balance || 0), 0
-    );
+    if (rpcError) {
+      console.log(`RPC get_admin_finance_stats error: ${rpcError.message}`);
+    }
     
-    // 3. Pending Payouts - заявки ожидающие выплаты (SQL payouts table)
+    // Use RPC data if available, fallback to calculated values
+    const usersBalanceTotal = rpcStats?.users_liability ?? 0;
+    const pendingPayoutsSum = rpcStats?.pending_payouts ?? 0;
+    const totalRevenue = rpcStats?.total_revenue ?? 0;
+    const totalEarnings = rpcStats?.total_earnings ?? 0;
+    const totalPaidOut = rpcStats?.total_paid_out ?? 0;
+    const totalOrders = rpcStats?.total_orders ?? 0;
+    const totalUsers = rpcStats?.total_users ?? 0;
+    
+    // Net Profit - чистая прибыль компании
+    const netProfit = totalRevenue - totalEarnings;
+    
+    // Pending Payouts list (SQL) for display
     const { data: pendingPayoutsData } = await supabase
       .from('payouts')
       .select('*, profiles:user_id(id, имя, email)')
@@ -4121,38 +4123,26 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
       .order('created_at', { ascending: false });
     
     const pendingWithdrawals = pendingPayoutsData || [];
-    const pendingPayoutsSum = pendingWithdrawals.reduce((sum: number, p: any) => 
-      sum + (p.amount || 0), 0
-    );
     
-    // 4. Total Earnings - все начисления партнёрам (KV)
-    const allEarnings = await kv.getByPrefix('earning:');
-    const earningsArray = Array.isArray(allEarnings) ? allEarnings : [];
-    const totalEarnings = earningsArray.reduce((sum: number, e: any) => 
-      sum + (e.amount || e.сумма || 0), 0
-    );
-    
-    // 5. Net Profit - чистая прибыль компании
-    const netProfit = totalRevenue - totalEarnings;
-    
-    // 6. Completed payouts (SQL)
-    const { data: completedPayoutsData } = await supabase
-      .from('payouts')
-      .select('amount')
-      .eq('status', 'approved');
-    
-    const totalPaidOut = (completedPayoutsData || []).reduce((sum: number, p: any) => 
-      sum + (p.amount || 0), 0
-    );
-    
-    // 7. All payouts for history (SQL)
+    // All payouts for history (SQL)
     const { data: allPayoutsData } = await supabase
       .from('payouts')
       .select('*, profiles:user_id(id, имя, email)')
       .order('created_at', { ascending: false })
       .limit(20);
     
-    // 8. Recent operations for history
+    // Recent orders from KV for history
+    const allOrders = await kv.getByPrefix('order:');
+    const ordersArray = Array.isArray(allOrders) ? allOrders : [];
+    const completedOrders = ordersArray.filter((o: any) => 
+      o.статус === 'completed' || o.статус === 'оплачен' || o.status === 'completed'
+    );
+    
+    // Earnings from KV for history
+    const allEarnings = await kv.getByPrefix('earning:');
+    const earningsArray = Array.isArray(allEarnings) ? allEarnings : [];
+    
+    // Recent operations for history
     const recentOperations = [
       ...completedOrders.slice(-10).map((o: any) => ({
         type: 'order',
@@ -4178,7 +4168,7 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
       }))
     ].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()).slice(0, 20);
     
-    console.log(`📊 Admin finance stats (SQL): revenue=${totalRevenue}, balance=${usersBalanceTotal}, pending=${pendingPayoutsSum}`);
+    console.log(`📊 Admin finance stats (RPC): revenue=${totalRevenue}, balance=${usersBalanceTotal}, pending=${pendingPayoutsSum}`);
     
     return c.json({
       success: true,
@@ -4190,8 +4180,8 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
         totalEarnings,
         netProfit,
         totalPaidOut,
-        totalOrders: completedOrders.length,
-        totalUsers: usersArray.length
+        totalOrders,
+        totalUsers
       },
       pendingWithdrawals: pendingWithdrawals.map((p: any) => ({
         id: p.id,
