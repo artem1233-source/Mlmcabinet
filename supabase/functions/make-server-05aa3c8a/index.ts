@@ -4832,16 +4832,16 @@ app.post("/make-server-05aa3c8a/admin/products", async (c) => {
     
     const productData = {
       id: productId,
-      название: название || '',
-      описание: описание || '',
+      name: название || '',
+      description: описание || '',
       sku: sku,
-      изображение: изображение || '',
-      цена1: Number(цена1) || 0,
-      цена2: Number(цена2) || 0,
-      цена3: Number(цена3) || 0,
-      цена4: Number(цена4) || 0,
-      цена_розница: Number(цена_розница) || 0,
-      категория: категория || 'general',
+      image_url: изображение || '',
+      price1: Number(цена1) || 0,
+      price2: Number(цена2) || 0,
+      price3: Number(цена3) || 0,
+      price4: Number(цена4) || 0,
+      retail_price: Number(цена_розница) || 0,
+      category: категория || 'general',
       is_archived: в_архиве === true,
       is_active: true,
       in_stock: true,
@@ -4893,24 +4893,44 @@ app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
     const productId = c.req.param('productId');
     const updates = await c.req.json();
     
-    // Build update object with field mapping (Russian → SQL columns)
+    // Build update object with field mapping (Russian → English SQL columns)
     const updateData: any = {};
     
-    // Direct fields
-    if (updates.название !== undefined) updateData.название = updates.название;
-    if (updates.описание !== undefined) updateData.описание = updates.описание;
-    if (updates.sku !== undefined) updateData.sku = updates.sku;
-    if (updates.изображение !== undefined) updateData.изображение = updates.изображение;
-    if (updates.категория !== undefined) updateData.категория = updates.категория;
+    // Text fields mapping
+    if (updates.название !== undefined || updates.name !== undefined) {
+      updateData.name = updates.название || updates.name || '';
+    }
+    if (updates.описание !== undefined || updates.description !== undefined) {
+      updateData.description = updates.описание || updates.description || '';
+    }
+    if (updates.sku !== undefined || updates.articul !== undefined) {
+      updateData.sku = updates.sku || updates.articul || '';
+    }
+    if (updates.изображение !== undefined || updates.image_url !== undefined || updates.imageUrl !== undefined) {
+      updateData.image_url = updates.изображение || updates.image_url || updates.imageUrl || '';
+    }
+    if (updates.категория !== undefined || updates.category !== undefined) {
+      updateData.category = updates.категория || updates.category || 'general';
+    }
     
-    // Price fields
-    if (updates.цена1 !== undefined) updateData.цена1 = Number(updates.цена1) || 0;
-    if (updates.цена2 !== undefined) updateData.цена2 = Number(updates.цена2) || 0;
-    if (updates.цена3 !== undefined) updateData.цена3 = Number(updates.цена3) || 0;
-    if (updates.цена4 !== undefined) updateData.цена4 = Number(updates.цена4) || 0;
-    if (updates.цена_розница !== undefined) updateData.цена_розница = Number(updates.цена_розница) || 0;
+    // Price fields mapping
+    if (updates.цена1 !== undefined || updates.price1 !== undefined) {
+      updateData.price1 = Number(updates.цена1 ?? updates.price1) || 0;
+    }
+    if (updates.цена2 !== undefined || updates.price2 !== undefined) {
+      updateData.price2 = Number(updates.цена2 ?? updates.price2) || 0;
+    }
+    if (updates.цена3 !== undefined || updates.price3 !== undefined) {
+      updateData.price3 = Number(updates.цена3 ?? updates.price3) || 0;
+    }
+    if (updates.цена4 !== undefined || updates.price4 !== undefined) {
+      updateData.price4 = Number(updates.цена4 ?? updates.price4) || 0;
+    }
+    if (updates.цена_розница !== undefined || updates.retail_price !== undefined) {
+      updateData.retail_price = Number(updates.цена_розница ?? updates.retail_price) || 0;
+    }
     
-    // Boolean fields with mapping (Russian → English SQL columns)
+    // Boolean fields mapping
     if (updates.в_архиве !== undefined || updates.isArchived !== undefined || updates.is_archived !== undefined) {
       updateData.is_archived = updates.в_архиве === true || updates.isArchived === true || updates.is_archived === true;
     }
