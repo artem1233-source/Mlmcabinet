@@ -18,7 +18,8 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  Download
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as api from '../utils/api';
@@ -44,7 +45,7 @@ interface Payout {
 export function PayoutsAdminRu({ currentUser: _currentUser }: PayoutsAdminRuProps) {
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
+  const [filter, setFilter] = useState<'all' | 'pending' | 'completed' | 'rejected'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [processing, setProcessing] = useState<string | null>(null);
   
@@ -142,9 +143,44 @@ export function PayoutsAdminRu({ currentUser: _currentUser }: PayoutsAdminRuProp
     setRejectionReason('');
     setShowRejectModal(true);
   };
+  
+  const exportToCSV = () => {
+    const headers = ['ID', 'Партнёр', 'Сумма', 'Реквизиты', 'Статус', 'Дата создания', 'Дата обработки'];
+    const statusMap: Record<string, string> = {
+      pending: 'Ожидает',
+      processing: 'В обработке',
+      completed: 'Выплачено',
+      approved: 'Выплачено',
+      rejected: 'Отклонено'
+    };
+    
+    const rows = filteredPayouts.map(p => [
+      p.id,
+      p.userName || p.userId,
+      p.amount.toString(),
+      p.details,
+      statusMap[p.status] || p.status,
+      new Date(p.createdAt).toLocaleString('ru-RU'),
+      p.processedAt ? new Date(p.processedAt).toLocaleString('ru-RU') : ''
+    ]);
+    
+    const csvContent = [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
+    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `выплаты_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success('Экспорт завершён');
+  };
 
   const filteredPayouts = payouts
-    .filter(p => filter === 'all' || p.status === filter)
+    .filter(p => {
+      if (filter === 'all') return true;
+      if (filter === 'completed') return p.status === 'completed' || p.status === 'approved';
+      return p.status === filter;
+    })
     .filter(p => {
       if (!searchQuery) return true;
       const query = searchQuery.toLowerCase();
@@ -164,7 +200,10 @@ export function PayoutsAdminRu({ currentUser: _currentUser }: PayoutsAdminRuProp
     switch (status) {
       case 'pending':
         return <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300"><Clock className="w-3 h-3 mr-1" /> Ожидает</Badge>;
+      case 'processing':
+        return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300"><Clock className="w-3 h-3 mr-1" /> В обработке</Badge>;
       case 'approved':
+      case 'completed':
         return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300"><CheckCircle2 className="w-3 h-3 mr-1" /> Выплачено</Badge>;
       case 'rejected':
         return <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300"><XCircle className="w-3 h-3 mr-1" /> Отклонено</Badge>;
@@ -201,10 +240,16 @@ export function PayoutsAdminRu({ currentUser: _currentUser }: PayoutsAdminRuProp
           </h1>
           <p className="text-gray-600 mt-1">Обработка заявок на вывод средств</p>
         </div>
-        <Button variant="outline" onClick={loadPayouts}>
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Обновить
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={exportToCSV} disabled={payouts.length === 0}>
+            <Download className="w-4 h-4 mr-2" />
+            Экспорт CSV
+          </Button>
+          <Button variant="outline" onClick={loadPayouts}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Обновить
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -239,7 +284,7 @@ export function PayoutsAdminRu({ currentUser: _currentUser }: PayoutsAdminRuProp
             </div>
             <div>
               <div className="text-2xl font-bold text-green-700">
-                {payouts.filter(p => p.status === 'approved').reduce((sum, p) => sum + p.amount, 0).toLocaleString()}₽
+                {payouts.filter(p => p.status === 'approved' || p.status === 'completed').reduce((sum, p) => sum + p.amount, 0).toLocaleString()}₽
               </div>
               <div className="text-sm text-green-600">Выплачено всего</div>
             </div>
@@ -271,9 +316,9 @@ export function PayoutsAdminRu({ currentUser: _currentUser }: PayoutsAdminRuProp
               </Button>
               <Button 
                 size="sm" 
-                variant={filter === 'approved' ? 'default' : 'outline'}
-                onClick={() => setFilter('approved')}
-                className={filter === 'approved' ? 'bg-green-500 hover:bg-green-600' : ''}
+                variant={filter === 'completed' ? 'default' : 'outline'}
+                onClick={() => setFilter('completed')}
+                className={filter === 'completed' ? 'bg-green-500 hover:bg-green-600' : ''}
               >
                 Выплачено
               </Button>

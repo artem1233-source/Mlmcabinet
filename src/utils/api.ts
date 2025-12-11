@@ -295,7 +295,7 @@ export async function approvePayout(payoutId: string) {
   const cleanId = payoutId.replace('withdrawal:', '');
   return apiCall(`/admin/withdrawals/${cleanId}/status`, {
     method: 'POST',
-    body: JSON.stringify({ status: 'approved' }),
+    body: JSON.stringify({ status: 'completed', note: 'Выплачено администратором' }),
   });
 }
 
@@ -303,7 +303,7 @@ export async function rejectPayout(payoutId: string, reason?: string) {
   const cleanId = payoutId.replace('withdrawal:', '');
   return apiCall(`/admin/withdrawals/${cleanId}/status`, {
     method: 'POST',
-    body: JSON.stringify({ status: 'rejected', adminComment: reason }),
+    body: JSON.stringify({ status: 'rejected', note: reason || 'Отклонено администратором' }),
   });
 }
 

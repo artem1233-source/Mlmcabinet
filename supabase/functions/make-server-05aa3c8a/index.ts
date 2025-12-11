@@ -4073,7 +4073,7 @@ app.get("/make-server-05aa3c8a/admin/withdrawals", async (c) => {
   }
 });
 
-// Update withdrawal status
+// Update withdrawal status (approve/reject)
 app.post("/make-server-05aa3c8a/admin/withdrawals/:withdrawalId/status", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
@@ -4091,14 +4091,48 @@ app.post("/make-server-05aa3c8a/admin/withdrawals/:withdrawalId/status", async (
       return c.json({ error: 'Withdrawal not found' }, 404);
     }
     
+    const previousStatus = withdrawal.status;
     withdrawal.status = status;
     withdrawal.note = note || withdrawal.note;
-    withdrawal.updatedAt = new Date().toISOString();
+    withdrawal.processedAt = new Date().toISOString();
+    withdrawal.processedBy = currentUser.id;
+    
+    // 🔄 Если отклонено — вернуть деньги на баланс пользователя
+    if (status === 'rejected' && previousStatus === 'pending') {
+      const user = await kv.get(`user:id:${withdrawal.userId}`);
+      if (user) {
+        user.баланс = (user.баланс || 0) + withdrawal.amount;
+        user.доступныйБаланс = (user.доступныйБаланс || 0) + withdrawal.amount;
+        await kv.set(`user:id:${withdrawal.userId}`, user);
+        if (user.telegramId) {
+          await kv.set(`user:tg:${user.telegramId}`, user);
+        }
+        console.log(`💸 Возврат ${withdrawal.amount}₽ на баланс пользователя ${withdrawal.userId}`);
+      }
+    }
+    
+    // ✅ Если одобрено — создаём запись в истории выплат
+    if (status === 'completed') {
+      const payoutHistoryId = `payout_history:${Date.now()}`;
+      const payoutRecord = {
+        id: payoutHistoryId,
+        withdrawalId: `withdrawal:${withdrawalId}`,
+        userId: withdrawal.userId,
+        amount: withdrawal.amount,
+        details: withdrawal.details,
+        approvedAt: new Date().toISOString(),
+        approvedBy: currentUser.id,
+        note: note || ''
+      };
+      await kv.set(payoutHistoryId, payoutRecord);
+      await kv.set(`payout_history:user:${withdrawal.userId}:${payoutHistoryId}`, payoutRecord);
+      console.log(`✅ Выплата ${withdrawal.amount}₽ одобрена для ${withdrawal.userId}`);
+    }
     
     await kv.set(`withdrawal:${withdrawalId}`, withdrawal);
-    await kv.set(`withdrawal:user:${withdrawal.userId}:${withdrawalId}`, withdrawal);
+    await kv.set(`withdrawal:user:${withdrawal.userId}:withdrawal:${withdrawalId}`, withdrawal);
     
-    console.log(`Admin updated withdrawal ${withdrawalId} to ${status}`);
+    console.log(`Admin ${currentUser.id} updated withdrawal ${withdrawalId} to ${status}`);
     
     return c.json({ success: true, withdrawal });
   } catch (error) {
