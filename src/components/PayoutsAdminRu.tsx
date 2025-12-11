@@ -60,8 +60,25 @@ export function PayoutsAdminRu({ currentUser: _currentUser }: PayoutsAdminRuProp
     try {
       setLoading(true);
       const result = await api.getPayouts();
-      if (result.success && Array.isArray(result.payouts)) {
-        setPayouts(result.payouts);
+      console.log('📋 Payouts API result:', result);
+      
+      if (result.success && Array.isArray(result.withdrawals)) {
+        const mapped: Payout[] = result.withdrawals
+          .filter((w: any) => w && w.id)
+          .map((w: any) => ({
+            id: w.id,
+            userId: w.userId || '',
+            userName: w.userName || w.userИмя || w.userId,
+            amount: w.amount || 0,
+            method: w.method || 'card',
+            details: w.details || '',
+            status: w.status || 'pending',
+            createdAt: w.createdAt || w.requestedAt || new Date().toISOString(),
+            processedAt: w.processedAt,
+            processedBy: w.processedBy,
+            rejectionReason: w.adminComment || w.rejectionReason,
+          }));
+        setPayouts(mapped);
       } else {
         setPayouts([]);
       }

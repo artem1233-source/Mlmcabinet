@@ -284,23 +284,26 @@ export async function getAllUsers() {
 }
 
 // ======================
-// PAYOUTS (Admin)
+// PAYOUTS (Admin) - Управление выплатами
 // ======================
 
 export async function getPayouts() {
-  return apiCall('/payouts');
+  return apiCall('/admin/withdrawals');
 }
 
 export async function approvePayout(payoutId: string) {
-  return apiCall(`/payouts/${payoutId}/approve`, {
+  const cleanId = payoutId.replace('withdrawal:', '');
+  return apiCall(`/admin/withdrawals/${cleanId}/status`, {
     method: 'POST',
+    body: JSON.stringify({ status: 'approved' }),
   });
 }
 
 export async function rejectPayout(payoutId: string, reason?: string) {
-  return apiCall(`/payouts/${payoutId}/reject`, {
+  const cleanId = payoutId.replace('withdrawal:', '');
+  return apiCall(`/admin/withdrawals/${cleanId}/status`, {
     method: 'POST',
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify({ status: 'rejected', adminComment: reason }),
   });
 }
 
