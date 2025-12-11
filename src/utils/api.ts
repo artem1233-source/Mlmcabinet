@@ -539,10 +539,10 @@ export async function getAllWithdrawals() {
   return apiCall('/admin/withdrawals');
 }
 
-export async function updateWithdrawalStatus(withdrawalId: string, status: string, note?: string) {
+export async function updateWithdrawalStatus(withdrawalId: string, status: string, adminComment?: string) {
   return apiCall(`/admin/withdrawals/${withdrawalId}/status`, {
     method: 'POST',
-    body: JSON.stringify({ status, note }),
+    body: JSON.stringify({ status, adminComment }),
   });
 }
 

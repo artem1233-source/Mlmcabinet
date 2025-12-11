@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Users, Wallet, ShoppingBag, Award, Target, Zap, Calendar as CalendarIcon, ArrowUpRight, ArrowDownRight, Activity, Crown, Rocket, Star, Gift, CheckCircle2, Clock, Package, UserPlus, DollarSign, BarChart3, Share2, Plus } from 'lucide-react';
+import { TrendingUp, TrendingDown, Users, Wallet, ShoppingBag, Award, Target, Zap, Calendar as CalendarIcon, ArrowUpRight, ArrowDownRight, Activity, Crown, Rocket, Star, Gift, CheckCircle2, Clock, Package, UserPlus, DollarSign, BarChart3, Share2, Plus, CreditCard, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
 import { Progress } from './ui/progress';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Textarea } from './ui/textarea';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import * as api from '../utils/api';
@@ -177,6 +181,12 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
   const [orders, setOrders] = useState<any[]>([]);
   const [myOrders, setMyOrders] = useState<any[]>([]);
   const [recentActivity, setRecentActivity] = useState<any[]>([]);
+  
+  // 💸 Модальное окно вывода средств
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawDetails, setWithdrawDetails] = useState('');
+  const [withdrawing, setWithdrawing] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -330,6 +340,49 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
     }
     
     return months;
+  };
+  
+  // 💸 Функция отправки заявки на вывод средств
+  const handleWithdraw = async () => {
+    const amount = Number(withdrawAmount);
+    const balance = currentUser?.баланс || 0;
+    
+    if (!amount || amount <= 0) {
+      toast.error('Введите корректную сумму');
+      return;
+    }
+    
+    if (amount > balance) {
+      toast.error(`Недостаточно средств. Доступно: ${balance.toLocaleString()}₽`);
+      return;
+    }
+    
+    if (!withdrawDetails.trim()) {
+      toast.error('Введите реквизиты для вывода');
+      return;
+    }
+    
+    setWithdrawing(true);
+    try {
+      const result = await api.requestWithdrawal(amount, 'card', withdrawDetails);
+      
+      if (result.success) {
+        toast.success('Заявка на вывод отправлена!', {
+          description: 'Ожидайте подтверждения от администратора'
+        });
+        setShowWithdrawModal(false);
+        setWithdrawAmount('');
+        setWithdrawDetails('');
+        onRefresh?.();
+      } else {
+        throw new Error(result.error || 'Ошибка отправки заявки');
+      }
+    } catch (error) {
+      console.error('Withdraw error:', error);
+      toast.error(error instanceof Error ? error.message : 'Ошибка отправки заявки');
+    } finally {
+      setWithdrawing(false);
+    }
   };
 
   // Генерация данных для графика роста команды
@@ -722,8 +775,10 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
               <Button 
                 size="sm" 
                 className="w-full bg-purple-600 hover:bg-purple-700 text-white"
-                onClick={() => onNavigate?.('баланс')}
+                onClick={() => setShowWithdrawModal(true)}
+                disabled={(currentUser?.баланс || 0) <= 0}
               >
+                <CreditCard className="w-4 h-4 mr-1" />
                 Вывести
               </Button>
             </CardContent>
@@ -1089,6 +1144,81 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
           </CardContent>
         </Card>
       </motion.div>
+      
+      {/* 💸 Модальное окно вывода средств */}
+      <Dialog open={showWithdrawModal} onOpenChange={setShowWithdrawModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-purple-600" />
+              Вывод средств
+            </DialogTitle>
+            <DialogDescription>
+              Доступно к выводу: <span className="font-bold text-purple-600">{(currentUser?.баланс || 0).toLocaleString()}₽</span>
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="withdraw-amount">Сумма вывода (₽)</Label>
+              <Input
+                id="withdraw-amount"
+                type="number"
+                placeholder="Введите сумму"
+                value={withdrawAmount}
+                onChange={(e) => setWithdrawAmount(e.target.value)}
+                max={currentUser?.баланс || 0}
+                min={1}
+              />
+              {withdrawAmount && Number(withdrawAmount) > (currentUser?.баланс || 0) && (
+                <p className="text-xs text-red-500">Сумма превышает доступный баланс</p>
+              )}
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="withdraw-details">Реквизиты для перевода</Label>
+              <Textarea
+                id="withdraw-details"
+                placeholder="Номер карты или банковские реквизиты&#10;Например: 4276 **** **** 1234 (Сбербанк)"
+                value={withdrawDetails}
+                onChange={(e) => setWithdrawDetails(e.target.value)}
+                rows={3}
+              />
+            </div>
+            
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+              <p className="text-xs text-yellow-800">
+                ⏳ Заявка будет рассмотрена администратором в течение 1-3 рабочих дней. 
+                Средства будут заблокированы до обработки заявки.
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => setShowWithdrawModal(false)}
+            >
+              Отмена
+            </Button>
+            <Button
+              className="flex-1 bg-purple-600 hover:bg-purple-700"
+              onClick={handleWithdraw}
+              disabled={withdrawing || !withdrawAmount || Number(withdrawAmount) <= 0 || Number(withdrawAmount) > (currentUser?.баланс || 0) || !withdrawDetails.trim()}
+            >
+              {withdrawing ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Отправка...
+                </>
+              ) : (
+                'Отправить заявку'
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
