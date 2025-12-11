@@ -63,8 +63,14 @@ export function PayoutsAdminRu({ currentUser: _currentUser }: PayoutsAdminRuProp
       console.log('📋 Payouts API result:', result);
       
       if (result.success && Array.isArray(result.withdrawals)) {
+        const seenIds = new Set<string>();
         const mapped: Payout[] = result.withdrawals
-          .filter((w: any) => w && w.id)
+          .filter((w: any) => {
+            if (!w || !w.id) return false;
+            if (seenIds.has(w.id)) return false;
+            seenIds.add(w.id);
+            return true;
+          })
           .map((w: any) => ({
             id: w.id,
             userId: w.userId || '',

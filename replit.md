@@ -119,6 +119,27 @@ Compact, non-intrusive shopping experience:
 }
 ```
 
+## Withdrawal/Payout System (December 11, 2025)
+
+### Partner Side (Dashboard)
+- "Вывести" button opens withdrawal modal dialog
+- User enters amount and payment details (card number/bank account)
+- System validates balance before submission
+- Creates withdrawal request with status "pending"
+
+### Admin Side (Payouts Page)
+- New "Выплаты" menu item for admins in sidebar
+- Lists all withdrawal requests with filters (pending/approved/rejected)
+- Search by name or payment details
+- "Выплатить" button approves and records payout
+- "Отклонить" button rejects and returns funds to user balance
+
+### Data Flow
+- Withdrawal requests stored as `withdrawal:{timestamp}` in KV Store
+- Also stored per-user: `withdrawal:user:{userId}:{withdrawalId}`
+- API endpoints: `/admin/withdrawals`, `/admin/withdrawals/:id/status`
+- Status can be: pending, approved, rejected
+
 ## Deployment Notes (December 6, 2025)
 
 ### Edge Functions Deployment
