@@ -307,6 +307,11 @@ export async function rejectPayout(payoutId: string, reason?: string) {
   });
 }
 
+// Admin Finance Stats - глобальная статистика для CEO
+export async function getAdminFinanceStats() {
+  return apiCall('/admin/finance/stats');
+}
+
 // Debug function - get all users without admin check
 export async function debugGetAllUsers() {
   try {

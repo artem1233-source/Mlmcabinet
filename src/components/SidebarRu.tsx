@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, ShoppingBag, Wallet, Package, GraduationCap, UserCircle, Settings, Droplet, TrendingUp, Bell, Shield, Trophy, Sparkles, CreditCard } from 'lucide-react';
+import { LayoutDashboard, Users, ShoppingBag, Wallet, Package, GraduationCap, UserCircle, Settings, Droplet, TrendingUp, Bell, Shield, Trophy, Sparkles } from 'lucide-react';
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from './ui/sheet';
 
 interface SidebarProps {
@@ -21,8 +21,14 @@ export function SidebarRu({ текущаяВкладка, изменитьВкл
       : [{ id: 'структура', label: 'Структура', icon: Users }]
     ),
     { id: 'заказы', label: 'Заказы', icon: ShoppingBag },
-    { id: 'доходы', label: 'Доходы', icon: TrendingUp },
-    { id: 'баланс', label: 'Баланс', icon: Wallet },
+    // 💰 Админ видит "Финансы", партнёры - "Доходы" и "Баланс"
+    ...(isAdmin 
+      ? [{ id: 'финансы', label: 'Финансы', icon: Wallet }]
+      : [
+          { id: 'доходы', label: 'Доходы', icon: TrendingUp },
+          { id: 'баланс', label: 'Баланс', icon: Wallet },
+        ]
+    ),
     { id: 'каталог', label: 'Каталог', icon: Package },
     { id: 'маркетинг', label: 'Маркетинг', icon: Sparkles },
     { id: 'обучение', label: 'Обучение', icon: GraduationCap },
@@ -32,8 +38,6 @@ export function SidebarRu({ текущаяВкладка, изменитьВкл
     { id: 'настройки', label: 'Настройки', icon: Settings },
     // 🆕 Админ-панель (только для админов)
     ...(isAdmin ? [{ id: 'админ', label: 'Админ-панель', icon: Shield }] : []),
-    // 💸 Выплаты (только для админов)
-    ...(isAdmin ? [{ id: 'выплаты', label: 'Выплаты', icon: CreditCard }] : []),
     // 👑 Управление админами (только для CEO)
     ...(isCEO ? [{ id: 'управление-админами', label: 'Управление админами', icon: Shield }] : []),
   ];

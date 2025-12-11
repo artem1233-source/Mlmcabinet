@@ -4053,6 +4053,124 @@ app.post("/make-server-05aa3c8a/admin/orders/:orderId/status", async (c) => {
   }
 });
 
+// 💰 Admin Finance Stats - Global company metrics
+app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    // 1. Total Revenue - сумма всех оплаченных заказов
+    const allOrders = await kv.getByPrefix('order:');
+    const ordersArray = Array.isArray(allOrders) ? allOrders : [];
+    const completedOrders = ordersArray.filter((o: any) => 
+      o.статус === 'completed' || o.статус === 'оплачен' || o.status === 'completed'
+    );
+    const totalRevenue = completedOrders.reduce((sum: number, o: any) => 
+      sum + (o.итого || o.total || o.сумма || 0), 0
+    );
+    
+    // 2. Users Balance Total - долг системы перед партнёрами
+    const allUsers = await kv.getByPrefix('user:id:');
+    const usersArray = Array.isArray(allUsers) ? allUsers : [];
+    const usersBalanceTotal = usersArray.reduce((sum: number, u: any) => 
+      sum + (u.баланс || u.balance || 0), 0
+    );
+    
+    // 3. Pending Payouts - заявки ожидающие выплаты
+    const allWithdrawals = await kv.getByPrefix('withdrawal:');
+    const withdrawalsArray = Array.isArray(allWithdrawals) ? allWithdrawals : [];
+    // Фильтруем дубликаты по id
+    const uniqueWithdrawals = withdrawalsArray.filter((w: any, index: number, self: any[]) =>
+      w.id && index === self.findIndex((t: any) => t.id === w.id)
+    );
+    const pendingWithdrawals = uniqueWithdrawals.filter((w: any) => w.status === 'pending');
+    const pendingPayoutsSum = pendingWithdrawals.reduce((sum: number, w: any) => 
+      sum + (w.amount || w.сумма || 0), 0
+    );
+    
+    // 4. Total Earnings - все начисления партнёрам
+    const allEarnings = await kv.getByPrefix('earning:');
+    const earningsArray = Array.isArray(allEarnings) ? allEarnings : [];
+    const totalEarnings = earningsArray.reduce((sum: number, e: any) => 
+      sum + (e.amount || e.сумма || 0), 0
+    );
+    
+    // 5. Net Profit - чистая прибыль компании
+    const netProfit = totalRevenue - totalEarnings;
+    
+    // 6. Completed payouts
+    const completedWithdrawals = uniqueWithdrawals.filter((w: any) => 
+      w.status === 'completed' || w.status === 'approved'
+    );
+    const totalPaidOut = completedWithdrawals.reduce((sum: number, w: any) => 
+      sum + (w.amount || w.сумма || 0), 0
+    );
+    
+    // 7. Recent operations for history
+    const recentOperations = [
+      ...completedOrders.slice(-10).map((o: any) => ({
+        type: 'order',
+        date: o.создан || o.createdAt,
+        amount: o.итого || o.total || 0,
+        description: `Заказ #${o.id?.split(':').pop() || 'N/A'}`,
+        user: o.имяПользователя || o.userName || o.userId
+      })),
+      ...earningsArray.slice(-10).map((e: any) => ({
+        type: 'earning',
+        date: e.createdAt || e.дата,
+        amount: e.amount || e.сумма || 0,
+        description: `Начисление L${e.level || 0}`,
+        user: e.userName || e.userId
+      })),
+      ...uniqueWithdrawals.slice(-10).map((w: any) => ({
+        type: 'withdrawal',
+        date: w.createdAt,
+        amount: w.amount || 0,
+        status: w.status,
+        description: `Вывод ${w.status === 'completed' ? '✓' : w.status === 'pending' ? '⏳' : '✗'}`,
+        user: w.userName || w.userId
+      }))
+    ].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()).slice(0, 20);
+    
+    console.log(`📊 Admin finance stats: revenue=${totalRevenue}, balance=${usersBalanceTotal}, pending=${pendingPayoutsSum}`);
+    
+    return c.json({
+      success: true,
+      stats: {
+        totalRevenue,
+        usersBalanceTotal,
+        pendingPayoutsSum,
+        pendingPayoutsCount: pendingWithdrawals.length,
+        totalEarnings,
+        netProfit,
+        totalPaidOut,
+        totalOrders: completedOrders.length,
+        totalUsers: usersArray.length
+      },
+      pendingWithdrawals: pendingWithdrawals.map((w: any) => ({
+        id: w.id,
+        oderId: w.id,
+        userId: w.userId,
+        userName: w.userName,
+        amount: w.amount || 0,
+        details: typeof w.details === 'object' ? JSON.stringify(w.details) : w.details,
+        method: w.method,
+        createdAt: w.createdAt
+      })),
+      recentOperations
+    });
+  } catch (error) {
+    console.log(`Admin finance stats error: ${error}`);
+    return c.json({ 
+      success: false,
+      error: `${error}`,
+      stats: {},
+      pendingWithdrawals: [],
+      recentOperations: []
+    }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
 // Get all withdrawals
 app.get("/make-server-05aa3c8a/admin/withdrawals", async (c) => {
   try {

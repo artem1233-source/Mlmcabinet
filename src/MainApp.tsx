@@ -20,6 +20,7 @@ import { EarningsRu } from './components/EarningsRu';
 import { AdminRu } from './components/AdminRu';
 import { AdminPanel } from './components/AdminPanel';
 import { PayoutsAdminRu } from './components/PayoutsAdminRu';
+import { AdminFinanceRu } from './components/AdminFinanceRu';
 import { Menu, ShoppingCart } from 'lucide-react';
 import { Button } from './components/ui/button';
 import * as api from './utils/api.ts';
@@ -396,6 +397,9 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
       case 'админ':
       case 'admin':
         return <AdminRu currentUser={currentUser} />;
+      case 'финансы':
+      case 'finance':
+        return <AdminFinanceRu currentUser={currentUser} />;
       case 'выплаты':
       case 'payouts':
         return <PayoutsAdminRu currentUser={currentUser} />;

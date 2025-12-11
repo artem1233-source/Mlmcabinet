@@ -4053,6 +4053,124 @@ app.post("/make-server-05aa3c8a/admin/orders/:orderId/status", async (c) => {
   }
 });
 
+// 💰 Admin Finance Stats - Global company metrics
+app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    // 1. Total Revenue - сумма всех оплаченных заказов
+    const allOrders = await kv.getByPrefix('order:');
+    const ordersArray = Array.isArray(allOrders) ? allOrders : [];
+    const completedOrders = ordersArray.filter((o: any) => 
+      o.статус === 'completed' || o.статус === 'оплачен' || o.status === 'completed'
+    );
+    const totalRevenue = completedOrders.reduce((sum: number, o: any) => 
+      sum + (o.итого || o.total || o.сумма || 0), 0
+    );
+    
+    // 2. Users Balance Total - долг системы перед партнёрами
+    const allUsers = await kv.getByPrefix('user:id:');
+    const usersArray = Array.isArray(allUsers) ? allUsers : [];
+    const usersBalanceTotal = usersArray.reduce((sum: number, u: any) => 
+      sum + (u.баланс || u.balance || 0), 0
+    );
+    
+    // 3. Pending Payouts - заявки ожидающие выплаты
+    const allWithdrawals = await kv.getByPrefix('withdrawal:');
+    const withdrawalsArray = Array.isArray(allWithdrawals) ? allWithdrawals : [];
+    // Фильтруем дубликаты по id
+    const uniqueWithdrawals = withdrawalsArray.filter((w: any, index: number, self: any[]) =>
+      w.id && index === self.findIndex((t: any) => t.id === w.id)
+    );
+    const pendingWithdrawals = uniqueWithdrawals.filter((w: any) => w.status === 'pending');
+    const pendingPayoutsSum = pendingWithdrawals.reduce((sum: number, w: any) => 
+      sum + (w.amount || w.сумма || 0), 0
+    );
+    
+    // 4. Total Earnings - все начисления партнёрам
+    const allEarnings = await kv.getByPrefix('earning:');
+    const earningsArray = Array.isArray(allEarnings) ? allEarnings : [];
+    const totalEarnings = earningsArray.reduce((sum: number, e: any) => 
+      sum + (e.amount || e.сумма || 0), 0
+    );
+    
+    // 5. Net Profit - чистая прибыль компании
+    const netProfit = totalRevenue - totalEarnings;
+    
+    // 6. Completed payouts
+    const completedWithdrawals = uniqueWithdrawals.filter((w: any) => 
+      w.status === 'completed' || w.status === 'approved'
+    );
+    const totalPaidOut = completedWithdrawals.reduce((sum: number, w: any) => 
+      sum + (w.amount || w.сумма || 0), 0
+    );
+    
+    // 7. Recent operations for history
+    const recentOperations = [
+      ...completedOrders.slice(-10).map((o: any) => ({
+        type: 'order',
+        date: o.создан || o.createdAt,
+        amount: o.итого || o.total || 0,
+        description: `Заказ #${o.id?.split(':').pop() || 'N/A'}`,
+        user: o.имяПользователя || o.userName || o.userId
+      })),
+      ...earningsArray.slice(-10).map((e: any) => ({
+        type: 'earning',
+        date: e.createdAt || e.дата,
+        amount: e.amount || e.сумма || 0,
+        description: `Начисление L${e.level || 0}`,
+        user: e.userName || e.userId
+      })),
+      ...uniqueWithdrawals.slice(-10).map((w: any) => ({
+        type: 'withdrawal',
+        date: w.createdAt,
+        amount: w.amount || 0,
+        status: w.status,
+        description: `Вывод ${w.status === 'completed' ? '✓' : w.status === 'pending' ? '⏳' : '✗'}`,
+        user: w.userName || w.userId
+      }))
+    ].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()).slice(0, 20);
+    
+    console.log(`📊 Admin finance stats: revenue=${totalRevenue}, balance=${usersBalanceTotal}, pending=${pendingPayoutsSum}`);
+    
+    return c.json({
+      success: true,
+      stats: {
+        totalRevenue,
+        usersBalanceTotal,
+        pendingPayoutsSum,
+        pendingPayoutsCount: pendingWithdrawals.length,
+        totalEarnings,
+        netProfit,
+        totalPaidOut,
+        totalOrders: completedOrders.length,
+        totalUsers: usersArray.length
+      },
+      pendingWithdrawals: pendingWithdrawals.map((w: any) => ({
+        id: w.id,
+        oderId: w.id,
+        userId: w.userId,
+        userName: w.userName,
+        amount: w.amount || 0,
+        details: typeof w.details === 'object' ? JSON.stringify(w.details) : w.details,
+        method: w.method,
+        createdAt: w.createdAt
+      })),
+      recentOperations
+    });
+  } catch (error) {
+    console.log(`Admin finance stats error: ${error}`);
+    return c.json({ 
+      success: false,
+      error: `${error}`,
+      stats: {},
+      pendingWithdrawals: [],
+      recentOperations: []
+    }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
 // Get all withdrawals
 app.get("/make-server-05aa3c8a/admin/withdrawals", async (c) => {
   try {
@@ -4080,20 +4198,20 @@ app.post("/make-server-05aa3c8a/admin/withdrawals/:withdrawalId/status", async (
     await requireAdmin(c, currentUser);
     
     const withdrawalId = c.req.param('withdrawalId');
-    const { status, note } = await c.req.json();
+    const { status, adminComment } = await c.req.json();
     
-    if (!['pending', 'processing', 'completed', 'rejected'].includes(status)) {
-      return c.json({ error: 'Invalid status' }, 400);
+    if (!['pending', 'approved', 'rejected'].includes(status)) {
+      return c.json({ error: 'Неверный статус. Допустимые: pending, approved, rejected' }, 400);
     }
     
     const withdrawal = await kv.get(`withdrawal:${withdrawalId}`);
     if (!withdrawal) {
-      return c.json({ error: 'Withdrawal not found' }, 404);
+      return c.json({ error: 'Заявка на вывод не найдена' }, 404);
     }
     
     const previousStatus = withdrawal.status;
     withdrawal.status = status;
-    withdrawal.note = note || withdrawal.note;
+    withdrawal.adminComment = adminComment || withdrawal.adminComment;
     withdrawal.processedAt = new Date().toISOString();
     withdrawal.processedBy = currentUser.id;
     
@@ -4112,17 +4230,17 @@ app.post("/make-server-05aa3c8a/admin/withdrawals/:withdrawalId/status", async (
     }
     
     // ✅ Если одобрено — создаём запись в истории выплат
-    if (status === 'completed') {
+    if (status === 'approved') {
       const payoutHistoryId = `payout_history:${Date.now()}`;
       const payoutRecord = {
         id: payoutHistoryId,
-        withdrawalId: `withdrawal:${withdrawalId}`,
+        withdrawalId: withdrawal.id,
         userId: withdrawal.userId,
         amount: withdrawal.amount,
         details: withdrawal.details,
         approvedAt: new Date().toISOString(),
         approvedBy: currentUser.id,
-        note: note || ''
+        adminComment: adminComment || ''
       };
       await kv.set(payoutHistoryId, payoutRecord);
       await kv.set(`payout_history:user:${withdrawal.userId}:${payoutHistoryId}`, payoutRecord);
@@ -4130,7 +4248,7 @@ app.post("/make-server-05aa3c8a/admin/withdrawals/:withdrawalId/status", async (
     }
     
     await kv.set(`withdrawal:${withdrawalId}`, withdrawal);
-    await kv.set(`withdrawal:user:${withdrawal.userId}:withdrawal:${withdrawalId}`, withdrawal);
+    await kv.set(`withdrawal:user:${withdrawal.userId}:${withdrawalId}`, withdrawal);
     
     console.log(`Admin ${currentUser.id} updated withdrawal ${withdrawalId} to ${status}`);
     
