@@ -1,12 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { 
   TrendingUp, DollarSign, Wallet, CheckCircle2, XCircle, Search, Download,
-  ArrowUpRight, ArrowDownRight, Clock, CheckCheck
+  ArrowUpRight, ArrowDownRight, Clock, CheckCheck, Landmark, CreditCard, PartyPopper
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
-import { ScrollArea } from './ui/scroll-area';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import * as api from '../utils/api';
 
@@ -30,6 +29,7 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('all');
+  const [dateRange, setDateRange] = useState('30d');
 
   useEffect(() => {
     loadStats();
@@ -46,9 +46,9 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
           .filter((op: any) => op.type === 'order' && op.date?.startsWith(date))
           .reduce((sum: number, op: any) => sum + (op.amount || 0), 0);
         const dayPayouts = (data.recentOperations || [])
-          .filter((op: any) => op.type === 'earning' && op.date?.startsWith(date))
+          .filter((op: any) => (op.type === 'earning' || op.type === 'withdrawal') && op.date?.startsWith(date))
           .reduce((sum: number, op: any) => sum + (op.amount || 0), 0);
-        return { date: date.slice(5), revenue: dayRevenue, payouts: dayPayouts };
+        return { date: formatDateShort(date), revenue: dayRevenue, payouts: dayPayouts };
       });
       
       setStats({ ...data, chartData });
@@ -67,6 +67,13 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
       days.push(d.toISOString().split('T')[0]);
     }
     return days;
+  };
+
+  const formatDateShort = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const day = d.getDate();
+    const months = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+    return `${day} ${months[d.getMonth()]}`;
   };
 
   const handleApprove = async (withdrawalId: string) => {
@@ -112,7 +119,7 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
 
   const filteredOperations = useMemo(() => {
     if (!stats?.recentOperations) return [];
-    let ops = stats.recentOperations;
+    let ops = [...stats.recentOperations];
     
     if (activeTab === 'sales') ops = ops.filter(o => o.type === 'order');
     else if (activeTab === 'payouts') ops = ops.filter(o => o.type === 'withdrawal');
@@ -121,7 +128,7 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       ops = ops.filter(o => 
-        o.userName?.toLowerCase().includes(term) || 
+        o.user?.toLowerCase().includes(term) || 
         o.description?.toLowerCase().includes(term)
       );
     }
@@ -135,7 +142,7 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
     const rows = filteredOperations.map(op => [
       op.date || '',
       op.type === 'order' ? 'Продажа' : op.type === 'earning' ? 'Комиссия' : 'Вывод',
-      op.userName || '',
+      op.user || '',
       op.amount || 0,
       op.description || ''
     ]);
@@ -150,7 +157,7 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center">
         <div className="animate-pulse text-slate-400">Загрузка...</div>
       </div>
     );
@@ -159,249 +166,326 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
   const pendingCount = stats?.pendingWithdrawals?.length || 0;
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      <div className="max-w-[1600px] mx-auto">
-        <div className="flex items-center justify-between mb-6">
+    <div className="min-h-screen bg-[#f8fafc] p-4 md:p-6">
+      <div className="max-w-[1400px] mx-auto space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Финансы</h1>
-            <p className="text-slate-500 text-sm">Neobank Business Dashboard</p>
+            <h1 className="text-2xl font-bold text-slate-900">Финансовая панель</h1>
+            <p className="text-slate-500 text-sm">Управление денежными потоками компании</p>
           </div>
-          <Button onClick={exportCSV} variant="outline" className="gap-2">
-            <Download className="w-4 h-4" />
-            Экспорт CSV
-          </Button>
+          <div className="flex items-center gap-3">
+            <select
+              value={dateRange}
+              onChange={(e) => setDateRange(e.target.value)}
+              className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-600"
+            >
+              <option value="7d">Последние 7 дней</option>
+              <option value="30d">Последний месяц</option>
+              <option value="90d">Последний квартал</option>
+              <option value="365d">Последний год</option>
+            </select>
+            <Button onClick={exportCSV} variant="outline" className="gap-2">
+              <Download className="w-4 h-4" />
+              Экспорт
+            </Button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          <div className="lg:col-span-3 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <KPICard
-                title="Оборот"
-                value={stats?.totalRevenue || 0}
-                trend={15.2}
-                trendUp={true}
-                icon={<DollarSign className="w-5 h-5" />}
-                color="emerald"
-              />
-              <KPICard
-                title="Чистая прибыль"
-                value={stats?.netProfit || 0}
-                trend={8.7}
-                trendUp={true}
-                icon={<TrendingUp className="w-5 h-5" />}
-                color="blue"
-              />
-              <KPICard
-                title="К выплате"
-                value={stats?.pendingPayoutsSum || 0}
-                count={pendingCount}
-                icon={<Clock className="w-5 h-5" />}
-                color={pendingCount > 0 ? "amber" : "slate"}
-                highlight={pendingCount > 0}
-              />
-            </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <KPICard
+            title="Общий оборот"
+            value={stats?.totalRevenue || 0}
+            subtitle={`${(stats?.recentOperations?.filter(o => o.type === 'order').length || 0)} завершённых заказов`}
+            trend={15}
+            trendUp={true}
+            icon={<TrendingUp className="w-5 h-5" />}
+            iconBg="bg-emerald-50"
+            iconColor="text-emerald-500"
+          />
+          <KPICard
+            title="Чистая прибыль"
+            value={stats?.netProfit || 0}
+            subtitle="Оборот минус выплаты"
+            trend={-8}
+            trendUp={false}
+            icon={<Landmark className="w-5 h-5" />}
+            iconBg="bg-blue-50"
+            iconColor="text-blue-500"
+          />
+          <KPICard
+            title="К выплате"
+            value={stats?.pendingPayoutsSum || 0}
+            subtitle={`${pendingCount} заявок ожидают`}
+            icon={<Clock className="w-5 h-5" />}
+            iconBg={pendingCount > 0 ? "bg-amber-50" : "bg-slate-50"}
+            iconColor={pendingCount > 0 ? "text-amber-500" : "text-slate-400"}
+            highlight={pendingCount > 0}
+            highlightColor="amber"
+          />
+          <KPICard
+            title="Баланс партнёров"
+            value={stats?.usersBalanceTotal || 0}
+            subtitle="Накоплено на счетах пользователей"
+            icon={<Wallet className="w-5 h-5" />}
+            iconBg="bg-violet-50"
+            iconColor="text-violet-500"
+            badge={<span className="w-2 h-2 bg-blue-500 rounded-full" />}
+          />
+        </div>
 
-            <div className="bg-white rounded-xl shadow-sm p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-semibold text-slate-900">Cashflow: Выручка vs Выплаты</h2>
-                <div className="flex items-center gap-4 text-xs">
-                  <div className="flex items-center gap-1">
-                    <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                    <span className="text-slate-600">Выручка</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-3 h-3 rounded-full bg-orange-400" />
-                    <span className="text-slate-600">Выплаты</span>
-                  </div>
-                </div>
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-slate-400" />
+              Выручка и выплаты (последние 30 дней)
+            </h2>
+            <div className="flex items-center gap-4 text-xs">
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-orange-400" />
+                <span className="text-slate-500">Выплаты</span>
               </div>
-              <div className="h-[280px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={stats?.chartData || []} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                      </linearGradient>
-                      <linearGradient id="colorPayouts" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#fb923c" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#fb923c" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: '#fff', 
-                        border: '1px solid #e2e8f0', 
-                        borderRadius: '8px',
-                        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
-                      }}
-                      formatter={(value: number) => [`${value.toLocaleString()}₽`, '']}
-                    />
-                    <Area type="monotone" dataKey="revenue" stroke="#10b981" strokeWidth={2} fill="url(#colorRevenue)" name="Выручка" />
-                    <Area type="monotone" dataKey="payouts" stroke="#fb923c" strokeWidth={2} fill="url(#colorPayouts)" name="Выплаты" />
-                  </AreaChart>
-                </ResponsiveContainer>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-emerald-400" />
+                <span className="text-slate-500">Выручка</span>
               </div>
             </div>
+          </div>
+          <div className="h-[240px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={stats?.chartData || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                  </linearGradient>
+                  <linearGradient id="colorPayouts" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#fb923c" stopOpacity={0.2}/>
+                    <stop offset="95%" stopColor="#fb923c" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis 
+                  dataKey="date" 
+                  tick={{ fontSize: 10, fill: '#94a3b8' }} 
+                  tickLine={false} 
+                  axisLine={false}
+                  interval={2}
+                />
+                <YAxis 
+                  tick={{ fontSize: 10, fill: '#94a3b8' }} 
+                  tickLine={false} 
+                  axisLine={false} 
+                  tickFormatter={(v) => v > 0 ? `₽${(v/1000).toFixed(0)}k` : '₽0'}
+                  width={50}
+                />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#fff', 
+                    border: '1px solid #e2e8f0', 
+                    borderRadius: '12px',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                    padding: '8px 12px'
+                  }}
+                  formatter={(value: number, name: string) => [
+                    `₽${value.toLocaleString()}`, 
+                    name === 'revenue' ? 'Выручка' : 'Выплаты'
+                  ]}
+                  labelStyle={{ fontWeight: 600, marginBottom: 4 }}
+                />
+                <Area 
+                  type="monotone" 
+                  dataKey="payouts" 
+                  stroke="#fb923c" 
+                  strokeWidth={2} 
+                  fill="url(#colorPayouts)" 
+                  name="payouts"
+                />
+                <Area 
+                  type="monotone" 
+                  dataKey="revenue" 
+                  stroke="#10b981" 
+                  strokeWidth={2} 
+                  fill="url(#colorRevenue)" 
+                  name="revenue"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
 
-            <div className="bg-white rounded-xl shadow-sm">
-              <div className="p-4 border-b border-slate-100">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <Tabs value={activeTab} onValueChange={setActiveTab}>
-                    <TabsList className="bg-slate-100">
-                      <TabsTrigger value="all" className="text-xs">Все</TabsTrigger>
-                      <TabsTrigger value="sales" className="text-xs">Продажи</TabsTrigger>
-                      <TabsTrigger value="payouts" className="text-xs">Выплаты</TabsTrigger>
-                      <TabsTrigger value="commissions" className="text-xs">Комиссии</TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <Input
-                      placeholder="Поиск..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-9 w-full sm:w-[200px] h-8 text-sm"
-                    />
-                  </div>
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          {pendingCount > 0 ? (
+            <>
+              <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="font-semibold text-slate-800">Заявки на вывод</h2>
+                  <p className="text-sm text-slate-500">{pendingCount} заявок ожидают обработки</p>
                 </div>
+                <Button 
+                  onClick={handleBulkApprove}
+                  disabled={processingId === 'bulk'}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
+                >
+                  <CheckCheck className="w-4 h-4" />
+                  Оплатить все ({pendingCount})
+                </Button>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full">
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 text-xs uppercase">
-                      <th className="text-left py-3 px-4 font-medium">Дата</th>
-                      <th className="text-left py-3 px-4 font-medium">Тип</th>
-                      <th className="text-left py-3 px-4 font-medium">Партнёр</th>
-                      <th className="text-right py-3 px-4 font-medium">Сумма</th>
+                      <th className="text-left py-3 px-5 font-medium">Партнёр</th>
+                      <th className="text-left py-3 px-5 font-medium">Реквизиты</th>
+                      <th className="text-right py-3 px-5 font-medium">Сумма</th>
+                      <th className="text-left py-3 px-5 font-medium">Дата</th>
+                      <th className="text-right py-3 px-5 font-medium">Действия</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredOperations.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="py-8 text-center text-slate-400">
-                          Нет операций
+                    {stats?.pendingWithdrawals?.map((w) => (
+                      <tr key={w.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="py-4 px-5">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white text-sm font-bold">
+                              {(w.userName || w.userId || '?')[0].toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="font-medium text-slate-800 text-sm">{w.userName || w.userId}</div>
+                              <div className="text-xs text-slate-400">{w.method || 'bank'}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-4 px-5 text-sm text-slate-600 max-w-[200px] truncate">
+                          {typeof w.details === 'object' ? JSON.stringify(w.details) : w.details || 'Не указаны'}
+                        </td>
+                        <td className="py-4 px-5 text-right">
+                          <span className="font-bold text-slate-900 tabular-nums">
+                            ₽{(w.amount || 0).toLocaleString()}
+                          </span>
+                        </td>
+                        <td className="py-4 px-5 text-sm text-slate-500">
+                          {w.createdAt?.split('T')[0] || '-'}
+                        </td>
+                        <td className="py-4 px-5">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              onClick={() => handleApprove(w.id)}
+                              disabled={!!processingId}
+                              size="sm"
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 px-3"
+                            >
+                              <CheckCircle2 className="w-4 h-4 mr-1" />
+                              Оплатить
+                            </Button>
+                            <Button
+                              onClick={() => handleReject(w.id)}
+                              disabled={!!processingId}
+                              size="sm"
+                              variant="outline"
+                              className="border-red-200 text-red-600 hover:bg-red-50 h-8 px-3"
+                            >
+                              <XCircle className="w-4 h-4 mr-1" />
+                              Отказать
+                            </Button>
+                          </div>
                         </td>
                       </tr>
-                    ) : (
-                      filteredOperations.map((op, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="py-2.5 px-4 text-slate-600 tabular-nums">
-                            {op.date?.split('T')[0] || '-'}
-                          </td>
-                          <td className="py-2.5 px-4">
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                              op.type === 'order' ? 'bg-emerald-50 text-emerald-700' :
-                              op.type === 'earning' ? 'bg-blue-50 text-blue-700' :
-                              'bg-orange-50 text-orange-700'
-                            }`}>
-                              {op.type === 'order' ? 'Продажа' : op.type === 'earning' ? 'Комиссия' : 'Вывод'}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-4 text-slate-700">{op.userName || '-'}</td>
-                          <td className={`py-2.5 px-4 text-right font-medium tabular-nums ${
-                            op.type === 'order' ? 'text-emerald-600' : 
-                            op.type === 'earning' ? 'text-blue-600' : 'text-orange-600'
-                          }`}>
-                            {op.type === 'order' ? '+' : '-'}{(op.amount || 0).toLocaleString()}₽
-                          </td>
-                        </tr>
-                      ))
-                    )}
+                    ))}
                   </tbody>
                 </table>
               </div>
+            </>
+          ) : (
+            <div className="p-12 text-center">
+              <div className="w-16 h-16 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 className="w-8 h-8 text-emerald-500" />
+              </div>
+              <h3 className="text-lg font-semibold text-slate-800 mb-1">
+                <PartyPopper className="w-5 h-5 inline mr-1" />
+                Все заявки обработаны!
+              </h3>
+              <p className="text-slate-500 text-sm">Вы великолепны! Нет ожидающих заявок на вывод.</p>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm">
+          <div className="p-5 border-b border-slate-100">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <h2 className="font-semibold text-slate-800">История транзакций</h2>
+              <div className="flex items-center gap-3">
+                <Tabs value={activeTab} onValueChange={setActiveTab}>
+                  <TabsList className="bg-slate-100 h-9">
+                    <TabsTrigger value="all" className="text-xs px-3">Все</TabsTrigger>
+                    <TabsTrigger value="sales" className="text-xs px-3">Продажи</TabsTrigger>
+                    <TabsTrigger value="payouts" className="text-xs px-3">Выплаты</TabsTrigger>
+                    <TabsTrigger value="commissions" className="text-xs px-3">Комиссии</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Input
+                    placeholder="Поиск..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-9 w-[180px] h-9 text-sm bg-slate-50 border-slate-200"
+                  />
+                </div>
+              </div>
             </div>
           </div>
-
-          <div className="lg:col-span-1">
-            <div className={`bg-white rounded-xl shadow-sm sticky top-6 ${pendingCount > 0 ? 'ring-2 ring-amber-200' : ''}`}>
-              <div className="p-4 border-b border-slate-100">
-                <div className="flex items-center justify-between">
-                  <h2 className="font-semibold text-slate-900 flex items-center gap-2">
-                    <Wallet className="w-4 h-4 text-amber-500" />
-                    Заявки на вывод
-                  </h2>
-                  {pendingCount > 0 && (
-                    <span className="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">
-                      {pendingCount}
-                    </span>
-                  )}
-                </div>
-                {pendingCount > 1 && (
-                  <Button 
-                    onClick={handleBulkApprove}
-                    disabled={processingId === 'bulk'}
-                    size="sm"
-                    className="w-full mt-3 bg-emerald-600 hover:bg-emerald-700 text-white"
-                  >
-                    <CheckCheck className="w-4 h-4 mr-1" />
-                    Оплатить все ({pendingCount})
-                  </Button>
-                )}
+          <div className="divide-y divide-slate-100">
+            {filteredOperations.length === 0 ? (
+              <div className="py-12 text-center text-slate-400">
+                Нет операций
               </div>
-              
-              <ScrollArea className="h-[calc(100vh-280px)] min-h-[300px]">
-                <div className="p-3 space-y-3">
-                  {!stats?.pendingWithdrawals?.length ? (
-                    <div className="text-center py-8">
-                      <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-3">
-                        <CheckCircle2 className="w-6 h-6 text-slate-400" />
-                      </div>
-                      <p className="text-slate-500 text-sm">Нет заявок</p>
+            ) : (
+              filteredOperations.map((op, idx) => (
+                <div key={idx} className="flex items-center justify-between px-5 py-3 hover:bg-slate-50/50 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center ${
+                      op.type === 'order' ? 'bg-emerald-50' :
+                      op.type === 'earning' ? 'bg-blue-50' : 'bg-orange-50'
+                    }`}>
+                      {op.type === 'order' ? (
+                        <DollarSign className="w-4 h-4 text-emerald-500" />
+                      ) : op.type === 'earning' ? (
+                        <TrendingUp className="w-4 h-4 text-blue-500" />
+                      ) : (
+                        <CreditCard className="w-4 h-4 text-orange-500" />
+                      )}
                     </div>
-                  ) : (
-                    stats.pendingWithdrawals.map((w) => (
-                      <div 
-                        key={w.id} 
-                        className="bg-slate-50 rounded-lg p-3 hover:bg-slate-100 transition-colors"
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
-                            {(w.userName || w.userId || '?')[0].toUpperCase()}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium text-slate-900 text-sm truncate">
-                              {w.userName || w.userId}
-                            </div>
-                            <div className="text-xs text-slate-500 truncate">
-                              {typeof w.details === 'object' ? JSON.stringify(w.details) : w.details || w.method}
-                            </div>
-                            <div className="font-bold text-slate-900 mt-1 tabular-nums">
-                              {(w.amount || 0).toLocaleString()}₽
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex gap-2 mt-3">
-                          <Button
-                            onClick={() => handleApprove(w.id)}
-                            disabled={!!processingId}
-                            size="sm"
-                            className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white h-8"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-                            Оплатить
-                          </Button>
-                          <Button
-                            onClick={() => handleReject(w.id)}
-                            disabled={!!processingId}
-                            size="sm"
-                            variant="outline"
-                            className="flex-1 border-red-200 text-red-600 hover:bg-red-50 h-8"
-                          >
-                            <XCircle className="w-3.5 h-3.5 mr-1" />
-                            Отклонить
-                          </Button>
-                        </div>
-                      </div>
-                    ))
-                  )}
+                    <div>
+                      <div className="font-medium text-slate-800 text-sm">{op.user || 'Не указан'}</div>
+                      <div className="text-xs text-slate-400">{op.description}</div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className={`font-bold tabular-nums ${
+                      op.type === 'order' ? 'text-emerald-600' : 
+                      op.type === 'earning' ? 'text-blue-600' : 'text-orange-600'
+                    }`}>
+                      ₽{(op.amount || 0).toLocaleString()}
+                    </div>
+                    <div className="text-xs text-slate-400 flex items-center justify-end gap-2">
+                      {op.date?.split('T')[0] || '-'}
+                      {op.status && (
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                          op.status === 'completed' || op.status === 'approved' 
+                            ? 'bg-emerald-100 text-emerald-700' 
+                            : op.status === 'pending' 
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-red-100 text-red-700'
+                        }`}>
+                          {op.status === 'approved' || op.status === 'completed' ? 'Выплачено' : 
+                           op.status === 'pending' ? 'Ожидает' : 'Отклонено'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </ScrollArea>
-            </div>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -412,55 +496,49 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
 function KPICard({ 
   title, 
   value, 
+  subtitle,
   trend, 
   trendUp, 
-  count, 
   icon, 
-  color,
-  highlight 
+  iconBg,
+  iconColor,
+  highlight,
+  highlightColor,
+  badge
 }: { 
   title: string;
   value: number;
+  subtitle?: string;
   trend?: number;
   trendUp?: boolean;
-  count?: number;
   icon: React.ReactNode;
-  color: 'emerald' | 'blue' | 'amber' | 'slate';
+  iconBg: string;
+  iconColor: string;
   highlight?: boolean;
+  highlightColor?: 'amber' | 'red';
+  badge?: React.ReactNode;
 }) {
-  const colorClasses = {
-    emerald: { bg: 'bg-emerald-50', icon: 'text-emerald-600', ring: 'ring-emerald-200' },
-    blue: { bg: 'bg-blue-50', icon: 'text-blue-600', ring: 'ring-blue-200' },
-    amber: { bg: 'bg-amber-50', icon: 'text-amber-600', ring: 'ring-amber-200' },
-    slate: { bg: 'bg-slate-50', icon: 'text-slate-600', ring: 'ring-slate-200' },
-  };
-  
-  const c = colorClasses[color];
-  
   return (
-    <div className={`bg-white rounded-xl shadow-sm p-5 ${highlight ? `ring-2 ${c.ring}` : ''}`}>
-      <div className="flex items-start justify-between">
-        <div className={`w-10 h-10 rounded-lg ${c.bg} flex items-center justify-center ${c.icon}`}>
+    <div className={`bg-white rounded-2xl border ${highlight ? (highlightColor === 'red' ? 'border-red-200' : 'border-amber-200') : 'border-slate-100'} shadow-sm p-5 relative`}>
+      {badge && <div className="absolute top-4 right-4">{badge}</div>}
+      <div className="flex items-start justify-between mb-3">
+        <div className={`w-11 h-11 rounded-xl ${iconBg} flex items-center justify-center ${iconColor}`}>
           {icon}
         </div>
         {trend !== undefined && (
-          <div className={`flex items-center gap-0.5 text-xs font-medium ${trendUp ? 'text-emerald-600' : 'text-red-500'}`}>
+          <div className={`flex items-center gap-0.5 text-xs font-semibold ${trendUp ? 'text-emerald-600' : 'text-red-500'}`}>
             {trendUp ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
-            {trend}%
-          </div>
-        )}
-        {count !== undefined && count > 0 && (
-          <div className="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">
-            {count} заявок
+            {trendUp ? '+' : ''}{trend}%
           </div>
         )}
       </div>
-      <div className="mt-3">
-        <div className="text-2xl font-bold text-slate-900 tabular-nums">
-          {value.toLocaleString()}₽
-        </div>
-        <div className="text-sm text-slate-500 mt-0.5">{title}</div>
+      <div className="text-xs text-slate-500 mb-1">{title}</div>
+      <div className="text-2xl font-bold text-slate-900 tabular-nums mb-1">
+        ₽{value.toLocaleString()}
       </div>
+      {subtitle && (
+        <div className="text-xs text-slate-400">{subtitle}</div>
+      )}
     </div>
   );
 }
