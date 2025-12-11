@@ -286,10 +286,29 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
     switch (activeSection) {
       case 'дашборд':
       case 'dashboard':
-        // 🚀 Переключатель между версиями дашборда
+        // Для обычных пользователей — только стандартный дашборд
+        // Для CEO/админов — переключатель между версиями
+        const isAdminUser = currentUser?.isAdmin === true || 
+                           currentUser?.id === 'seo' || 
+                           currentUser?.id === 'ceo' || 
+                           currentUser?.role === 'ceo';
+        
+        if (!isAdminUser) {
+          // Обычный пользователь — только стандартный дашборд
+          return (
+            <DashboardRu 
+              currentUser={currentUser} 
+              onNavigate={setActiveSection}
+              onRefresh={handleRefresh} 
+              refreshTrigger={refreshTrigger} 
+            />
+          );
+        }
+        
+        // Админ/CEO — показываем переключатель
         return (
           <div>
-            {/* Переключатель версий */}
+            {/* Переключатель версий (только для админов) */}
             <div className="bg-white border-b border-[#E6E9EE] px-6 py-3 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <span className="text-[#666]" style={{ fontSize: '14px' }}>Версия дашборда:</span>
