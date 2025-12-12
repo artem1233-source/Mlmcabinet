@@ -4115,21 +4115,30 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
     // Net Profit - чистая прибыль компании
     const netProfit = totalRevenue - totalEarnings;
     
-    // Pending Payouts list (SQL) for display
-    const { data: pendingPayoutsData } = await supabase
+    // Pending Payouts list (SQL) for display - NO JOIN to avoid RLS issues
+    const { data: pendingPayoutsData, error: pendingError } = await supabase
       .from('payouts')
-      .select('*, profiles:user_id(id, имя, email)')
+      .select('*')
       .eq('status', 'pending')
       .order('created_at', { ascending: false });
     
+    if (pendingError) {
+      console.error(`❌ Pending payouts query error: ${pendingError.message}`);
+    }
+    console.log(`📋 Pending payouts from SQL: ${pendingPayoutsData?.length || 0} items`);
+    
     const pendingWithdrawals = pendingPayoutsData || [];
     
-    // All payouts for history (SQL)
-    const { data: allPayoutsData } = await supabase
+    // All payouts for history (SQL) - NO JOIN
+    const { data: allPayoutsData, error: allPayoutsError } = await supabase
       .from('payouts')
-      .select('*, profiles:user_id(id, имя, email)')
+      .select('*')
       .order('created_at', { ascending: false })
       .limit(20);
+    
+    if (allPayoutsError) {
+      console.error(`❌ All payouts query error: ${allPayoutsError.message}`);
+    }
     
     // Recent orders from KV for history
     const allOrders = await kv.getByPrefix('order:');
@@ -4164,7 +4173,7 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
         amount: p.amount || 0,
         status: p.status,
         description: `Вывод ${p.status === 'approved' ? '✓' : p.status === 'pending' ? '⏳' : '✗'}`,
-        user: p.profiles?.имя || p.profiles?.email || p.user_id
+        user: p.user_id
       }))
     ].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()).slice(0, 20);
     
@@ -4187,11 +4196,12 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
         id: p.id,
         oderId: p.id,
         userId: p.user_id,
-        userName: p.profiles?.имя || p.profiles?.email || p.user_id,
+        userName: p.user_id,
         amount: p.amount || 0,
         details: p.details,
         method: p.method,
-        createdAt: p.created_at
+        createdAt: p.created_at,
+        status: p.status
       })),
       recentOperations
     });
@@ -4215,7 +4225,7 @@ app.get("/make-server-05aa3c8a/admin/withdrawals", async (c) => {
     
     const { data: payouts, error: selectError } = await supabase
       .from('payouts')
-      .select('*, profiles:user_id(id, имя, email)')
+      .select('*')
       .order('created_at', { ascending: false });
     
     if (selectError) {
@@ -4227,7 +4237,7 @@ app.get("/make-server-05aa3c8a/admin/withdrawals", async (c) => {
       id: p.id,
       oderId: p.id,
       userId: p.user_id,
-      userName: p.profiles?.имя || p.profiles?.email || p.user_id,
+      userName: p.user_id,
       amount: p.amount,
       method: p.method,
       details: p.details,
