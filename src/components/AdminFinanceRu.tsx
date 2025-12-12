@@ -50,7 +50,23 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
   const loadStats = async () => {
     try {
       setLoading(true);
-      const data = await api.getAdminFinanceStats();
+      const response = await api.getAdminFinanceStats();
+      
+      // Unpack response: stats are nested, pendingWithdrawals and recentOperations are at top level
+      const data = {
+        totalRevenue: response.stats?.totalRevenue || 0,
+        netProfit: response.stats?.netProfit || 0,
+        usersBalanceTotal: response.stats?.usersBalanceTotal || 0,
+        pendingPayoutsSum: response.stats?.pendingPayoutsSum || 0,
+        pendingWithdrawals: response.pendingWithdrawals || [],
+        recentOperations: response.recentOperations || []
+      };
+      
+      console.log('📊 Finance data loaded:', {
+        pendingPayoutsSum: data.pendingPayoutsSum,
+        pendingWithdrawalsCount: data.pendingWithdrawals.length,
+        recentOperationsCount: data.recentOperations.length
+      });
       
       const last30Days = generateLast30Days();
       const chartData = last30Days.map(date => {
