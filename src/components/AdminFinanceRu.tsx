@@ -419,45 +419,21 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
                           {w.createdAt?.split('T')[0] || '-'}
                         </td>
                         <td className="py-4 px-5">
-                          <div className="flex flex-col items-end gap-2">
+                          <div className="flex items-center justify-end gap-2">
                             <button
                               onClick={() => handleApprove(w.id)}
                               disabled={!!processingId}
-                              style={{
-                                backgroundColor: '#10b981',
-                                color: 'white',
-                                padding: '6px 12px',
-                                borderRadius: '6px',
-                                fontSize: '12px',
-                                fontWeight: '500',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                border: 'none',
-                                cursor: 'pointer'
-                              }}
+                              className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50 min-w-[90px]"
                             >
-                              <CheckCircle2 className="w-3 h-3" />
+                              <CheckCircle2 className="w-3.5 h-3.5" />
                               Выплатить
                             </button>
                             <button
                               onClick={() => handleReject(w.id)}
                               disabled={!!processingId}
-                              style={{
-                                backgroundColor: 'white',
-                                color: '#dc2626',
-                                padding: '6px 12px',
-                                borderRadius: '6px',
-                                fontSize: '12px',
-                                fontWeight: '500',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                border: '1px solid #fecaca',
-                                cursor: 'pointer'
-                              }}
+                              className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 min-w-[90px]"
                             >
-                              <XCircle className="w-3 h-3" />
+                              <XCircle className="w-3.5 h-3.5" />
                               Отказать
                             </button>
                           </div>

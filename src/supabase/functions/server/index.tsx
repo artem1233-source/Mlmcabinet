@@ -3224,7 +3224,6 @@ app.get("/make-server-05aa3c8a/withdrawals", async (c) => {
       status: p.status,
       createdAt: p.created_at,
       processedAt: p.processed_at,
-      processedBy: p.processed_by,
       adminComment: p.admin_comment
     }));
     
@@ -4244,7 +4243,6 @@ app.get("/make-server-05aa3c8a/admin/withdrawals", async (c) => {
       status: p.status,
       createdAt: p.created_at,
       processedAt: p.processed_at,
-      processedBy: p.processed_by,
       adminComment: p.admin_comment
     }));
     
@@ -4291,8 +4289,7 @@ app.post("/make-server-05aa3c8a/admin/withdrawals/:withdrawalId/status", async (
       .update({
         status: status,
         admin_comment: adminComment || payout.admin_comment,
-        processed_at: new Date().toISOString(),
-        processed_by: currentUser.id
+        processed_at: new Date().toISOString()
       })
       .eq('id', withdrawalId)
       .select()
@@ -4336,7 +4333,6 @@ app.post("/make-server-05aa3c8a/admin/withdrawals/:withdrawalId/status", async (
         status: updatedPayout.status,
         createdAt: updatedPayout.created_at,
         processedAt: updatedPayout.processed_at,
-        processedBy: updatedPayout.processed_by,
         adminComment: updatedPayout.admin_comment
       }
     });
