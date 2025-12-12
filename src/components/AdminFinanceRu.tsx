@@ -390,7 +390,7 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
                       <th className="text-left py-3 px-5 font-medium">Реквизиты</th>
                       <th className="text-right py-3 px-5 font-medium">Сумма</th>
                       <th className="text-left py-3 px-5 font-medium">Дата</th>
-                      <th className="text-right py-3 px-5 font-medium">Действия</th>
+                      <th className="text-right py-3 px-5 font-medium min-w-[200px]">Действия</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -418,12 +418,14 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
                         <td className="py-4 px-5 text-sm text-slate-500">
                           {w.createdAt?.split('T')[0] || '-'}
                         </td>
-                        <td className="py-4 px-5">
+                        <td className="py-4 px-5 min-w-[200px]">
                           <div className="flex items-center justify-end gap-2">
                             <button
                               onClick={() => handleApprove(w.id)}
                               disabled={!!processingId}
-                              className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50 min-w-[90px]"
+                              type="button"
+                              className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md text-white disabled:opacity-50"
+                              style={{ backgroundColor: '#10b981', minWidth: '90px' }}
                             >
                               <CheckCircle2 className="w-3.5 h-3.5" />
                               Выплатить
@@ -431,7 +433,9 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
                             <button
                               onClick={() => handleReject(w.id)}
                               disabled={!!processingId}
-                              className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 min-w-[90px]"
+                              type="button"
+                              className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md disabled:opacity-50"
+                              style={{ backgroundColor: 'white', color: '#dc2626', border: '1px solid #fecaca', minWidth: '90px' }}
                             >
                               <XCircle className="w-3.5 h-3.5" />
                               Отказать
