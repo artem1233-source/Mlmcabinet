@@ -4095,14 +4095,23 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    // 🔥 Call Supabase RPC function for accurate stats
+    // 🔥 Call Supabase RPC function for accurate stats (SQL ONLY - NO KV FALLBACK)
     const { data: rpcStats, error: rpcError } = await supabase.rpc('get_admin_finance_stats');
     
+    console.log(`📊 RPC get_admin_finance_stats RAW result:`, JSON.stringify(rpcStats));
+    
     if (rpcError) {
-      console.log(`RPC get_admin_finance_stats error: ${rpcError.message}`);
+      console.error(`❌ RPC get_admin_finance_stats error: ${rpcError.message}`);
+      return c.json({ 
+        success: false, 
+        error: `RPC failed: ${rpcError.message}`,
+        stats: {},
+        pendingWithdrawals: [],
+        recentOperations: []
+      }, 500);
     }
     
-    // Use RPC data if available, fallback to calculated values
+    // Use RPC data ONLY - NO FALLBACKS
     const usersBalanceTotal = rpcStats?.users_liability ?? 0;
     const pendingPayoutsSum = rpcStats?.pending_payouts ?? 0;
     const totalRevenue = rpcStats?.total_revenue ?? 0;
@@ -4110,6 +4119,8 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
     const totalPaidOut = rpcStats?.total_paid_out ?? 0;
     const totalOrders = rpcStats?.total_orders ?? 0;
     const totalUsers = rpcStats?.total_users ?? 0;
+    
+    console.log(`📊 Parsed RPC values: revenue=${totalRevenue}, balance=${usersBalanceTotal}, pending=${pendingPayoutsSum}, paid=${totalPaidOut}`);
     
     // Net Profit - чистая прибыль компании
     const netProfit = totalRevenue - totalEarnings;
@@ -4139,32 +4150,45 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
       console.error(`❌ All payouts query error: ${allPayoutsError.message}`);
     }
     
-    // Recent orders from KV for history
-    const allOrders = await kv.getByPrefix('order:');
-    const ordersArray = Array.isArray(allOrders) ? allOrders : [];
-    const completedOrders = ordersArray.filter((o: any) => 
-      o.статус === 'completed' || o.статус === 'оплачен' || o.status === 'completed'
-    );
+    // Recent orders from SQL for history
+    const { data: ordersData, error: ordersError } = await supabase
+      .from('orders')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(20);
     
-    // Earnings from KV for history
-    const allEarnings = await kv.getByPrefix('earning:');
-    const earningsArray = Array.isArray(allEarnings) ? allEarnings : [];
+    if (ordersError) {
+      console.error(`❌ Orders query error: ${ordersError.message}`);
+    }
+    console.log(`📋 Orders from SQL: ${ordersData?.length || 0} items`);
     
-    // Recent operations for history
+    // Earnings from SQL for history
+    const { data: earningsData, error: earningsError } = await supabase
+      .from('earnings')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(20);
+    
+    if (earningsError) {
+      console.error(`❌ Earnings query error: ${earningsError.message}`);
+    }
+    console.log(`📋 Earnings from SQL: ${earningsData?.length || 0} items`);
+    
+    // Recent operations for history (ALL FROM SQL)
     const recentOperations = [
-      ...completedOrders.slice(-10).map((o: any) => ({
+      ...(ordersData || []).map((o: any) => ({
         type: 'order',
-        date: o.создан || o.createdAt,
-        amount: o.итого || o.total || 0,
-        description: `Заказ #${o.id?.split(':').pop() || 'N/A'}`,
-        user: o.имяПользователя || o.userName || o.userId
+        date: o.created_at,
+        amount: o.total || 0,
+        description: `Заказ #${o.id || 'N/A'}`,
+        user: o.user_id
       })),
-      ...earningsArray.slice(-10).map((e: any) => ({
+      ...(earningsData || []).map((e: any) => ({
         type: 'earning',
-        date: e.createdAt || e.дата,
-        amount: e.amount || e.сумма || 0,
+        date: e.created_at,
+        amount: e.amount || 0,
         description: `Начисление L${e.level || 0}`,
-        user: e.userName || e.userId
+        user: e.user_id
       })),
       ...(allPayoutsData || []).map((p: any) => ({
         type: 'withdrawal',

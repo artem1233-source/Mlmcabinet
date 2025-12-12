@@ -64,8 +64,13 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
         recentOperations: response.recentOperations || []
       };
       
+      console.log('📊 Finance API raw response:', JSON.stringify(response));
       console.log('📊 Finance data loaded:', {
+        totalRevenue: data.totalRevenue,
+        netProfit: data.netProfit,
+        usersBalanceTotal: data.usersBalanceTotal,
         pendingPayoutsSum: data.pendingPayoutsSum,
+        totalPaidOut: data.totalPaidOut,
         pendingWithdrawalsCount: data.pendingWithdrawals.length,
         recentOperationsCount: data.recentOperations.length
       });
