@@ -15,6 +15,7 @@ interface FinanceStats {
   netProfit: number;
   usersBalanceTotal: number;
   pendingPayoutsSum: number;
+  totalPaidOut: number;
   pendingWithdrawals: any[];
   recentOperations: any[];
   chartData?: { date: string; revenue: number; payouts: number }[];
@@ -58,6 +59,7 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
         netProfit: response.stats?.netProfit || 0,
         usersBalanceTotal: response.stats?.usersBalanceTotal || 0,
         pendingPayoutsSum: response.stats?.pendingPayoutsSum || 0,
+        totalPaidOut: response.stats?.totalPaidOut || 0,
         pendingWithdrawals: response.pendingWithdrawals || [],
         recentOperations: response.recentOperations || []
       };
@@ -265,12 +267,15 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
             iconColor="text-blue-500"
           />
           <KPICard
-            title="К выплате"
+            title="Выплаты"
             value={stats?.pendingPayoutsSum || 0}
+            valueColor={(stats?.pendingPayoutsSum || 0) > 0 ? "text-orange-600" : "text-slate-900"}
+            secondaryValue={stats?.totalPaidOut || 0}
+            secondaryLabel="Выплачено"
             subtitle={`${pendingCount} заявок ожидают`}
-            icon={<Clock className="w-5 h-5" />}
-            iconBg={pendingCount > 0 ? "bg-amber-50" : "bg-slate-50"}
-            iconColor={pendingCount > 0 ? "text-amber-500" : "text-slate-400"}
+            icon={<CreditCard className="w-5 h-5" />}
+            iconBg={pendingCount > 0 ? "bg-orange-50" : "bg-slate-50"}
+            iconColor={pendingCount > 0 ? "text-orange-500" : "text-slate-400"}
             highlight={pendingCount > 0}
             highlightColor="amber"
           />
@@ -550,6 +555,8 @@ function KPICard({
   title, 
   value, 
   subtitle,
+  secondaryValue,
+  secondaryLabel,
   trend, 
   trendUp, 
   icon, 
@@ -557,11 +564,14 @@ function KPICard({
   iconColor,
   highlight,
   highlightColor,
-  badge
+  badge,
+  valueColor
 }: { 
   title: string;
   value: number;
   subtitle?: string;
+  secondaryValue?: number;
+  secondaryLabel?: string;
   trend?: number;
   trendUp?: boolean;
   icon: React.ReactNode;
@@ -570,6 +580,7 @@ function KPICard({
   highlight?: boolean;
   highlightColor?: 'amber' | 'red';
   badge?: React.ReactNode;
+  valueColor?: string;
 }) {
   return (
     <div className={`bg-white rounded-2xl border ${highlight ? (highlightColor === 'red' ? 'border-red-200' : 'border-amber-200') : 'border-slate-100'} shadow-sm p-5 relative`}>
@@ -586,9 +597,14 @@ function KPICard({
         )}
       </div>
       <div className="text-xs text-slate-500 mb-1">{title}</div>
-      <div className="text-2xl font-bold text-slate-900 tabular-nums mb-1">
+      <div className={`text-2xl font-bold tabular-nums mb-1 ${valueColor || 'text-slate-900'}`}>
         ₽{value.toLocaleString()}
       </div>
+      {secondaryValue !== undefined && secondaryLabel && (
+        <div className="text-sm text-slate-500 mb-1">
+          ✅ {secondaryLabel}: ₽{secondaryValue.toLocaleString()}
+        </div>
+      )}
       {subtitle && (
         <div className="text-xs text-slate-400">{subtitle}</div>
       )}
