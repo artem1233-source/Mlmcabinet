@@ -419,24 +419,24 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
                           {w.createdAt?.split('T')[0] || '-'}
                         </td>
                         <td className="py-4 px-5">
-                          <div className="flex items-center justify-end gap-2">
+                          <div className="flex flex-col items-end gap-1">
                             <Button
                               onClick={() => handleApprove(w.id)}
                               disabled={!!processingId}
                               size="sm"
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 px-3"
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white h-7 px-2 text-xs w-full max-w-[100px]"
                             >
-                              <CheckCircle2 className="w-4 h-4 mr-1" />
-                              Оплатить
+                              <CheckCircle2 className="w-3 h-3 mr-1" />
+                              Выплатить
                             </Button>
                             <Button
                               onClick={() => handleReject(w.id)}
                               disabled={!!processingId}
                               size="sm"
                               variant="outline"
-                              className="border-red-200 text-red-600 hover:bg-red-50 h-8 px-3"
+                              className="border-red-200 text-red-600 hover:bg-red-50 h-7 px-2 text-xs w-full max-w-[100px]"
                             >
-                              <XCircle className="w-4 h-4 mr-1" />
+                              <XCircle className="w-3 h-3 mr-1" />
                               Отказать
                             </Button>
                           </div>
