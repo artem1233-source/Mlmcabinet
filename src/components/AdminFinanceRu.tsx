@@ -419,26 +419,47 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
                           {w.createdAt?.split('T')[0] || '-'}
                         </td>
                         <td className="py-4 px-5">
-                          <div className="flex flex-col items-end gap-1">
-                            <Button
+                          <div className="flex flex-col items-end gap-2">
+                            <button
                               onClick={() => handleApprove(w.id)}
                               disabled={!!processingId}
-                              size="sm"
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white h-7 px-2 text-xs w-full max-w-[100px]"
+                              style={{
+                                backgroundColor: '#10b981',
+                                color: 'white',
+                                padding: '6px 12px',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                fontWeight: '500',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                border: 'none',
+                                cursor: 'pointer'
+                              }}
                             >
-                              <CheckCircle2 className="w-3 h-3 mr-1" />
+                              <CheckCircle2 className="w-3 h-3" />
                               Выплатить
-                            </Button>
-                            <Button
+                            </button>
+                            <button
                               onClick={() => handleReject(w.id)}
                               disabled={!!processingId}
-                              size="sm"
-                              variant="outline"
-                              className="border-red-200 text-red-600 hover:bg-red-50 h-7 px-2 text-xs w-full max-w-[100px]"
+                              style={{
+                                backgroundColor: 'white',
+                                color: '#dc2626',
+                                padding: '6px 12px',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                fontWeight: '500',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                border: '1px solid #fecaca',
+                                cursor: 'pointer'
+                              }}
                             >
-                              <XCircle className="w-3 h-3 mr-1" />
+                              <XCircle className="w-3 h-3" />
                               Отказать
-                            </Button>
+                            </button>
                           </div>
                         </td>
                       </tr>
