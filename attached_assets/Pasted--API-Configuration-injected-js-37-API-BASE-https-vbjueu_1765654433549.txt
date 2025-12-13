@@ -1,0 +1,546 @@
+🔧 API Configuration:
+injected.js:37   API_BASE: https://vbjueuhgcyfberivihiv.supabase.co/functions/v1/make-server-05aa3c8a
+injected.js:37   ANON_KEY: Set ✓
+injected.js:37 🔵 AppRu rendering, pathname: /
+injected.js:37 🔵 Full URL: https://3c4c3120-7424-4df4-a7fd-e4b5f57a515a-00-r37a80iprtul.sisko.replit.dev/
+injected.js:37 🔵 AppRu: authScreen state = login
+injected.js:37 ✅ Rendering MainApp with ErrorBoundary
+workspace_iframe.html?initialPath=%2F&id=%3Ar3j%3A:142  GET https://replit.com/public/js/beacon.js net::ERR_BLOCKED_BY_CLIENT
+onIframeLoad @ workspace_iframe.html?initialPath=%2F&id=%3Ar3j%3A:142
+injected.js:37 🔄 MainApp useEffect triggered. userId: null refreshTrigger: 0
+injected.js:37 🔵 MainApp: No userId, clearing currentUser
+injected.js:37 🔵 MainApp: URL is /login or /, switching to login screen
+injected.js:37 🔍 MainApp: Checking auth status...
+injected.js:37 🔍 MainApp: Token from storage: EXISTS
+injected.js:37 ✅ MainApp: User is authenticated, userId: seo
+injected.js:37 🔐 App startup - Auth status: {hasAccessToken: true, accessTokenLength: 846, hasUserId: true, userId: 'seo'}
+injected.js:37 ✅ App mounted, global error handlers installed
+injected.js:37 🔄 MainApp useEffect triggered. userId: seo refreshTrigger: 0
+injected.js:37 🔄 MainApp: Loading user data for: seo
+injected.js:37 🌐 API Call: GET https://vbjueuhgcyfberivihiv.supabase.co/functions/v1/make-server-05aa3c8a/user/seo
+injected.js:37 🔑 User ID: seo
+injected.js:37 🔑 Anon Key: Present
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: {success: true, user: {…}}
+injected.js:37 📦 MainApp: getUser response: {success: true, user: {…}}
+injected.js:37 ✅ MainApp: User data loaded: {id: 'seo', role: 'ceo', type: 'admin', email: 'artem1233@gmail.com', имя: 'Артем', …}
+injected.js:37 ✅ MainApp: User authenticated, showing main app. Active section: дашборд
+injected.js:37 🎯 DashboardRuOptimized: Rendering with optimized hooks (v2)
+injected.js:37 📈 Chart data calculated for 30d : 30 points
+injected.js:37 📋 Recent orders calculated: 0 orders
+injected.js:37 📈 Team growth data calculated: 30 points
+injected.js:37 🔄 useDashboardData: Loading orders from SQL...
+injected.js:37 🔄 useDashboardData: Loading earnings from SQL...
+injected.js:37 🔄 useDashboardData: Loading admin stats from SQL...
+injected.js:37 🔄 useTeamData: Loading team for user: seo
+injected.js:37 🌐 API Call: GET https://vbjueuhgcyfberivihiv.supabase.co/functions/v1/make-server-05aa3c8a/user/seo/team
+injected.js:37 🔑 User ID: seo
+injected.js:37 🔑 Anon Key: Present
+injected.js:37 ✅ useDashboardData: Loaded 0 orders from SQL
+injected.js:37 🎯 DashboardRuOptimized: Rendering with optimized hooks (v2)
+injected.js:37 📈 Chart data calculated for 30d : 30 points
+injected.js:37 📋 Recent orders calculated: 0 orders
+injected.js:37 📈 Team growth data calculated: 30 points
+injected.js:37 ✅ useDashboardData: Loaded 0 earnings from SQL
+injected.js:37 🎯 DashboardRuOptimized: Rendering with optimized hooks (v2)
+injected.js:37 📈 Team growth data calculated: 30 points
+injected.js:214  GET https://vbjueuhgcyfberivihiv.supabase.co/rest/v1/orders?select=total 400 (Bad Request)
+apply @ injected.js:214
+(anonymous) @ @supabase_supabase-js.js?v=2ad88bb4:7179
+(anonymous) @ @supabase_supabase-js.js?v=2ad88bb4:7197
+await in (anonymous)
+then @ @supabase_supabase-js.js?v=2ad88bb4:111
+injected.js:37 ✅ useDashboardData: Loaded admin stats from SQL: {totalUsers: 8, totalBalance: 0, totalRevenue: 0, totalEarnings: 0, totalOrders: 0}
+injected.js:37 🎯 DashboardRuOptimized: Rendering with optimized hooks (v2)
+injected.js:37 📈 Team growth data calculated: 30 points
+injected.js:37 📊 Widgets stats calculated: {totalUsers: 0, newToday: 0, newThisMonth: 0, activePartners: 0, passivePartners: 0, …}
+3c230a7bb482d546.js:2  POST https://prodregistryv2.org/v1/rgstr?k=client-Bp7m7pNB6H0fnSGjVtxN5BeWQw4BSAat4OFsXa3VcTF&st=javascript-client&sv=3.26.0&t=1765654366850&sid=b6ba3a2b-7731-45f6-96d3-963a3f70b01d&ec=2&gz=1 net::ERR_BLOCKED_BY_CLIENT
+(anonymous) @ 3c230a7bb482d546.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+l @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+l @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+l @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+t @ 57f66d1069558565.js:2
+o @ 3c230a7bb482d546.js:2
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: {success: true, team: Array(0)}
+injected.js:37 ✅ useTeamData: Loaded 0 team members
+injected.js:37 🎯 DashboardRuOptimized: Rendering with optimized hooks (v2)
+injected.js:37 📈 Team growth data calculated: 30 points
+injected.js:37 🌐 API Call: GET https://vbjueuhgcyfberivihiv.supabase.co/functions/v1/make-server-05aa3c8a/achievements
+injected.js:37 🔑 User ID: seo
+injected.js:37 🔑 Anon Key: Present
+3c230a7bb482d546.js:2  POST https://prodregistryv2.org/v1/rgstr?k=client-Bp7m7pNB6H0fnSGjVtxN5BeWQw4BSAat4OFsXa3VcTF&st=javascript-client&sv=3.26.0&t=1765654367392&sid=b6ba3a2b-7731-45f6-96d3-963a3f70b01d&ec=2&gz=1 net::ERR_BLOCKED_BY_CLIENT
+(anonymous) @ 3c230a7bb482d546.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+l @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+l @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+l @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+t @ 57f66d1069558565.js:2
+o @ 3c230a7bb482d546.js:2
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: {success: true, achievements: Array(0), stats: {…}}
+3c230a7bb482d546.js:2  POST https://prodregistryv2.org/v1/rgstr?k=client-Bp7m7pNB6H0fnSGjVtxN5BeWQw4BSAat4OFsXa3VcTF&st=javascript-client&sv=3.26.0&t=1765654369397&sid=b6ba3a2b-7731-45f6-96d3-963a3f70b01d&ec=2&gz=1 net::ERR_BLOCKED_BY_CLIENT
+(anonymous) @ 3c230a7bb482d546.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+l @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+l @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+l @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+t @ 57f66d1069558565.js:2
+o @ 3c230a7bb482d546.js:2
+3c230a7bb482d546.js:2  POST https://prodregistryv2.org/v1/rgstr?k=client-Bp7m7pNB6H0fnSGjVtxN5BeWQw4BSAat4OFsXa3VcTF&st=javascript-client&sv=3.26.0&t=1765654373900&sid=b6ba3a2b-7731-45f6-96d3-963a3f70b01d&ec=2&gz=1 net::ERR_BLOCKED_BY_CLIENT
+(anonymous) @ 3c230a7bb482d546.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+l @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+l @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+l @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+t @ 57f66d1069558565.js:2
+o @ 3c230a7bb482d546.js:2
+3c230a7bb482d546.js:2  ERROR  [Statsig] A networking error occurred during POST request to https://prodregistryv2.org/v1/rgstr?k=client-Bp7m7pNB6H0fnSGjVtxN5BeWQw4BSAat4OFsXa3VcTF&st=javascript-client&sv=3.26.0&t=1765654373900&sid=b6ba3a2b-7731-45f6-96d3-963a3f70b01d&ec=2&gz=1. TypeError: Failed to fetch TypeError: Failed to fetch
+    at 3c230a7bb482d546.js:2:106554
+    at t.<anonymous> (57f66d1069558565.js:2:45851)
+    at Object.next (0540e3efc7ae4588.js:2:11709)
+    at 57f66d1069558565.js:2:42953
+    at new Promise (<anonymous>)
+    at u (57f66d1069558565.js:2:42707)
+    at t.value (57f66d1069558565.js:2:44941)
+    at 57f66d1069558565.js:2:31769
+    at e.value (57f66d1069558565.js:2:32176)
+    at e.<computed> [as _sendRequest] (57f66d1069558565.js:2:31709)
+    at t.<anonymous> (57f66d1069558565.js:2:47327)
+    at Object.next (0540e3efc7ae4588.js:2:11709)
+    at s (57f66d1069558565.js:2:42763)
+(anonymous) @ 3c230a7bb482d546.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+u @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+l @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+l @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+l @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+t @ 57f66d1069558565.js:2
+o @ 3c230a7bb482d546.js:2
+3c230a7bb482d546.js:2   WARN  [Statsig] Failed to flush events.
+(anonymous) @ 3c230a7bb482d546.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+s @ 57f66d1069558565.js:2
+Promise.then
+l @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+l @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+(anonymous) @ 0540e3efc7ae4588.js:2
+(anonymous) @ 57f66d1069558565.js:2
+l @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+(anonymous) @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+e.<computed> @ 57f66d1069558565.js:2
+value @ 57f66d1069558565.js:2
+t @ 57f66d1069558565.js:2
+o @ 3c230a7bb482d546.js:2
+injected.js:37 ✅ MainApp: User authenticated, showing main app. Active section: пользователи
+injected.js:37 🌐 API Call: GET https://vbjueuhgcyfberivihiv.supabase.co/functions/v1/make-server-05aa3c8a/user/009/rank?cache=false
+injected.js:37 🔑 User ID: seo
+injected.js:37 🔑 Anon Key: Present
+injected.js:37 🌐 API Call: GET https://vbjueuhgcyfberivihiv.supabase.co/functions/v1/make-server-05aa3c8a/user/008/rank?cache=false
+injected.js:37 🔑 User ID: seo
+injected.js:37 🔑 Anon Key: Present
+injected.js:37 🌐 API Call: GET https://vbjueuhgcyfberivihiv.supabase.co/functions/v1/make-server-05aa3c8a/user/007/rank?cache=false
+injected.js:37 🔑 User ID: seo
+injected.js:37 🔑 Anon Key: Present
+injected.js:37 🌐 API Call: GET https://vbjueuhgcyfberivihiv.supabase.co/functions/v1/make-server-05aa3c8a/user/004/rank?cache=false
+injected.js:37 🔑 User ID: seo
+injected.js:37 🔑 Anon Key: Present
+injected.js:37 🌐 API Call: GET https://vbjueuhgcyfberivihiv.supabase.co/functions/v1/make-server-05aa3c8a/user/003/rank?cache=false
+injected.js:37 🔑 User ID: seo
+injected.js:37 🔑 Anon Key: Present
+injected.js:37 🌐 API Call: GET https://vbjueuhgcyfberivihiv.supabase.co/functions/v1/make-server-05aa3c8a/user/005/rank?cache=false
+injected.js:37 🔑 User ID: seo
+injected.js:37 🔑 Anon Key: Present
+injected.js:37 🌐 API Call: GET https://vbjueuhgcyfberivihiv.supabase.co/functions/v1/make-server-05aa3c8a/user/002/rank?cache=false
+injected.js:37 🔑 User ID: seo
+injected.js:37 🔑 Anon Key: Present
+injected.js:37 🌐 API Call: GET https://vbjueuhgcyfberivihiv.supabase.co/functions/v1/make-server-05aa3c8a/user/001/rank?cache=false
+injected.js:37 🔑 User ID: seo
+injected.js:37 🔑 Anon Key: Present
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: {success: true, userId: '002', rank: 1}
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: {success: true, userId: '009', rank: 0}
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: {success: true, userId: '007', rank: 1}
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: {success: true, userId: '003', rank: 3}
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: {success: true, userId: '001', rank: 4}
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: {success: true, userId: '004', rank: 2}
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: {success: true, userId: '008', rank: 0}
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: {success: true, userId: '005', rank: 0}
+injected.js:37 📊 User ranks updated [list]: 8 users (fresh API data)

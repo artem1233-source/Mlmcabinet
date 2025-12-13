@@ -9181,28 +9181,41 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
 
     console.log(`📊 Loading optimized users page ${page} with statsFilter: ${statsFilter}...`);
 
-    // 🎯 КРИТИЧЕСКАЯ ОПТИМИЗАЦИЯ #1: Кэш списка всех пользователей (2 минуты)
-    const ALL_USERS_CACHE_KEY = 'cache:all_users_list';
-    const ALL_USERS_CACHE_TTL = 2 * 60 * 1000;
+    // 🔥 SINGLE SOURCE OF TRUTH: SQL таблица profiles (не KV Store!)
+    const { data: profiles, error: sqlError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('is_admin', false);
     
-    let allUsersCache = await kv.get(ALL_USERS_CACHE_KEY);
-    let users: any[];
-    
-    if (allUsersCache && allUsersCache.timestamp) {
-      const cacheAge = Date.now() - new Date(allUsersCache.timestamp).getTime();
-      if (cacheAge < ALL_USERS_CACHE_TTL) {
-        console.log(`✅ Using cached all users (age: ${Math.round(cacheAge/1000)}s)`);
-        users = allUsersCache.users;
-      } else {
-        const allUsers = await kv.getByPrefix('user:id:');
-        users = allUsers.filter((u: any) => !isUserAdmin(u));
-        await kv.set(ALL_USERS_CACHE_KEY, { users, timestamp: new Date().toISOString() });
-      }
-    } else {
-      const allUsers = await kv.getByPrefix('user:id:');
-      users = allUsers.filter((u: any) => !isUserAdmin(u));
-      await kv.set(ALL_USERS_CACHE_KEY, { users, timestamp: new Date().toISOString() });
+    if (sqlError) {
+      console.error('❌ SQL error loading users:', sqlError);
+      return c.json({ success: false, error: 'Failed to load users from SQL' }, 500);
     }
+    
+    // Маппим SQL поля в формат, ожидаемый фронтендом
+    const users: any[] = (profiles || []).map((p: any) => ({
+      id: p.id,
+      имя: p.name || p.first_name || '',
+      фамилия: p.last_name || '',
+      email: p.email || '',
+      телефон: p.phone || '',
+      баланс: p.balance || 0,  // ← SQL balance - SINGLE SOURCE OF TRUTH
+      доступныйБаланс: p.available_balance || p.balance || 0,
+      уровень: p.rank_level || 0,
+      isAdmin: p.is_admin || false,
+      спонсорId: p.referrer_id || null,
+      команда: p.team || [],
+      зарегистрирован: p.created_at,
+      createdAt: p.created_at,
+      telegram: p.telegram || '',
+      whatsapp: p.whatsapp || '',
+      instagram: p.instagram || '',
+      vk: p.vk || '',
+      avatar_url: p.avatar_url || '',
+      lastActivity: p.last_login,
+    }));
+    
+    console.log(`✅ Loaded ${users.length} users from SQL profiles table`);
 
     // Применяем поиск
     let filteredUsers = users;
