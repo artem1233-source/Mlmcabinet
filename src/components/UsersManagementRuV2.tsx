@@ -82,6 +82,7 @@ import { Label } from './ui/label';
 import { toast } from 'sonner';
 import * as api from '../utils/api';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../utils/supabase/client';
 import { IdManager } from './admin/IdManager';
 import { ChangeUserId } from './admin/ChangeUserId';
 import { ManualLinkFixer } from './admin/ManualLinkFixer';
@@ -419,38 +420,45 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
     try {
       setTreeLoading(true);
       
-      // 🔥 Загружаем через API (бэкенд использует service_role_key и KV Store)
-      console.log('🔄 Loading users for tree from API (KV Store)...');
+      // 🔥 SINGLE SOURCE OF TRUTH: SQL таблица profiles
+      console.log('🔄 Loading users for tree from SQL profiles...');
       
-      const response = await api.getAllUsers();
+      const { data: profiles, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('is_admin', false)
+        .order('created_at', { ascending: false });
       
-      if (!response.success) {
-        throw new Error(response.error || 'Failed to load users');
+      if (error) {
+        console.error('❌ SQL error loading tree users:', error);
+        // Показываем пустой список при ошибке RLS
+        setAllUsers([]);
+        setExpandedUsers(new Set());
+        return;
       }
       
-      const loadedUsers = (response.users || [])
-        .filter((u: any) => !u.isAdmin)
-        .map((u: any) => ({
-          id: u.id,
-          имя: u.имя || u.name || '',
-          фамилия: u.фамилия || u.lastName || '',
-          email: u.email || '',
-          баланс: u.баланс || u.balance || 0,
-          уровень: u.уровень || u.level || 0,
-          isAdmin: u.isAdmin || false,
-          спонсорId: u.спонсорId || u.sponsorId || null,
-          команда: u.команда || u.team || [],
-          created: u.created || u.createdAt,
-        }));
+      const loadedUsers = (profiles || []).map((p: any) => ({
+        id: p.user_id || p.id,
+        имя: p.name || p.first_name || '',
+        фамилия: p.last_name || '',
+        email: p.email || '',
+        баланс: p.balance || 0,
+        уровень: p.level || 0,
+        isAdmin: p.is_admin || false,
+        спонсорId: p.referrer_id || p.sponsor_id || null,
+        команда: p.team || [],
+        created: p.created_at,
+      }));
       
-      console.log('✅ Loaded', loadedUsers.length, 'users for tree from API');
+      console.log('✅ Loaded', loadedUsers.length, 'users for tree from SQL');
       
       setAllUsers(loadedUsers);
       const rootUsers = loadedUsers.filter((u: any) => !u.спонсорId);
       setExpandedUsers(new Set(rootUsers.map((u: any) => u.id)));
     } catch (error) {
       console.error('Failed to load tree users:', error);
-      toast.error('Ошибка загрузки дерева');
+      setAllUsers([]);
+      setExpandedUsers(new Set());
     } finally {
       setTreeLoading(false);
     }
@@ -464,92 +472,76 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
         setLoading(true);
       }
       
-      // 🔥 Загружаем через API (бэкенд использует service_role_key и KV Store)
-      console.log('🔄 Loading users from API (KV Store)...');
+      // 🔥 SINGLE SOURCE OF TRUTH: SQL таблица profiles
+      console.log('🔄 Loading users from SQL profiles table...');
       
-      const response = await api.getAllUsers();
+      let query = supabase
+        .from('profiles')
+        .select('*', { count: 'exact' });
       
-      if (!response.success) {
-        throw new Error(response.error || 'Failed to load users');
-      }
-      
-      let allLoadedUsers = (response.users || []).map((u: any) => ({
-        id: u.id,
-        имя: u.имя || u.name || '',
-        фамилия: u.фамилия || u.lastName || '',
-        email: u.email || '',
-        телефон: u.телефон || u.phone || '',
-        баланс: u.баланс || u.balance || 0,
-        доступныйБаланс: u.доступныйБаланс || u.availableBalance || u.баланс || 0,
-        уровень: u.уровень || u.level || 0,
-        isAdmin: u.isAdmin || false,
-        спонсорId: u.спонсорId || u.sponsorId || null,
-        команда: u.команда || u.team || [],
-        created: u.created || u.createdAt,
-        telegram: u.telegram || '',
-        whatsapp: u.whatsapp || '',
-        instagram: u.instagram || '',
-        vk: u.vk || '',
-        avatar_url: u.аватарка || u.avatar_url || '',
-        lastActivity: u.lastActivity || u.последняяАктивность,
-      }));
-      
-      // Фильтрация на клиенте
+      // Применяем поиск
       if (debouncedSearch) {
-        const search = debouncedSearch.toLowerCase();
-        allLoadedUsers = allLoadedUsers.filter((u: any) => 
-          (u.имя || '').toLowerCase().includes(search) ||
-          (u.фамилия || '').toLowerCase().includes(search) ||
-          (u.email || '').toLowerCase().includes(search) ||
-          (u.id || '').toLowerCase().includes(search)
-        );
+        query = query.or(`name.ilike.%${debouncedSearch}%,email.ilike.%${debouncedSearch}%,id.ilike.%${debouncedSearch}%`);
       }
       
+      // Применяем фильтр по балансу
       if (balanceFrom) {
-        allLoadedUsers = allLoadedUsers.filter((u: any) => (u.баланс || 0) >= parseFloat(balanceFrom));
+        query = query.gte('balance', parseFloat(balanceFrom));
       }
       if (balanceTo) {
-        allLoadedUsers = allLoadedUsers.filter((u: any) => (u.баланс || 0) <= parseFloat(balanceTo));
+        query = query.lte('balance', parseFloat(balanceTo));
       }
       
       // Сортировка
-      allLoadedUsers.sort((a: any, b: any) => {
-        let aVal, bVal;
-        if (sortBy === 'created') {
-          aVal = new Date(a.created || 0).getTime();
-          bVal = new Date(b.created || 0).getTime();
-        } else if (sortBy === 'name') {
-          aVal = (a.имя || '').toLowerCase();
-          bVal = (b.имя || '').toLowerCase();
-        } else if (sortBy === 'balance') {
-          aVal = a.баланс || 0;
-          bVal = b.баланс || 0;
-        } else if (sortBy === 'level') {
-          aVal = a.уровень || 0;
-          bVal = b.уровень || 0;
-        } else {
-          aVal = new Date(a.created || 0).getTime();
-          bVal = new Date(b.created || 0).getTime();
-        }
-        
-        if (sortOrder === 'asc') {
-          return aVal > bVal ? 1 : -1;
-        } else {
-          return aVal < bVal ? 1 : -1;
-        }
-      });
-      
-      const total = allLoadedUsers.length;
+      const sortColumn = sortBy === 'created' ? 'created_at' : 
+                        sortBy === 'name' ? 'name' : 
+                        sortBy === 'balance' ? 'balance' : 
+                        sortBy === 'level' ? 'rank_level' : 'created_at';
+      query = query.order(sortColumn, { ascending: sortOrder === 'asc' });
       
       // Пагинация
       const from = (pagination.page - 1) * pagination.limit;
-      const loadedUsers = allLoadedUsers.slice(from, from + pagination.limit);
+      const to = from + pagination.limit - 1;
+      query = query.range(from, to);
       
-      console.log(`✅ Loaded ${loadedUsers.length} users from API. Total: ${total}`);
-      console.log('📊 Sample balances:', loadedUsers.slice(0, 3).map((u: any) => ({ id: u.id, баланс: u.баланс })));
+      const { data: profiles, error, count } = await query;
+      
+      if (error) {
+        console.error('❌ SQL error loading users:', error);
+        // При ошибке RLS показываем пустой список
+        setUsers([]);
+        setPagination({ page: 1, limit: 50, total: 0, totalPages: 0, hasMore: false });
+        setStats({ totalUsers: 0, newToday: 0, newThisMonth: 0, activePartners: 0, passivePartners: 0, activeUsers: 0, passiveUsers: 0, withTeam: 0, totalBalance: 0, orphans: 0 });
+        return;
+      }
+      
+      const loadedUsers = (profiles || []).map((p: any) => ({
+        id: p.id,
+        имя: p.name || p.first_name || '',
+        фамилия: p.last_name || '',
+        email: p.email || '',
+        телефон: p.phone || '',
+        баланс: p.balance || 0,
+        доступныйБаланс: p.available_balance || p.balance || 0,
+        уровень: p.rank_level || 0,
+        isAdmin: p.is_admin || false,
+        спонсорId: p.referrer_id || null,
+        команда: p.team || [],
+        created: p.created_at,
+        telegram: p.telegram || '',
+        whatsapp: p.whatsapp || '',
+        instagram: p.instagram || '',
+        vk: p.vk || '',
+        avatar_url: p.avatar_url || '',
+        lastActivity: p.last_login,
+      }));
+      
+      console.log(`✅ Loaded ${loadedUsers.length} users from SQL. Total: ${count}`);
+      console.log('📊 Sample balances:', loadedUsers.slice(0, 3).map(u => ({ id: u.id, баланс: u.баланс })));
       
       setUsers(loadedUsers);
       
+      const total = count || 0;
       setPagination({
         page: pagination.page,
         limit: pagination.limit,
@@ -558,9 +550,15 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
         hasMore: (pagination.page * pagination.limit) < total,
       });
       
-      // 📊 Статистика из загруженных данных
-      const totalBalance = allLoadedUsers.reduce((sum: number, u: any) => sum + (u.баланс || 0), 0);
-      const activeUsers = allLoadedUsers.filter((u: any) => (u.баланс || 0) > 0).length;
+      // 📊 Статистика из SQL
+      const { data: allProfiles } = await supabase
+        .from('profiles')
+        .select('balance, team, is_admin');
+      
+      const allUsers = allProfiles || [];
+      const totalBalance = allUsers.reduce((sum: number, p: any) => sum + (p.balance || 0), 0);
+      const activeUsers = allUsers.filter(p => (p.balance || 0) > 0).length;
+      const usersWithTeam = allUsers.filter(p => p.team && p.team.length > 0).length;
       
       setStats({
         totalUsers: total,
@@ -570,14 +568,16 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
         passivePartners: total - activeUsers,
         activeUsers: activeUsers,
         passiveUsers: total - activeUsers,
-        withTeam: allLoadedUsers.filter((u: any) => u.команда && u.команда.length > 0).length,
+        withTeam: usersWithTeam,
         totalBalance: totalBalance,
         orphans: 0
       });
       
     } catch (error: any) {
       console.error('Failed to load users:', error);
-      toast.error('Ошибка загрузки пользователей');
+      // При ошибке показываем пустой список
+      setUsers([]);
+      setStats({ totalUsers: 0, newToday: 0, newThisMonth: 0, activePartners: 0, passivePartners: 0, activeUsers: 0, passiveUsers: 0, withTeam: 0, totalBalance: 0, orphans: 0 });
     } finally {
       if (isSearch) {
         setSearchLoading(false);
