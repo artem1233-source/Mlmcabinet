@@ -9182,15 +9182,20 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
     console.log(`📊 Loading optimized users page ${page} with statsFilter: ${statsFilter}...`);
 
     // 🔥 SINGLE SOURCE OF TRUTH: SQL таблица profiles (не KV Store!)
+    // Загружаем ВСЕХ пользователей (не только is_admin = false, т.к. NULL тоже нужен)
     const { data: profiles, error: sqlError } = await supabase
       .from('profiles')
-      .select('*')
-      .eq('is_admin', false);
+      .select('id, email, name, first_name, last_name, phone, balance, available_balance, rank_level, is_admin, referrer_id, team, created_at, telegram, whatsapp, instagram, vk, avatar_url, last_login')
+      .or('is_admin.eq.false,is_admin.is.null')
+      .order('created_at', { ascending: false })
+      .range(0, 999);
     
     if (sqlError) {
       console.error('❌ SQL error loading users:', sqlError);
       return c.json({ success: false, error: 'Failed to load users from SQL' }, 500);
     }
+    
+    console.log(`📊 SQL returned ${profiles?.length || 0} profiles`);
     
     // Маппим SQL поля в формат, ожидаемый фронтендом
     const users: any[] = (profiles || []).map((p: any) => ({
@@ -9212,6 +9217,7 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
       instagram: p.instagram || '',
       vk: p.vk || '',
       avatar_url: p.avatar_url || '',
+      аватарка: p.avatar_url || '',  // ← Дублируем для совместимости с фронтендом
       lastActivity: p.last_login,
     }));
     
