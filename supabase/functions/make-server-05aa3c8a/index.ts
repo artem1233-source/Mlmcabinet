@@ -9182,23 +9182,25 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
     console.log(`📊 Loading optimized users page ${page} with statsFilter: ${statsFilter}...`);
 
     // 🔥 SINGLE SOURCE OF TRUTH: SQL таблица profiles (не KV Store!)
-    // Загружаем ВСЕХ пользователей (не только is_admin = false, т.к. NULL тоже нужен)
+    // Загружаем ВСЕХ пользователей без фильтра, потом отсеиваем админов в коде
     const { data: profiles, error: sqlError } = await supabase
       .from('profiles')
-      .select('id, email, name, first_name, last_name, phone, balance, available_balance, rank_level, is_admin, referrer_id, team, created_at, telegram, whatsapp, instagram, vk, avatar_url, last_login')
-      .or('is_admin.eq.false,is_admin.is.null')
+      .select('*')
       .order('created_at', { ascending: false })
-      .range(0, 999);
+      .limit(1000);
     
     if (sqlError) {
       console.error('❌ SQL error loading users:', sqlError);
-      return c.json({ success: false, error: 'Failed to load users from SQL' }, 500);
+      return c.json({ success: false, error: 'Failed to load users from SQL', details: sqlError.message }, 500);
     }
     
     console.log(`📊 SQL returned ${profiles?.length || 0} profiles`);
     
+    // Фильтруем админов в коде (не в SQL) чтобы избежать проблем с NULL
+    const nonAdminProfiles = (profiles || []).filter((p: any) => p.is_admin !== true);
+    
     // Маппим SQL поля в формат, ожидаемый фронтендом
-    const users: any[] = (profiles || []).map((p: any) => ({
+    const users: any[] = nonAdminProfiles.map((p: any) => ({
       id: p.id,
       имя: p.name || p.first_name || '',
       фамилия: p.last_name || '',
@@ -9221,7 +9223,7 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
       lastActivity: p.last_login,
     }));
     
-    console.log(`✅ Loaded ${users.length} users from SQL profiles table`);
+    console.log(`✅ Loaded ${users.length} non-admin users from SQL profiles table`);
 
     // Применяем поиск
     let filteredUsers = users;
