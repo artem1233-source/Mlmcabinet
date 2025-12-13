@@ -2465,13 +2465,13 @@ app.delete("/make-server-05aa3c8a/user/account", async (c) => {
   }
 });
 
-// Get user by ID
+// Get user by ID - HYBRID: Profile from KV, Balance from SQL
 app.get("/make-server-05aa3c8a/user/:userId", async (c) => {
   try {
     const userId = c.req.param('userId');
     console.log(`📥 Getting user data for ID: ${userId}`);
     
-    // Try user first
+    // Try user first from KV
     let userData = await kv.get(`user:id:${userId}`);
     
     // If not found, try admin (for CEO and admin-X IDs)
@@ -2485,8 +2485,30 @@ app.get("/make-server-05aa3c8a/user/:userId", async (c) => {
       return c.json({ error: "User not found" }, 404);
     }
     
-    console.log(`✅ Found user: ${userData.имя} ${userData.фамилия} (type: ${userData.type || 'user'})`);
-    return c.json({ success: true, user: userData });
+    // 🔥 GET BALANCE FROM SQL - THIS IS THE SOURCE OF TRUTH
+    const { data: sqlProfile, error: sqlError } = await supabase
+      .from('profiles')
+      .select('balance')
+      .eq('user_id', userId)
+      .single();
+    
+    if (sqlError) {
+      console.log(`⚠️ SQL profile lookup failed for ${userId}: ${sqlError.message}`);
+    }
+    
+    // Override balance from SQL (source of truth)
+    const sqlBalance = sqlProfile?.balance ?? 0;
+    console.log(`💰 SQL balance for ${userId}: ${sqlBalance} (KV had: ${userData.баланс || 0})`);
+    
+    // Merge: KV profile data + SQL balance
+    const mergedUserData = {
+      ...userData,
+      баланс: sqlBalance,
+      доступныйБаланс: sqlBalance  // Also update available balance
+    };
+    
+    console.log(`✅ Found user: ${mergedUserData.имя} ${mergedUserData.фамилия} (type: ${mergedUserData.type || 'user'}), balance: ${sqlBalance}`);
+    return c.json({ success: true, user: mergedUserData });
   } catch (error) {
     console.log(`Get user error: ${error}`);
     return c.json({ error: `Failed to get user: ${error}` }, 500);
@@ -2535,15 +2557,26 @@ app.get("/make-server-05aa3c8a/user/:userId/profile", async (c) => {
     const teamMembers = allUsersArray.filter((u: any) => u.спонсорId === userId);
     profileData.teamSize = teamMembers.length;
     
+    // 🔥 GET BALANCE FROM SQL - THIS IS THE SOURCE OF TRUTH
+    const { data: sqlProfile } = await supabase
+      .from('profiles')
+      .select('balance')
+      .eq('user_id', userId)
+      .single();
+    const sqlBalance = sqlProfile?.balance ?? 0;
+    
     // Поля которые показываем только если разрешено или это свой профиль
     if (isOwnProfile || privacySettings.showBalance !== false) {
-      profileData.баланс = userData.баланс || 0;
+      profileData.баланс = sqlBalance; // FROM SQL, NOT KV
     }
     
     if (isOwnProfile || privacySettings.showEarnings !== false) {
-      // Подсчитываем общий заработок из earnings
-      const earnings = await kv.getByPrefix(`earning:user:${userId}:`);
-      const totalEarnings = earnings.reduce((sum: number, e: any) => sum + (e.сумма || e.amount || 0), 0);
+      // 🔥 GET EARNINGS FROM SQL - THIS IS THE SOURCE OF TRUTH
+      const { data: earningsData } = await supabase
+        .from('earnings')
+        .select('amount')
+        .eq('user_id', userId);
+      const totalEarnings = (earningsData || []).reduce((sum: number, e: any) => sum + (e.amount || 0), 0);
       profileData.totalEarnings = totalEarnings;
     }
     
