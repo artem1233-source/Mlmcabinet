@@ -14,6 +14,7 @@ import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Cartesia
 import { motion, AnimatePresence } from 'motion/react';
 import * as api from '../utils/api';
 import { toast } from 'sonner';
+import { supabase } from '../utils/supabase/client';
 
 interface DashboardRuProps {
   currentUser: any;
@@ -195,25 +196,60 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
   const loadData = async () => {
     try {
       setLoading(true);
+      console.log('🔄 DashboardRu: Loading data from SQL...');
       
-      // Загружаем команду
-      const teamData = await api.getUserTeam(currentUser.id);
-      const teamArray = Array.isArray(teamData) ? teamData : [];
+      // 🔥 SINGLE SOURCE OF TRUTH: Загружаем НАПРЯМУЮ из SQL
+      
+      // Загружаем команду из SQL profiles (где referrer_id = currentUser.id)
+      const { data: teamProfiles, error: teamError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('referrer_id', currentUser.id);
+      
+      if (teamError) console.error('Team SQL error:', teamError);
+      
+      const teamArray = (teamProfiles || []).map((p: any) => ({
+        id: p.user_id || p.id,
+        имя: p.name || p.first_name || '',
+        баланс: p.balance || 0,
+        датаРегистрации: p.created_at,
+        зарегистрирован: p.created_at,
+      }));
       setTeam(teamArray);
+      console.log(`✅ Loaded ${teamArray.length} team members from SQL`);
       
-      // Загружаем все заказы для расчёта комиссий
-      const allOrders = await api.getOrders();
-      const ordersArray = Array.isArray(allOrders) ? allOrders : (allOrders?.orders ? allOrders.orders : []);
+      // Загружаем заказы из SQL
+      const { data: sqlOrders, error: ordersError } = await supabase
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (ordersError) console.error('Orders SQL error:', ordersError);
+      
+      const ordersArray = (sqlOrders || []).map((o: any) => ({
+        id: o.id,
+        партнерId: o.user_id || o.partner_id,
+        итого: o.total || 0,
+        датаСоздания: o.created_at,
+        created_at: o.created_at,
+        товары: o.items || [],
+        d1: o.d1,
+        d2: o.d2,
+        d3: o.d3,
+        комиссияD1: o.commission_d1 || 0,
+        комиссияD2: o.commission_d2 || 0,
+        комиссияD3: o.commission_d3 || 0,
+      }));
       setOrders(ordersArray);
+      console.log(`✅ Loaded ${ordersArray.length} orders from SQL`);
       
       // Мои заказы
       const myOrdersData = ordersArray.filter((o: any) => o.партнерId === currentUser.id);
       setMyOrders(myOrdersData);
       
       // Формируем недавнюю активность
-      const activity = [];
+      const activity: any[] = [];
       
-      // Новые партнёры (последние 7 дней)
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
       const newPartners = teamArray.filter((m: any) => {
@@ -233,12 +269,8 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
         });
       });
       
-      // Недавние заказы (последние 10)
-      const recentOrders = [...(ordersArray || [])]
-        .filter((o: any) => {
-          // Мои заказы или заказы команды
-          return o.партнерId === currentUser.id || teamArray.some((m: any) => m.id === o.партнерId);
-        })
+      const recentOrders = [...ordersArray]
+        .filter((o: any) => o.партнерId === currentUser.id || teamArray.some((m: any) => m.id === o.партнерId))
         .sort((a: any, b: any) => new Date(b.датаСоздания || b.created_at).getTime() - new Date(a.датаСоздания || a.created_at).getTime())
         .slice(0, 10);
       
@@ -250,12 +282,11 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
           color: isMine ? 'text-green-500' : 'text-purple-500',
           bg: isMine ? 'bg-green-50' : 'bg-purple-50',
           title: isMine ? 'Ваш заказ' : 'Заказ команды',
-          description: `${order.товары?.length || 0} товаров на ${order.итого?.toLocaleString('ru-RU')}₽`,
+          description: `${order.товары?.length || 0} товаров на ${(order.итого || 0).toLocaleString('ru-RU')}₽`,
           time: new Date(order.датаСоздания || order.created_at),
         });
       });
       
-      // Сортируем по времени
       activity.sort((a, b) => b.time.getTime() - a.time.getTime());
       setRecentActivity(activity.slice(0, 10));
       
