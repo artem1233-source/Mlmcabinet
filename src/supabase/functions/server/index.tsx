@@ -2623,7 +2623,7 @@ app.get("/make-server-05aa3c8a/user/:userId/profile", async (c) => {
   }
 });
 
-// Get user's team structure
+// Get user's team structure - HYBRID: Structure from KV, Balances from SQL
 app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
   try {
     await verifyUser(c.req.header('X-User-Id'));
@@ -2631,46 +2631,40 @@ app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
     
     console.log(`📊 Building team structure for user: ${userId}`);
     
-    // Get all users (excluding admins)
+    // Get all users (excluding admins) from KV for structure
     const allUsers = await kv.getByPrefix('user:id:');
     const allUsersArray = Array.isArray(allUsers) ? allUsers : [];
     
-    // 🆕 ИСПРАВЛЕНИЕ: Фильтруем администраторов из списка пользователей
+    // Filter out admins
     const nonAdminUsers = allUsersArray.filter((u: any) => !isUserAdmin(u));
     console.log(`📊 Filtered ${allUsersArray.length} total users to ${nonAdminUsers.length} non-admin users`);
     
-    // Получаем данные текущего пользователя для рефкода
+    // Get current user for ref code
     const currentUser = nonAdminUsers.find((u: any) => u.id === userId);
     if (!currentUser) {
       return c.json({ success: true, team: [] });
     }
     
-    // Рекурсивная функция для построения команды с глубиной
+    // Recursive function to build team with depth
     const buildTeamWithDepth = (sponsorId: string, sponsorRefCode: string, depth: number, visited: Set<string> = new Set()): any[] => {
-      // Защита от циклических ссылок
       if (visited.has(sponsorId) || depth > 10) {
         return [];
       }
       
       visited.add(sponsorId);
       
-      // Найти всех прямых партнёров (только не-админов)
       const directPartners = nonAdminUsers.filter((u: any) => 
         u.спонсорId === sponsorId && u.id !== sponsorId
       );
       
-      console.log(`📊   Level ${depth}: Found ${directPartners.length} direct partners for sponsor ${sponsorId} (refCode: ${sponsorRefCode})`);
+      console.log(`📊   Level ${depth}: Found ${directPartners.length} direct partners for sponsor ${sponsorId}`);
       
-      // Для каждого партнёра добавляем глубину и пригласительный код
-      const partnersWithDepth = directPartners.map((partner: any) => {
-        return {
-          ...partner,
-          глубина: depth,
-          пригласительКод: sponsorRefCode  // Dynamically set based on current sponsor's refCode
-        };
-      });
+      const partnersWithDepth = directPartners.map((partner: any) => ({
+        ...partner,
+        глубина: depth,
+        пригласительКод: sponsorRefCode
+      }));
       
-      // Получаем команды всех прямых партнёров (следующий уровень)
       const subTeams = directPartners.flatMap((partner: any) => 
         buildTeamWithDepth(partner.id, partner.рефКод, depth + 1, new Set(visited))
       );
@@ -2678,39 +2672,49 @@ app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
       return [...partnersWithDepth, ...subTeams];
     };
     
-    // Строим всю команду начиная с глубины 1
+    // Build team starting from depth 1
     const teamMembers = buildTeamWithDepth(userId, currentUser.рефКод, 1);
     
     console.log(`✅ Built team structure: ${teamMembers.length} members across all levels`);
-    console.log(`   Level 1: ${teamMembers.filter(m => m.глубина === 1).length}`);
-    console.log(`   Level 2: ${teamMembers.filter(m => m.глубина === 2).length}`);
-    console.log(`   Level 3: ${teamMembers.filter(m => m.глубина === 3).length}`);
     
-    // 🔄 Загрузка актуальных балансов из KV Store (getByPrefix может возвращать устаревшие данные)
+    // 🔥 GET BALANCES FROM SQL - THIS IS THE SOURCE OF TRUTH
     if (teamMembers.length > 0) {
       try {
         const teamIds = teamMembers.map((m: any) => m.id);
         
-        // Загружаем актуальные данные для каждого пользователя через kv.get
-        const freshDataPromises = teamIds.map((id: string) => kv.get(`user:id:${id}`));
-        const freshDataResults = await Promise.all(freshDataPromises);
+        // Load balances from SQL profiles table
+        const { data: sqlProfiles, error: sqlError } = await supabase
+          .from('profiles')
+          .select('user_id, balance')
+          .in('user_id', teamIds);
         
+        if (sqlError) {
+          console.error(`❌ SQL profiles query error: ${sqlError.message}`);
+        }
+        
+        // Create balance map from SQL data
         const balanceMap = new Map<string, number>();
-        freshDataResults.forEach((userData: any) => {
-          if (userData && userData.id) {
-            balanceMap.set(userData.id, userData.баланс || 0);
-          }
+        (sqlProfiles || []).forEach((profile: any) => {
+          balanceMap.set(profile.user_id, profile.balance ?? 0);
         });
         
+        // Override KV balances with SQL balances (source of truth)
         teamMembers.forEach((member: any) => {
-          if (balanceMap.has(member.id)) {
-            member.баланс = balanceMap.get(member.id);
+          const sqlBalance = balanceMap.get(member.id) ?? 0;
+          const kvBalance = member.баланс || 0;
+          if (sqlBalance !== kvBalance) {
+            console.log(`💰 Balance override for ${member.id}: KV=${kvBalance} → SQL=${sqlBalance}`);
           }
+          member.баланс = sqlBalance;
         });
         
-        console.log(`✅ Synced balances from KV Store for ${balanceMap.size} team members`);
+        console.log(`✅ Synced ${balanceMap.size} balances from SQL (profiles table)`);
       } catch (syncError) {
-        console.log(`⚠️ Failed to sync team balances: ${syncError}`);
+        console.log(`⚠️ Failed to sync team balances from SQL: ${syncError}`);
+        // If SQL fails, set all balances to 0 (safe default)
+        teamMembers.forEach((member: any) => {
+          member.баланс = 0;
+        });
       }
     }
     
