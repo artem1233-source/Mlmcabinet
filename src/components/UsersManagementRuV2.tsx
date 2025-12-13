@@ -383,6 +383,12 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
     return () => clearInterval(interval);
   }, [viewMode]); // Убрали лишние зависимости, чтобы не пересоздавать интервал
 
+  // 🔥 ПРИНУДИТЕЛЬНАЯ загрузка при монтировании компонента
+  useEffect(() => {
+    console.log('🔥 UsersManagement mounted - forcing loadUsers from SQL');
+    loadUsers(false);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const loadUserRanks = async () => {
     try {
       setRanksLoading(true);
