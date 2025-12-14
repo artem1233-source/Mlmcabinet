@@ -11,6 +11,7 @@ import { ImageWithFallback } from './figma/ImageWithFallback';
 import { toast } from 'sonner';
 import { CheckoutRu } from './CheckoutRu';
 import * as api from '../utils/api';
+import { supabase } from '../utils/supabase/client';
 import { CommissionEditor } from './CommissionEditor';
 import type { ProductCommission } from '../utils/types/commission';
 import { DEFAULT_COMMISSIONS } from '../utils/types/commission';
@@ -278,16 +279,37 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
   const loadProducts = async () => {
     setLoading(true);
     try {
-      console.log('🔄 Loading products...');
-      const data = await api.getProducts();
-      console.log('📦 Products loaded:', data);
-      
-      if (data.success && data.products) {
-        console.log('✅ Setting products:', data.products.length, 'items');
-        setProducts(data.products);
-      } else {
-        console.warn('⚠️ No products in response');
+      console.log('🔄 Loading products from SQL...');
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('❌ SQL error loading products:', error);
+        toast.error('Не удалось загрузить товары');
+        return;
       }
+
+      const mappedProducts = (data || []).map((p: any) => ({
+        id: p.id,
+        sku: p.sku,
+        название: p.name,
+        описание: p.description,
+        изображение: p.image_url,
+        категория: p.category,
+        цена_розница: p.price_retail,
+        цена1: p.price_partner,
+        цена2: p.price_l2,
+        цена3: p.price_l3,
+        цена4: p.price_company,
+        в_архиве: p.is_archived,
+        is_active: p.is_active,
+        created_at: p.created_at
+      }));
+
+      console.log('✅ Products loaded from SQL:', mappedProducts.length, 'items');
+      setProducts(mappedProducts);
     } catch (error) {
       console.error('❌ Failed to load products:', error);
       toast.error('Не удалось загрузить товары');
@@ -524,46 +546,57 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
 
     setIsSubmitting(true);
     try {
-      console.log('📦 Creating product:', productForm);
+      console.log('📦 Creating product in SQL:', productForm);
       console.log('💰 productCommission:', productCommission);
       
-      // 🆕 Добавляем комиссии и цены в продукт
-      const productData = {
-        ...productForm,
-        commission: productCommission || null,
-        retail_price: parseFloat(productForm.цена_розница) || 0,
-        partner_price: parseFloat(productForm.цена1) || 0
-      };
+      const productId = `prod_${Date.now()}`;
       
-      console.log('📦 Sending productData:', productData);
-      const data = await api.createProduct(productData);
-      console.log('✅ Product created:', data);
-      
-      if (data.success) {
-        toast.success('Товар создан', {
-          description: productForm.название
-        });
-        setShowProductModal(false);
-        resetProductForm();
-        await loadProducts(); // await для уверенности
-      } else {
-        toast.error('Не удалось создать товар');
+      const { error } = await supabase
+        .from('products')
+        .insert([{
+          id: productId,
+          sku: productForm.sku,
+          name: productForm.название,
+          description: productForm.описание || '',
+          image_url: productForm.изображение || '',
+          category: productForm.категория || 'general',
+          price_retail: parseFloat(productForm.цена_розница) || 0,
+          price_partner: parseFloat(productForm.цена1) || 0,
+          price_l2: parseFloat(productForm.цена2) || 0,
+          price_l3: parseFloat(productForm.цена3) || 0,
+          price_company: parseFloat(productForm.цена4) || 0,
+          is_archived: productForm.в_архиве || false,
+          is_active: true
+        }]);
+
+      if (error) {
+        console.error('❌ SQL error creating product:', error);
+        if (error.code === '23505') {
+          toast.error('Продукт с таким SKU уже существует', {
+            description: 'Нажмите кнопку "Генерировать" для создания нового уникального SKU',
+            duration: 5000
+          });
+        } else {
+          toast.error('Ошибка создания товара', {
+            description: error.message
+          });
+        }
+        return;
       }
+
+      console.log('✅ Product created in SQL');
+      toast.success('Товар создан', {
+        description: productForm.название
+      });
+      setShowProductModal(false);
+      resetProductForm();
+      await loadProducts();
     } catch (error) {
       console.error('❌ Create product error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Ошибка создания товара';
-      
-      // Если ошибка связана с дублированием SKU, предлагаем сгенерировать новый
-      if (errorMessage.includes('SKU уже существует')) {
-        toast.error('Продукт с таким SKU уже существует', {
-          description: 'Нажмите кнопку "Генерировать" для создания нового уникального SKU',
-          duration: 5000
-        });
-      } else {
-        toast.error('Ошибка создания товара', {
-          description: errorMessage
-        });
-      }
+      toast.error('Ошибка создания товара', {
+        description: errorMessage
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -617,31 +650,43 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
 
     setIsSubmitting(true);
     try {
-      console.log('✏️ Updating product:', editingProduct.id, productForm);
+      console.log('✏️ Updating product in SQL:', editingProduct.id, productForm);
       console.log('💰 productCommission:', productCommission);
       
-      // 🆕 Добавляем комиссии и цены в обновление
-      const updateData = {
-        ...productForm,
-        commission: productCommission || null,
-        retail_price: parseFloat(productForm.цена_розница) || 0,
-        partner_price: parseFloat(productForm.цена1) || 0
-      };
-      
-      const data = await api.updateProduct(editingProduct.id, updateData);
-      console.log('✅ Product updated:', data);
-      
-      if (data.success) {
-        toast.success('Товар обновлён', {
-          description: productForm.название
+      const { error } = await supabase
+        .from('products')
+        .update({
+          sku: productForm.sku,
+          name: productForm.название,
+          description: productForm.описание || '',
+          image_url: productForm.изображение || '',
+          category: productForm.категория || 'general',
+          price_retail: parseFloat(productForm.цена_розница) || 0,
+          price_partner: parseFloat(productForm.цена1) || 0,
+          price_l2: parseFloat(productForm.цена2) || 0,
+          price_l3: parseFloat(productForm.цена3) || 0,
+          price_company: parseFloat(productForm.цена4) || 0,
+          is_archived: productForm.в_архиве || false,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', editingProduct.id);
+
+      if (error) {
+        console.error('❌ SQL error updating product:', error);
+        toast.error('Ошибка обновления товара', {
+          description: error.message
         });
-        setShowProductModal(false);
-        setEditingProduct(null);
-        resetProductForm();
-        await loadProducts(); // await для уверенности
-      } else {
-        toast.error('Не удалось обновить товар');
+        return;
       }
+
+      console.log('✅ Product updated in SQL');
+      toast.success('Товар обновлён', {
+        description: productForm.название
+      });
+      setShowProductModal(false);
+      setEditingProduct(null);
+      resetProductForm();
+      await loadProducts();
     } catch (error) {
       console.error('❌ Update product error:', error);
       toast.error('Ошибка обновления товара');
@@ -652,11 +697,23 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
 
   const handleDeleteProduct = async (productId: string) => {
     try {
-      const data = await api.deleteProduct(productId);
-      if (data.success) {
-        toast.success('Товар удалён');
-        loadProducts();
+      console.log('🗑️ Deleting product from SQL:', productId);
+      const { error } = await supabase
+        .from('products')
+        .delete()
+        .eq('id', productId);
+
+      if (error) {
+        console.error('❌ SQL error deleting product:', error);
+        toast.error('Ошибка удаления товара', {
+          description: error.message
+        });
+        return;
       }
+
+      console.log('✅ Product deleted from SQL');
+      toast.success('Товар удалён');
+      await loadProducts();
     } catch (error) {
       console.error('Delete product error:', error);
       toast.error('Ошибка удаления товара');
@@ -665,13 +722,23 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
 
   const handleArchiveProduct = async (productId: string, archive: boolean = true) => {
     try {
-      const data = await api.archiveProduct(productId, archive);
-      if (data.success) {
-        toast.success(archive ? 'Товар перемещён в архив' : 'Товар восстановлен из архива');
-        loadProducts();
-      } else {
+      console.log(archive ? '📦 Archiving product:' : '📤 Restoring product:', productId);
+      const { error } = await supabase
+        .from('products')
+        .update({ 
+          is_archived: archive,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', productId);
+
+      if (error) {
+        console.error('❌ SQL error archiving product:', error);
         toast.error(archive ? 'Не удалось переместить в архив' : 'Не удалось восстановить товар');
+        return;
       }
+
+      toast.success(archive ? 'Товар перемещён в архив' : 'Товар восстановлен из архива');
+      await loadProducts();
     } catch (error) {
       console.error('Archive product error:', error);
       toast.error('Ошибка архивации товара');
