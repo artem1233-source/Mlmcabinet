@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { ShoppingBag, Package, CheckCircle2, Clock, XCircle, Loader2, Filter, Download } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import * as api from '../utils/api';
+import { supabase } from '../utils/supabase/client';
 import { toast } from 'sonner';
 import { exportOrdersToCSV } from '../utils/exportToCSV';
 
@@ -12,7 +12,7 @@ interface OrdersRuProps {
   refreshTrigger: number;
 }
 
-export function OrdersRu({ currentUser, refreshTrigger }: OrdersRuProps) {
+export function OrdersRu({ currentUser: _currentUser, refreshTrigger }: OrdersRuProps) {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'pending' | 'paid' | 'cancelled'>('all');
@@ -24,17 +24,38 @@ export function OrdersRu({ currentUser, refreshTrigger }: OrdersRuProps) {
   const loadOrders = async () => {
     setLoading(true);
     try {
-      const data = await api.getOrders();
-      if (data.success && data.orders) {
-        // Sort by date (newest first)
-        const sortedOrders = data.orders.sort((a: any, b: any) => 
-          new Date(b.дата).getTime() - new Date(a.дата).getTime()
-        );
-        setOrders(sortedOrders);
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*, profiles(email, first_name, last_name, avatar_url)')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('SQL error loading orders:', error);
+        toast.error('Не удалось загрузить заказы');
+        setOrders([]);
+        return;
       }
+
+      const mappedOrders = (data || []).map((order: any) => ({
+        id: order.id,
+        товар: order.product_name,
+        количество: order.quantity,
+        цена: order.unit_price,
+        суммаЗаказа: order.total_amount,
+        общаяСумма: order.total_amount,
+        сумма: order.commission_total,
+        покупательПартнер: order.is_partner_purchase,
+        статус: order.status,
+        дата: order.created_at,
+        выплаты: order.payouts || [],
+        profile: order.profiles
+      }));
+
+      setOrders(mappedOrders);
     } catch (error) {
       console.error('Failed to load orders:', error);
       toast.error('Не удалось загрузить заказы');
+      setOrders([]);
     } finally {
       setLoading(false);
     }
