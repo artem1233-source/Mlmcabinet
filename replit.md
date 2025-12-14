@@ -140,6 +140,54 @@ Compact, non-intrusive shopping experience:
 - API endpoints: `/admin/withdrawals`, `/admin/withdrawals/:id/status`
 - Status can be: pending, approved, rejected
 
+## SQL Database Migration Status (December 14, 2025)
+
+### Migrated to Direct Supabase SQL
+
+The following components now use direct SQL queries via `supabase.from()`:
+
+| Component | Table | Status |
+|-----------|-------|--------|
+| `CatalogRu.tsx` | `products` | ✅ Complete |
+| `OrdersRu.tsx` | `orders` | ✅ Complete |
+| `EarningsRu.tsx` | `earnings` | ✅ Complete |
+| `ProfileRu.tsx` | `profiles` | ✅ Complete |
+
+### Still Using Edge Functions
+
+| Component | Notes |
+|-----------|-------|
+| `PayoutsAdminRu.tsx` | Uses api.getPayouts() - no `payouts` SQL table exists |
+| `useTeamData.ts` | Uses api.getUserTeam() for team structure |
+| Auth/Registration | Uses Edge Functions for authentication |
+
+### SQL Tables Available
+
+```sql
+profiles - id, email, first_name, last_name, phone, referrer_id, ref_code, balance, telegram, instagram, vk, facebook, avatar_url, is_admin, created_at
+products - id, sku, name, description, image_url, category, price_retail, price_partner, price_l2, price_l3, price_company, is_archived, is_active
+orders - id, user_id, product_name, quantity, unit_price, total_amount, commission_total, is_partner_purchase, status, payouts, created_at
+earnings - id, order_id, user_id, amount, level, order_type, product_sku, status, created_at
+```
+
+### Pattern for SQL Queries
+
+```typescript
+import { supabase } from '../utils/supabase/client';
+
+// Read data
+const { data, error } = await supabase
+  .from('table_name')
+  .select('*')
+  .eq('user_id', currentUser.id);
+
+// Update data
+const { error } = await supabase
+  .from('profiles')
+  .update({ first_name: 'New Name' })
+  .eq('id', userId);
+```
+
 ## Deployment Notes (December 6, 2025)
 
 ### Edge Functions Deployment
