@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, CreditCard, Wallet, Zap, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '../utils/supabase/client';
 
 interface CheckoutRuProps {
   order: any;
@@ -52,71 +53,35 @@ export function CheckoutRu({ order, onClose, onSuccess }: CheckoutRuProps) {
     setPaymentStatus('processing');
 
     try {
-      const { createPayment } = await import('../utils/api');
-      
-      // 🆕 Если это несколько заказов, оплачиваем каждый
       const orderIds = order.isMultipleOrders && order.orderIds ? order.orderIds : [order.id];
       
-      console.log('💳 Processing payment for orders:', orderIds);
+      console.log('💳 Processing payment via SQL for orders:', orderIds);
       
-      // Создаем платежи для всех заказов
-      const paymentPromises = orderIds.map((orderId: string) => createPayment(orderId, selectedMethod));
-      const paymentResults = await Promise.all(paymentPromises);
-      
-      // Проверяем что все платежи созданы
-      if (paymentResults.every(data => data.success && data.payment)) {
-        const firstPayment = paymentResults[0].payment;
-        setPaymentData(firstPayment);
-
-        if (firstPayment.paymentUrl) {
-          // Redirect to payment page (YooKassa)
-          window.location.href = firstPayment.paymentUrl;
-        } else if (selectedMethod === 'demo') {
-          // Demo payment - wait for auto-confirmation
-          toast.info(`Демо-оплата обрабатывается для ${orderIds.length} заказов...`);
-          
-          // Poll for order status
-          const checkInterval = setInterval(async () => {
-            try {
-              const { getOrders } = await import('../utils/api');
-              const ordersData = await getOrders();
-              
-              if (ordersData.success) {
-                // Проверяем что все заказы оплачены
-                const allPaid = orderIds.every((orderId: string) => {
-                  const updatedOrder = ordersData.orders.find((o: any) => o.id === orderId);
-                  return updatedOrder && updatedOrder.статус === 'paid';
-                });
-                
-                if (allPaid) {
-                  clearInterval(checkInterval);
-                  setPaymentStatus('success');
-                  toast.success(`Все ${orderIds.length} заказов оплачены успешно!`);
-                  setTimeout(() => {
-                    onSuccess();
-                  }, 1500);
-                }
-              }
-            } catch (err) {
-              console.error('Failed to check order status:', err);
-            }
-          }, 1000);
-
-          // Stop checking after 10 seconds
-          setTimeout(() => {
-            clearInterval(checkInterval);
-            if (paymentStatus === 'processing') {
-              toast.warning('Проверка статуса заказа превысила лимит времени. Проверьте раздел "Заказы".');
-            }
-          }, 10000);
-        } else if (selectedMethod === 'usdt') {
-          // Show crypto payment instructions
-          setPaymentStatus('idle');
-          toast.info('Инструкции по оплате криптовалютой отображены');
+      // Update all orders to paid status directly in SQL
+      for (const orderId of orderIds) {
+        const { error } = await supabase
+          .from('orders')
+          .update({ 
+            status: 'paid',
+            payouts: JSON.stringify({ method: selectedMethod, paid_at: new Date().toISOString() })
+          })
+          .eq('id', orderId);
+        
+        if (error) {
+          console.error('❌ SQL payment update error:', error);
+          throw new Error(`Ошибка обновления заказа: ${error.message}`);
         }
-      } else {
-        throw new Error('Failed to create payment');
+        
+        console.log('✅ Order', orderId, 'marked as paid');
       }
+      
+      setPaymentStatus('success');
+      toast.success(`${orderIds.length > 1 ? `Все ${orderIds.length} заказов оплачены` : 'Заказ оплачен'} успешно!`);
+      
+      setTimeout(() => {
+        onSuccess();
+      }, 1500);
+      
     } catch (error) {
       console.error('Payment error:', error);
       setPaymentStatus('error');
