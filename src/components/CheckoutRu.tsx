@@ -223,7 +223,13 @@ export function CheckoutRu({ order, onClose, onSuccess }: CheckoutRuProps) {
           <div className="flex items-center justify-between">
             <span className="text-[#666]" style={{ fontSize: '14px' }}>Сумма к оплате</span>
             <span className="text-[#39B7FF]" style={{ fontSize: '20px', fontWeight: '700' }}>
-              ₽{(order.суммаЗаказа || order.общаяСумма || order.цена)?.toLocaleString()}
+              {(() => {
+                const amount = order.total_amount || order.суммаЗаказа || order.общаяСумма || order.цена;
+                if (!amount && amount !== 0) {
+                  return <Loader2 className="w-5 h-5 animate-spin inline" />;
+                }
+                return `₽${Number(amount).toLocaleString()}`;
+              })()}
             </span>
           </div>
         </div>
@@ -303,7 +309,7 @@ export function CheckoutRu({ order, onClose, onSuccess }: CheckoutRuProps) {
                 <span>Обработка...</span>
               </>
             ) : (
-              <span>Оплатить ₽{(order.суммаЗаказа || order.общаяСумма || order.цена)?.toLocaleString()}</span>
+              <span>Оплатить ₽{Number(order.total_amount || order.суммаЗаказа || order.общаяСумма || order.цена || 0).toLocaleString()}</span>
             )}
           </button>
         </div>
