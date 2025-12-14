@@ -9182,10 +9182,15 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
     console.log(`📊 Loading optimized users page ${page} with statsFilter: ${statsFilter}...`);
 
     // 🔥 Загружаем пользователей из KV Store (SQL profiles пустая!)
+    // Принудительно обнуляем балансы (SQL - single source of truth, а там 0)
     const allUsers = await kv.getByPrefix('user:id:');
-    const users = allUsers.filter((u: any) => !isUserAdmin(u));
+    const users = allUsers.filter((u: any) => !isUserAdmin(u)).map((u: any) => ({
+      ...u,
+      баланс: 0,
+      доступныйБаланс: 0,
+    }));
     
-    console.log(`✅ Loaded ${users.length} users from KV Store`);
+    console.log(`✅ Loaded ${users.length} users from KV Store (balances set to 0)`);
 
     // Применяем поиск
     let filteredUsers = users;
