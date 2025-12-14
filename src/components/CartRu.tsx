@@ -5,7 +5,7 @@ import { ImageWithFallback } from './figma/ImageWithFallback';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { CheckoutRu } from './CheckoutRu';
 import { toast } from 'sonner';
-import * as api from '../utils/api';
+import { supabase } from '../utils/supabase/client';
 
 interface CartItem {
   product: any;
@@ -21,6 +21,7 @@ interface CartRuProps {
   onRemoveItem: (productId: string, isPartner: boolean) => void;
   onClearCart: () => void;
   onOrderCreated: () => void;
+  currentUser: any;
 }
 
 export function CartRu({ 
@@ -30,7 +31,8 @@ export function CartRu({
   onUpdateQuantity, 
   onRemoveItem, 
   onClearCart,
-  onOrderCreated 
+  onOrderCreated,
+  currentUser
 }: CartRuProps) {
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
@@ -51,44 +53,63 @@ export function CartRu({
       return;
     }
 
+    if (!currentUser?.id) {
+      toast.error('Необходимо авторизоваться');
+      return;
+    }
+
     setCreatingOrder(true);
     try {
-      const orders = [];
+      console.log('🛒 Creating orders via SQL for user:', currentUser.id);
+      const createdOrders = [];
       
       for (const item of cartItems) {
-        const sku = item.product.sku;
+        const price = item.isPartner 
+          ? (Number(item.product.цена1) || Number(item.product.price_partner) || 0)
+          : (Number(item.product.цена_розница) || Number(item.product.price_retail) || 0);
         
-        if (!sku || sku.length < 2) {
-          throw new Error(`Некорректный SKU товара "${item.product.название}"`);
+        const productName = item.product.название || item.product.name || 'Товар';
+        const itemTotal = price * item.quantity;
+        
+        console.log('📦 Inserting order:', { productName, price, quantity: item.quantity, total: itemTotal });
+        
+        const { data: order, error } = await supabase
+          .from('orders')
+          .insert({
+            user_id: currentUser.id,
+            product_name: productName,
+            quantity: item.quantity,
+            unit_price: price,
+            total_amount: itemTotal,
+            is_partner_purchase: item.isPartner,
+            status: 'pending',
+            created_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+        
+        if (error) {
+          console.error('❌ SQL order insert error:', error);
+          throw new Error(`Ошибка создания заказа для ${productName}: ${error.message}`);
         }
         
-        const data = await api.createOrder(sku, item.isPartner, item.quantity);
-        
-        if (data.success && data.order) {
-          orders.push(data.order);
-        } else {
-          throw new Error(`Ошибка создания заказа для ${item.product.название}`);
-        }
+        console.log('✅ Order created in SQL:', order);
+        createdOrders.push(order);
       }
 
-      if (orders.length === 1) {
-        setSelectedOrder(orders[0]);
+      if (createdOrders.length === 1) {
+        setSelectedOrder(createdOrders[0]);
       } else {
-        const totalPrice = orders.reduce((sum, o) => sum + (o.суммаЗаказа || (o.цена || 0) * (o.количество || 1)), 0);
-        const productNames = orders.map(o => `${o.товар} (x${o.количество})`).join(', ');
-        
         const combinedOrder = {
-          id: orders[0].id,
-          orderIds: orders.map(o => o.id),
-          товар: productNames,
-          цена: totalPrice,
-          количество: orders.reduce((sum, o) => sum + (o.количество || 0), 0),
-          суммаЗаказа: totalPrice,
-          userId: orders[0].userId,
-          статус: orders[0].статус,
-          датаЗаказа: orders[0].датаЗаказа,
+          id: createdOrders[0].id,
+          orderIds: createdOrders.map(o => o.id),
+          товар: createdOrders.map(o => `${o.product_name} (x${o.quantity})`).join(', '),
+          total_amount: createdOrders.reduce((sum, o) => sum + Number(o.total_amount), 0),
+          количество: createdOrders.reduce((sum, o) => sum + o.quantity, 0),
+          userId: currentUser.id,
+          status: 'pending',
           isMultipleOrders: true,
-          orders: orders
+          orders: createdOrders
         };
         
         setSelectedOrder(combinedOrder);
