@@ -60,61 +60,58 @@ export function CartRu({
 
     setCreatingOrder(true);
     try {
-      console.log('🛒 Creating orders via SQL for user:', currentUser.id);
-      const createdOrders = [];
+      console.log('🛒 Creating order via SQL for user:', currentUser.id);
       
-      for (const item of cartItems) {
-        const price = item.isPartner 
-          ? (Number(item.product.цена1) || Number(item.product.price_partner) || 0)
-          : (Number(item.product.цена_розница) || Number(item.product.price_retail) || 0);
+      // Build items JSONB array with all cart items
+      const itemsJson = cartItems.map(item => {
+        const isGuest = !item.isPartner;
+        const salePrice = isGuest
+          ? (Number(item.product.цена_розница) || Number(item.product.price_retail) || 0)
+          : (Number(item.product.цена1) || Number(item.product.price_partner) || 0);
+        const partnerPrice = Number(item.product.цена1) || Number(item.product.price_partner) || salePrice;
         
-        const productName = item.product.название || item.product.name || 'Товар';
-        const itemTotal = price * item.quantity;
-        
-        console.log('📦 Inserting order:', { productName, price, quantity: item.quantity, total: itemTotal });
-        
-        const { data: order, error } = await supabase
-          .from('orders')
-          .insert({
-            user_id: currentUser.id,
-            product_name: productName,
-            quantity: item.quantity,
-            unit_price: price,
-            total_amount: itemTotal,
-            is_partner_purchase: item.isPartner,
-            status: 'pending',
-            created_at: new Date().toISOString()
-          })
-          .select()
-          .single();
-        
-        if (error) {
-          console.error('❌ SQL order insert error:', error);
-          throw new Error(`Ошибка создания заказа для ${productName}: ${error.message}`);
-        }
-        
-        console.log('✅ Order created in SQL:', order);
-        createdOrders.push(order);
-      }
-
-      if (createdOrders.length === 1) {
-        setSelectedOrder(createdOrders[0]);
-      } else {
-        const combinedOrder = {
-          id: createdOrders[0].id,
-          orderIds: createdOrders.map(o => o.id),
-          товар: createdOrders.map(o => `${o.product_name} (x${o.quantity})`).join(', '),
-          total_amount: createdOrders.reduce((sum, o) => sum + Number(o.total_amount), 0),
-          количество: createdOrders.reduce((sum, o) => sum + o.quantity, 0),
-          userId: currentUser.id,
-          status: 'pending',
-          isMultipleOrders: true,
-          orders: createdOrders
+        return {
+          product_id: item.product.id || item.product.sku,
+          name: item.product.название || item.product.name || 'Товар',
+          quantity: item.quantity,
+          price: salePrice,
+          is_guest: isGuest,
+          partner_price: partnerPrice
         };
-        
-        setSelectedOrder(combinedOrder);
+      });
+      
+      // Calculate totals
+      const productNames = itemsJson.map(i => `${i.name} (x${i.quantity})`).join(', ');
+      const totalQuantity = itemsJson.reduce((sum, i) => sum + i.quantity, 0);
+      const totalPrice = itemsJson.reduce((sum, i) => sum + (i.price * i.quantity), 0);
+      
+      console.log('📦 Inserting order with items:', itemsJson);
+      
+      // Create single order with items JSONB
+      const { data: order, error } = await supabase
+        .from('orders')
+        .insert({
+          user_id: currentUser.id,
+          product_name: productNames,
+          quantity: totalQuantity,
+          unit_price: itemsJson.length === 1 ? itemsJson[0].price : null,
+          total_amount: totalPrice,
+          items: itemsJson,
+          is_partner_purchase: cartItems.every(i => i.isPartner),
+          status: 'pending',
+          created_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+      
+      if (error) {
+        console.error('❌ SQL order insert error:', error);
+        throw new Error(`Ошибка создания заказа: ${error.message}`);
       }
       
+      console.log('✅ Order created in SQL with items:', order);
+      
+      setSelectedOrder(order);
       setShowCheckout(true);
       onClose();
       
