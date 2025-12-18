@@ -3006,25 +3006,68 @@ app.post("/make-server-05aa3c8a/upload/course-material", async (c) => {
 // ORDERS
 // ======================
 
-// Create order
+// Create order - 🆕 ИСПРАВЛЕНО: Теперь сохраняет в SQL с жёсткой проверкой ошибок
 app.post("/make-server-05aa3c8a/orders", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
-    const { sku, isPartner, quantity = 1, usedReferralCode } = await c.req.json();
+    const { sku, isPartner, quantity = 1, usedReferralCode, items } = await c.req.json();
     
-    console.log(`📦 Creating order: SKU=${sku}, isPartner=${isPartner}, quantity=${quantity}, usedCode=${usedReferralCode}`);
+    console.log(`📦 Creating order: SKU=${sku}, isPartner=${isPartner}, quantity=${quantity}, usedCode=${usedReferralCode}, items=${JSON.stringify(items)}`);
     
+    // Если передан массив items (корзина), используем его
+    if (items && Array.isArray(items) && items.length > 0) {
+      // 🆕 НОВЫЙ ФОРМАТ: Корзина с несколькими товарами
+      const totalPrice = items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+      
+      // Подготовка данных для SQL (БЕЗ поля id - Postgres сгенерирует UUID сам)
+      const orderPayload = {
+        user_id: currentUser.id,
+        status: 'pending',
+        total: totalPrice,
+        items: items, // JSONB массив с товарами и комиссиями
+        created_at: new Date().toISOString(),
+      };
+      
+      console.log(`📝 Inserting order into SQL:`, JSON.stringify(orderPayload, null, 2));
+      
+      // 🆕 ЖЁСТКАЯ ПРОВЕРКА ОШИБОК
+      const { data: insertedOrder, error: insertError } = await supabase
+        .from('orders')
+        .insert(orderPayload)
+        .select()
+        .single();
+      
+      if (insertError) {
+        console.error(`❌ CRITICAL DB ERROR:`, insertError);
+        return c.json({ 
+          success: false, 
+          error: insertError.message, 
+          details: insertError,
+          code: insertError.code
+        }, 500);
+      }
+      
+      console.log(`✅ Order created in SQL: ${insertedOrder.id} by ${currentUser.имя || currentUser.id}`);
+      
+      return c.json({ 
+        success: true, 
+        order: insertedOrder,
+        orderId: insertedOrder.id,
+        paymentUrl: `/payment/${insertedOrder.id}`
+      });
+    }
+    
+    // СТАРЫЙ ФОРМАТ: Один товар по SKU (для обратной совместимости)
     if (!sku) {
       return c.json({ error: "SKU is required" }, 400);
     }
     
-    // Валидация SKU
     if (!sku || sku.length < 2) {
       console.error(`❌ Invalid SKU: "${sku}"`);
       return c.json({ error: `Invalid SKU format: "${sku}"` }, 400);
     }
     
-    // 🆕 Если передан реферальный код, проверяем его и находим владельца
+    // Если передан реферальный код, проверяем его и находим владельца
     let resolvedSponsorId: string | null = null;
     if (usedReferralCode) {
       resolvedSponsorId = await resolveCodeToUserId(usedReferralCode);
@@ -3041,50 +3084,74 @@ app.post("/make-server-05aa3c8a/orders", async (c) => {
     // Calculate payouts (function calculates price internally)
     const { price, payouts } = await calculatePayouts(0, isPartner, sku, upline);
     
-    // Calculate total commission
-    const комиссии: { [userId: string]: number } = {};
-    const комиссииУровни: { [userId: string]: string } = {};
+    // Build items array for single product
+    const singleItem = {
+      sku: sku,
+      quantity: quantity,
+      price: price,
+      is_guest: !isPartner,
+      payouts: payouts
+    };
     
-    payouts.forEach(payout => {
-      комиссии[payout.userId] = payout.amount;
-      комиссииУровни[payout.userId] = payout.level;
-    });
+    // Подготовка данных для SQL (БЕЗ поля id)
+    const orderPayload = {
+      user_id: currentUser.id,
+      status: 'pending',
+      total: price * quantity,
+      items: [singleItem],
+      created_at: new Date().toISOString(),
+    };
     
-    // Create order
-    const orderId = `ORD-${Date.now()}`;
-    const order: any = {
-      id: orderId,
+    console.log(`📝 Inserting single-item order into SQL:`, JSON.stringify(orderPayload, null, 2));
+    
+    // 🆕 ЖЁСТКАЯ ПРОВЕРКА ОШИБОК
+    const { data: insertedOrder, error: insertError } = await supabase
+      .from('orders')
+      .insert(orderPayload)
+      .select()
+      .single();
+    
+    if (insertError) {
+      console.error(`❌ CRITICAL DB ERROR:`, insertError);
+      return c.json({ 
+        success: false, 
+        error: insertError.message, 
+        details: insertError,
+        code: insertError.code
+      }, 500);
+    }
+    
+    // Также сохраняем в KV для обратной совместимости с другими частями системы
+    const kvOrder = {
+      id: insertedOrder.id,
       покупательId: currentUser.id,
       sku: sku,
       количество: quantity,
       цена: price * quantity,
-      комиссии: комиссии,
-      комиссииУровни: комиссииУровни,
       партнёрскаяПокупка: isPartner,
       дата: new Date().toISOString(),
-      статус: 'pending' // pending, paid, cancelled
+      статус: 'pending',
+      usedReferralCode: usedReferralCode?.toUpperCase().trim(),
+      resolvedSponsorId: resolvedSponsorId
     };
+    await kv.set(`order:${insertedOrder.id}`, kvOrder);
+    await kv.set(`order:user:${currentUser.id}:${insertedOrder.id}`, kvOrder);
     
-    // 🆕 Сохраняем использованный реферальный код
-    if (usedReferralCode) {
-      order.usedReferralCode = usedReferralCode.toUpperCase().trim();
-      order.resolvedSponsorId = resolvedSponsorId;
-    }
-    
-    await kv.set(`order:${orderId}`, order);
-    await kv.set(`order:user:${currentUser.id}:${orderId}`, order);
-    
-    console.log(`Order created: ${orderId} by ${currentUser.имя}`);
+    console.log(`✅ Order created: ${insertedOrder.id} by ${currentUser.имя || currentUser.id}`);
     
     return c.json({ 
       success: true, 
-      order,
-      paymentUrl: `/payment/${orderId}` // Would be real payment URL
+      order: insertedOrder,
+      orderId: insertedOrder.id,
+      paymentUrl: `/payment/${insertedOrder.id}`
     });
     
   } catch (error) {
-    console.log(`Create order error: ${error}`);
-    return c.json({ error: `Failed to create order: ${error}` }, 500);
+    console.error(`❌ Create order EXCEPTION:`, error);
+    return c.json({ 
+      success: false,
+      error: `Failed to create order: ${error}` 
+    }, 500);
   }
 });
 
