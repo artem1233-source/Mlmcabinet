@@ -68,12 +68,19 @@ export function CartRu({
         const salePrice = isGuest
           ? (Number(item.product.цена_розница) || Number(item.product.price_retail) || 0)
           : (Number(item.product.цена1) || Number(item.product.price_partner) || 0);
-        const partnerPrice = Number(item.product.цена1) || Number(item.product.price_partner) || salePrice;
         
-        // Get fixed commission payouts from product
-        const payoutL1 = Number(item.product.level1_value) || Number(item.product.marketing_l1) || 0;
-        const payoutL2 = Number(item.product.level2_value) || Number(item.product.marketing_l2) || 0;
-        const payoutL3 = Number(item.product.level3_value) || Number(item.product.marketing_l3) || 0;
+        // Get price tiers from product
+        const pricePartner = Number(item.product.цена1) || Number(item.product.price_partner) || 0;
+        const priceL2 = Number(item.product.цена2) || Number(item.product.price_l2) || 0;
+        const priceL3 = Number(item.product.цена3) || Number(item.product.price_l3) || 0;
+        const priceCompany = Number(item.product.цена4) || Number(item.product.price_company) || 0;
+        
+        // Waterfall commission calculation
+        const payoutL1 = priceL2 > 0 ? Math.max(0, pricePartner - priceL2) : 0;
+        const payoutL2 = (priceL2 > 0 && priceL3 > 0) ? Math.max(0, priceL2 - priceL3) : 0;
+        const payoutL3 = (priceL3 > 0 && priceCompany > 0) ? Math.max(0, priceL3 - priceCompany) : 0;
+        
+        console.log('💰 Waterfall calc for', item.product.название, ':', { pricePartner, priceL2, priceL3, priceCompany, payoutL1, payoutL2, payoutL3 });
         
         return {
           product_id: item.product.id || item.product.sku,
@@ -81,7 +88,7 @@ export function CartRu({
           quantity: item.quantity,
           price: salePrice,
           is_guest: isGuest,
-          partner_price: partnerPrice,
+          partner_price: pricePartner,
           payout_l1: payoutL1,
           payout_l2: payoutL2,
           payout_l3: payoutL3
