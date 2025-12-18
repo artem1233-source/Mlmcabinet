@@ -70,13 +70,21 @@ export function CartRu({
           : (Number(item.product.цена1) || Number(item.product.price_partner) || 0);
         const partnerPrice = Number(item.product.цена1) || Number(item.product.price_partner) || salePrice;
         
+        // Get fixed commission payouts from product
+        const payoutL1 = Number(item.product.level1_value) || Number(item.product.marketing_l1) || 0;
+        const payoutL2 = Number(item.product.level2_value) || Number(item.product.marketing_l2) || 0;
+        const payoutL3 = Number(item.product.level3_value) || Number(item.product.marketing_l3) || 0;
+        
         return {
           product_id: item.product.id || item.product.sku,
           name: item.product.название || item.product.name || 'Товар',
           quantity: item.quantity,
           price: salePrice,
           is_guest: isGuest,
-          partner_price: partnerPrice
+          partner_price: partnerPrice,
+          payout_l1: payoutL1,
+          payout_l2: payoutL2,
+          payout_l3: payoutL3
         };
       });
       
