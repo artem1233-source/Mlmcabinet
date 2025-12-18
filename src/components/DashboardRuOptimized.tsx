@@ -32,7 +32,8 @@ import {
   useRecentOrders,
   useTeamGrowthData,
   useConversionFunnel,
-  useRefreshDashboard
+  useRefreshDashboard,
+  useRealStats
 } from '../hooks/useDashboardData';
 import { useTeamData } from '../hooks/useTeamData';
 import { useLocalStorage } from '../hooks/useLocalStorage';
@@ -75,6 +76,9 @@ export function DashboardRuOptimized({ currentUser, onRefresh, refreshTrigger }:
   const { data: earnings = [], isLoading: earningsLoading, error: earningsError } = useEarnings(!!effectiveUserId);
   const { data: adminStatsData, isLoading: adminLoading } = useAdminStats(isAdmin);
   const { data: team = [], isLoading: teamLoading } = useTeamData(effectiveUserId, !!effectiveUserId);
+  
+  // 🆕 РЕАЛЬНАЯ СТАТИСТИКА ИЗ SQL (баланс, личные продажи, доход от команды)
+  const { data: realStats, isLoading: realStatsLoading } = useRealStats(effectiveUserId);
 
   // 🧮 МЕМОИЗИРОВАННЫЕ ВЫЧИСЛЕНИЯ
   const chartData = useChartData(orders, selectedPeriod);
@@ -83,15 +87,13 @@ export function DashboardRuOptimized({ currentUser, onRefresh, refreshTrigger }:
   const conversionFunnel = useConversionFunnel(team);
 
   // 📊 Вычисляем статистику для личного дашборда
-  // 🛡️ Используем безопасный парсинг дат для предотвращения RangeError
+  // 🆕 Используем РЕАЛЬНЫЕ данные из SQL
   const stats = {
-    totalEarnings: earnings.reduce((sum, e) => sum + (e.сумма || e.amount || 0), 0),
-    monthEarnings: earnings
-      .filter(e => {
-        const now = new Date();
-        return isInMonth(e.дата || e.date || e.createdAt, now.getMonth(), now.getFullYear());
-      })
-      .reduce((sum, e) => sum + (e.сумма || e.amount || 0), 0),
+    balance: realStats?.balance || 0,
+    totalEarnings: realStats?.totalEarned || 0,
+    personalSales: realStats?.personalSales || 0,
+    teamIncome: realStats?.teamIncome || 0,
+    todayEarnings: realStats?.todayEarnings || 0,
     activeOrders: orders.filter(o => o.статус === 'pending' || o.status === 'pending').length,
     teamSize: team.length
   };
@@ -343,18 +345,18 @@ export function DashboardRuOptimized({ currentUser, onRefresh, refreshTrigger }:
         </>
       )}
 
-      {/* Stats Cards */}
+      {/* Stats Cards - РЕАЛЬНЫЕ ДАННЫЕ ИЗ SQL */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-6 lg:mb-8">
         <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
           <CardContent className="p-6">
             <div className="flex items-center justify-between mb-4">
-              <div className="text-[#666]" style={{ fontSize: '14px', fontWeight: '500' }}>Текущий баланс</div>
+              <div className="text-[#666]" style={{ fontSize: '14px', fontWeight: '500' }}>Баланс</div>
               <div className="w-8 h-8 bg-[#39B7FF]/10 rounded-lg flex items-center justify-center">
                 <Wallet className="w-4 h-4 text-[#39B7FF]" />
               </div>
             </div>
             <div className="text-[#39B7FF] mb-2" style={{ fontSize: '32px', fontWeight: '700', lineHeight: '1' }}>
-              {(currentUser.баланс || 0).toLocaleString('ru-RU')} ₽
+              {(stats.balance).toLocaleString('ru-RU')} ₽
             </div>
             <div className="text-[#666]" style={{ fontSize: '13px' }}>Доступно для вывода</div>
           </CardContent>
@@ -363,17 +365,30 @@ export function DashboardRuOptimized({ currentUser, onRefresh, refreshTrigger }:
         <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
           <CardContent className="p-6">
             <div className="flex items-center justify-between mb-4">
-              <div className="text-[#666]" style={{ fontSize: '14px', fontWeight: '500' }}>Доход за месяц</div>
+              <div className="text-[#666]" style={{ fontSize: '14px', fontWeight: '500' }}>Личный доход</div>
               <div className="w-8 h-8 bg-[#12C9B6]/10 rounded-lg flex items-center justify-center">
-                <TrendingUp className="w-4 h-4 text-[#12C9B6]" />
+                <ShoppingBag className="w-4 h-4 text-[#12C9B6]" />
               </div>
             </div>
             <div className="text-[#12C9B6] mb-2" style={{ fontSize: '32px', fontWeight: '700', lineHeight: '1' }}>
-              {(stats.monthEarnings || 0).toLocaleString('ru-RU')} ₽
+              {(stats.personalSales).toLocaleString('ru-RU')} ₽
             </div>
-            <div className="text-[#12C9B6]" style={{ fontSize: '13px' }}>
-              ⚡ Кэшировано (30 сек)
+            <div className="text-[#666]" style={{ fontSize: '13px' }}>Маржа с продаж (level 0)</div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-[#666]" style={{ fontSize: '14px', fontWeight: '500' }}>Бонус наставника</div>
+              <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+                <Users className="w-4 h-4 text-purple-600" />
+              </div>
             </div>
+            <div className="text-purple-600 mb-2" style={{ fontSize: '32px', fontWeight: '700', lineHeight: '1' }}>
+              {(stats.teamIncome).toLocaleString('ru-RU')} ₽
+            </div>
+            <div className="text-[#666]" style={{ fontSize: '13px' }}>Доход от команды (level 1-3)</div>
           </CardContent>
         </Card>
 
@@ -386,24 +401,11 @@ export function DashboardRuOptimized({ currentUser, onRefresh, refreshTrigger }:
               </div>
             </div>
             <div className="text-[#39B7FF] mb-2" style={{ fontSize: '32px', fontWeight: '700', lineHeight: '1' }}>
-              {(stats.totalEarnings || 0).toLocaleString('ru-RU')} ₽
+              {(stats.totalEarnings).toLocaleString('ru-RU')} ₽
             </div>
-            <div className="text-[#666]" style={{ fontSize: '13px' }}>За всё время</div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="text-[#666]" style={{ fontSize: '14px', fontWeight: '500' }}>Команда</div>
-              <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                <Users className="w-4 h-4 text-purple-600" />
-              </div>
+            <div className="text-[#666]" style={{ fontSize: '13px' }}>
+              {stats.todayEarnings > 0 ? `+${stats.todayEarnings.toLocaleString('ru-RU')} ₽ сегодня` : 'За всё время'}
             </div>
-            <div className="text-purple-600 mb-2" style={{ fontSize: '32px', fontWeight: '700', lineHeight: '1' }}>
-              {stats.teamSize}
-            </div>
-            <div className="text-[#666]" style={{ fontSize: '13px' }}>Активных партнёров</div>
           </CardContent>
         </Card>
       </div>
