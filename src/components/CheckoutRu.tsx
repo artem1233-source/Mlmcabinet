@@ -53,26 +53,33 @@ export function CheckoutRu({ order, onClose, onSuccess }: CheckoutRuProps) {
     setPaymentStatus('processing');
 
     try {
+      console.log('💳 Payment - Full order object:', order);
+      console.log('💳 Order ID:', order.id, 'Type:', typeof order.id);
+      
       const orderIds = order.isMultipleOrders && order.orderIds ? order.orderIds : [order.id];
       
       console.log('💳 Processing payment via SQL for orders:', orderIds);
       
       // Update all orders to paid status directly in SQL
       for (const orderId of orderIds) {
-        const { error } = await supabase
+        console.log('🔄 Updating order ID:', orderId, 'to paid status...');
+        
+        const { data: updatedOrder, error } = await supabase
           .from('orders')
           .update({ 
             status: 'paid',
             payouts: JSON.stringify({ method: selectedMethod, paid_at: new Date().toISOString() })
           })
-          .eq('id', orderId);
+          .eq('id', orderId)
+          .select()
+          .single();
         
         if (error) {
           console.error('❌ SQL payment update error:', error);
           throw new Error(`Ошибка обновления заказа: ${error.message}`);
         }
         
-        console.log('✅ Order', orderId, 'marked as paid');
+        console.log('✅ Order updated in DB:', updatedOrder);
       }
       
       setPaymentStatus('success');
