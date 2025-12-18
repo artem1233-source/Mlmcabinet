@@ -64,22 +64,21 @@ export function CheckoutRu({ order, onClose, onSuccess }: CheckoutRuProps) {
       for (const orderId of orderIds) {
         console.log('🔄 Updating order ID:', orderId, 'to paid status...');
         
-        const { data: updatedOrder, error } = await supabase
+        const { error } = await supabase
           .from('orders')
           .update({ 
             status: 'paid',
-            payouts: JSON.stringify({ method: selectedMethod, paid_at: new Date().toISOString() })
+            payment_method: selectedMethod,
+            updated_at: new Date().toISOString()
           })
-          .eq('id', orderId)
-          .select()
-          .single();
+          .eq('id', orderId);
         
         if (error) {
           console.error('❌ SQL payment update error:', error);
           throw new Error(`Ошибка обновления заказа: ${error.message}`);
         }
         
-        console.log('✅ Order updated in DB:', updatedOrder);
+        console.log('✅ Order', orderId, 'marked as paid');
       }
       
       setPaymentStatus('success');
