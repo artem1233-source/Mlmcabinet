@@ -3023,7 +3023,7 @@ app.post("/make-server-05aa3c8a/orders", async (c) => {
       const orderPayload = {
         user_id: currentUser.id,
         status: 'pending',
-        total: totalPrice,
+        total_amount: totalPrice,
         items: items, // JSONB массив с товарами и комиссиями
         created_at: new Date().toISOString(),
       };
@@ -3097,7 +3097,7 @@ app.post("/make-server-05aa3c8a/orders", async (c) => {
     const orderPayload = {
       user_id: currentUser.id,
       status: 'pending',
-      total: price * quantity,
+      total_amount: price * quantity,
       items: [singleItem],
       created_at: new Date().toISOString(),
     };
