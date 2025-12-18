@@ -9181,16 +9181,28 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
 
     console.log(`📊 Loading optimized users page ${page} with statsFilter: ${statsFilter}...`);
 
-    // 🔥 Загружаем пользователей из KV Store (SQL profiles пустая!)
-    // Принудительно обнуляем балансы (SQL - single source of truth, а там 0)
-    const allUsers = await kv.getByPrefix('user:id:');
-    const users = allUsers.filter((u: any) => !isUserAdmin(u)).map((u: any) => ({
-      ...u,
-      баланс: 0,
-      доступныйБаланс: 0,
-    }));
+    // 🎯 КРИТИЧЕСКАЯ ОПТИМИЗАЦИЯ #1: Кэш списка всех пользователей (2 минуты)
+    const ALL_USERS_CACHE_KEY = 'cache:all_users_list';
+    const ALL_USERS_CACHE_TTL = 2 * 60 * 1000;
     
-    console.log(`✅ Loaded ${users.length} users from KV Store (balances set to 0)`);
+    let allUsersCache = await kv.get(ALL_USERS_CACHE_KEY);
+    let users: any[];
+    
+    if (allUsersCache && allUsersCache.timestamp) {
+      const cacheAge = Date.now() - new Date(allUsersCache.timestamp).getTime();
+      if (cacheAge < ALL_USERS_CACHE_TTL) {
+        console.log(`✅ Using cached all users (age: ${Math.round(cacheAge/1000)}s)`);
+        users = allUsersCache.users;
+      } else {
+        const allUsers = await kv.getByPrefix('user:id:');
+        users = allUsers.filter((u: any) => !isUserAdmin(u));
+        await kv.set(ALL_USERS_CACHE_KEY, { users, timestamp: new Date().toISOString() });
+      }
+    } else {
+      const allUsers = await kv.getByPrefix('user:id:');
+      users = allUsers.filter((u: any) => !isUserAdmin(u));
+      await kv.set(ALL_USERS_CACHE_KEY, { users, timestamp: new Date().toISOString() });
+    }
 
     // Применяем поиск
     let filteredUsers = users;

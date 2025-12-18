@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Badge } from './ui/badge';
 import { useState, useEffect } from 'react';
 import { getEarningsByLevel, getEarningsStats, getUserTransactions, type Earning, type Transaction } from '../utils/transactions';
-import { supabase } from '../utils/supabase/client';
+import * as api from '../utils/api';
 
 interface EarningsProps {
   currentUser: any;
@@ -21,57 +21,69 @@ export function EarningsRu({ currentUser, refreshTrigger }: EarningsProps) {
   
   useEffect(() => {
     loadData();
-  }, [refreshTrigger, currentUser?.id]);
+  }, [refreshTrigger]);
   
   const loadData = async () => {
-    if (!currentUser?.id) return;
-    
     try {
       setLoading(true);
-      console.log('🔄 Loading earnings from SQL for user:', currentUser.id);
       
-      const { data, error } = await supabase
-        .from('earnings')
-        .select('*')
-        .eq('user_id', currentUser.id)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('❌ SQL error loading earnings:', error);
-        setEarnings([]);
-        setTransactions([]);
-        return;
+      // Load earnings directly from API
+      const earningsData = await api.getEarnings();
+      if (earningsData.success && earningsData.earnings) {
+        // Convert to our format
+        // Backend записывает level как 'L0', 'L1', etc. — используем напрямую
+        // Fallback на старый формат линия (число) для обратной совместимости
+        const newEarnings: Earning[] = earningsData.earnings.map((e: any) => {
+          // Определяем level: сначала проверяем новый формат (level='L0'), потом старый (линия=0)
+          let level: 'L0' | 'L1' | 'L2' | 'L3' = 'L0';
+          if (e.level && typeof e.level === 'string' && e.level.startsWith('L')) {
+            level = e.level as any;
+          } else if (e.линия !== undefined) {
+            level = `L${e.линия}` as any;
+          }
+          
+          return {
+            id: e.id,
+            userId: e.userId,
+            orderId: e.orderId,
+            amount: e.сумма || e.amount,
+            level,
+            timestamp: new Date(e.дата || e.createdAt),
+            fromUserId: e.fromUserId
+          };
+        });
+        
+        const newTransactions: Transaction[] = earningsData.earnings.map((e: any) => {
+          let level: 'L0' | 'L1' | 'L2' | 'L3' = 'L0';
+          if (e.level && typeof e.level === 'string' && e.level.startsWith('L')) {
+            level = e.level as any;
+          } else if (e.линия !== undefined) {
+            level = `L${e.линия}` as any;
+          }
+          
+          // Формируем описание с указанием типа продажи
+          const typeLabel = e.isPartner === false ? 'гостевая' : (e.isPartner ? 'партнёрская' : '');
+          const skuLabel = e.sku || e.товар || '';
+          const description = e.описание || e.description || 
+            `Комиссия ${typeLabel ? `(${typeLabel})` : ''} ${skuLabel ? `- ${skuLabel}` : ''}`.trim();
+          
+          return {
+            id: `txn-${e.id}`,
+            userId: e.userId,
+            type: 'earning',
+            amount: e.сумма || e.amount,
+            description,
+            timestamp: new Date(e.дата || e.createdAt),
+            level,
+            orderId: e.orderId
+          };
+        });
+        
+        setEarnings(newEarnings);
+        setTransactions(newTransactions);
       }
-
-      console.log('✅ Earnings loaded from SQL:', data?.length || 0, 'items');
-
-      const newEarnings: Earning[] = (data || []).map((e: any) => ({
-        id: e.id,
-        userId: e.user_id,
-        orderId: e.order_id,
-        amount: Number(e.amount) || 0,
-        level: e.level || 'L0',
-        timestamp: new Date(e.created_at),
-        fromUserId: e.user_id
-      }));
-
-      const newTransactions: Transaction[] = (data || []).map((e: any) => ({
-        id: `txn-${e.id}`,
-        userId: e.user_id,
-        type: 'earning' as const,
-        amount: Number(e.amount) || 0,
-        description: `Комиссия ${e.order_type === 'partner' ? '(партнёрская)' : '(гостевая)'} - ${e.product_sku || ''}`.trim(),
-        timestamp: new Date(e.created_at),
-        level: e.level || 'L0',
-        orderId: e.order_id
-      }));
-
-      setEarnings(newEarnings);
-      setTransactions(newTransactions);
     } catch (error) {
       console.error('Failed to load earnings:', error);
-      setEarnings([]);
-      setTransactions([]);
     } finally {
       setLoading(false);
     }

@@ -5,7 +5,7 @@ import { ImageWithFallback } from './figma/ImageWithFallback';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { CheckoutRu } from './CheckoutRu';
 import { toast } from 'sonner';
-import { supabase } from '../utils/supabase/client';
+import * as api from '../utils/api';
 
 interface CartItem {
   product: any;
@@ -21,7 +21,6 @@ interface CartRuProps {
   onRemoveItem: (productId: string, isPartner: boolean) => void;
   onClearCart: () => void;
   onOrderCreated: () => void;
-  currentUser: any;
 }
 
 export function CartRu({ 
@@ -31,8 +30,7 @@ export function CartRu({
   onUpdateQuantity, 
   onRemoveItem, 
   onClearCart,
-  onOrderCreated,
-  currentUser
+  onOrderCreated 
 }: CartRuProps) {
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
@@ -53,80 +51,49 @@ export function CartRu({
       return;
     }
 
-    if (!currentUser?.id) {
-      toast.error('Необходимо авторизоваться');
-      return;
-    }
-
     setCreatingOrder(true);
     try {
-      console.log('🛒 Creating order via SQL for user:', currentUser.id);
+      const orders = [];
       
-      // Build items JSONB array with all cart items
-      const itemsJson = cartItems.map(item => {
-        const isGuest = !item.isPartner;
-        const salePrice = isGuest
-          ? (Number(item.product.цена_розница) || Number(item.product.price_retail) || 0)
-          : (Number(item.product.цена1) || Number(item.product.price_partner) || 0);
+      for (const item of cartItems) {
+        const sku = item.product.sku;
         
-        // Get price tiers from product
-        const pricePartner = Number(item.product.цена1) || Number(item.product.price_partner) || 0;
-        const priceL2 = Number(item.product.цена2) || Number(item.product.price_l2) || 0;
-        const priceL3 = Number(item.product.цена3) || Number(item.product.price_l3) || 0;
-        const priceCompany = Number(item.product.цена4) || Number(item.product.price_company) || 0;
+        if (!sku || sku.length < 2) {
+          throw new Error(`Некорректный SKU товара "${item.product.название}"`);
+        }
         
-        // Waterfall commission calculation
-        const payoutL1 = priceL2 > 0 ? Math.max(0, pricePartner - priceL2) : 0;
-        const payoutL2 = (priceL2 > 0 && priceL3 > 0) ? Math.max(0, priceL2 - priceL3) : 0;
-        const payoutL3 = (priceL3 > 0 && priceCompany > 0) ? Math.max(0, priceL3 - priceCompany) : 0;
+        const data = await api.createOrder(sku, item.isPartner, item.quantity);
         
-        console.log('💰 Waterfall calc for', item.product.название, ':', { pricePartner, priceL2, priceL3, priceCompany, payoutL1, payoutL2, payoutL3 });
+        if (data.success && data.order) {
+          orders.push(data.order);
+        } else {
+          throw new Error(`Ошибка создания заказа для ${item.product.название}`);
+        }
+      }
+
+      if (orders.length === 1) {
+        setSelectedOrder(orders[0]);
+      } else {
+        const totalPrice = orders.reduce((sum, o) => sum + (o.суммаЗаказа || (o.цена || 0) * (o.количество || 1)), 0);
+        const productNames = orders.map(o => `${o.товар} (x${o.количество})`).join(', ');
         
-        return {
-          product_id: item.product.id || item.product.sku,
-          name: item.product.название || item.product.name || 'Товар',
-          quantity: item.quantity,
-          price: salePrice,
-          is_guest: isGuest,
-          partner_price: pricePartner,
-          payout_l1: payoutL1,
-          payout_l2: payoutL2,
-          payout_l3: payoutL3
+        const combinedOrder = {
+          id: orders[0].id,
+          orderIds: orders.map(o => o.id),
+          товар: productNames,
+          цена: totalPrice,
+          количество: orders.reduce((sum, o) => sum + (o.количество || 0), 0),
+          суммаЗаказа: totalPrice,
+          userId: orders[0].userId,
+          статус: orders[0].статус,
+          датаЗаказа: orders[0].датаЗаказа,
+          isMultipleOrders: true,
+          orders: orders
         };
-      });
-      
-      // Calculate totals
-      const productNames = itemsJson.map(i => `${i.name} (x${i.quantity})`).join(', ');
-      const totalQuantity = itemsJson.reduce((sum, i) => sum + i.quantity, 0);
-      const totalPrice = itemsJson.reduce((sum, i) => sum + (i.price * i.quantity), 0);
-      
-      console.log('📦 Inserting order with items:', itemsJson);
-      
-      // Create single order with items JSONB
-      const { data: order, error } = await supabase
-        .from('orders')
-        .insert({
-          user_id: currentUser.id,
-          product_name: productNames,
-          quantity: totalQuantity,
-          unit_price: itemsJson.length === 1 ? itemsJson[0].price : null,
-          total_amount: totalPrice,
-          items: itemsJson,
-          is_partner_purchase: cartItems.every(i => i.isPartner),
-          status: 'pending',
-          created_at: new Date().toISOString()
-        })
-        .select()
-        .single();
-      
-      if (error) {
-        console.error('❌ SQL order insert error:', error);
-        throw new Error(`Ошибка создания заказа: ${error.message}`);
+        
+        setSelectedOrder(combinedOrder);
       }
       
-      console.log('✅ Order created in SQL with items:', order);
-      
-      setSelectedOrder(order);
       setShowCheckout(true);
       onClose();
       

@@ -473,7 +473,6 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
         onRemoveItem={handleRemoveItem}
         onClearCart={handleClearCart}
         onOrderCreated={handleCartOrderCreated}
-        currentUser={currentUser}
       />
     </>
   );

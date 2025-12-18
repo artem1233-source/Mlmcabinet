@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, CreditCard, Wallet, Zap, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { supabase } from '../utils/supabase/client';
 
 interface CheckoutRuProps {
   order: any;
@@ -53,41 +52,71 @@ export function CheckoutRu({ order, onClose, onSuccess }: CheckoutRuProps) {
     setPaymentStatus('processing');
 
     try {
-      console.log('💳 Payment - Full order object:', order);
-      console.log('💳 Order ID:', order.id, 'Type:', typeof order.id);
+      const { createPayment } = await import('../utils/api');
       
+      // 🆕 Если это несколько заказов, оплачиваем каждый
       const orderIds = order.isMultipleOrders && order.orderIds ? order.orderIds : [order.id];
       
-      console.log('💳 Processing payment via SQL for orders:', orderIds);
+      console.log('💳 Processing payment for orders:', orderIds);
       
-      // Update all orders to paid status directly in SQL
-      for (const orderId of orderIds) {
-        console.log('🔄 Updating order ID:', orderId, 'to paid status...');
-        
-        const { error } = await supabase
-          .from('orders')
-          .update({ 
-            status: 'paid',
-            payment_method: selectedMethod,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', orderId);
-        
-        if (error) {
-          console.error('❌ SQL payment update error:', error);
-          throw new Error(`Ошибка обновления заказа: ${error.message}`);
+      // Создаем платежи для всех заказов
+      const paymentPromises = orderIds.map((orderId: string) => createPayment(orderId, selectedMethod));
+      const paymentResults = await Promise.all(paymentPromises);
+      
+      // Проверяем что все платежи созданы
+      if (paymentResults.every(data => data.success && data.payment)) {
+        const firstPayment = paymentResults[0].payment;
+        setPaymentData(firstPayment);
+
+        if (firstPayment.paymentUrl) {
+          // Redirect to payment page (YooKassa)
+          window.location.href = firstPayment.paymentUrl;
+        } else if (selectedMethod === 'demo') {
+          // Demo payment - wait for auto-confirmation
+          toast.info(`Демо-оплата обрабатывается для ${orderIds.length} заказов...`);
+          
+          // Poll for order status
+          const checkInterval = setInterval(async () => {
+            try {
+              const { getOrders } = await import('../utils/api');
+              const ordersData = await getOrders();
+              
+              if (ordersData.success) {
+                // Проверяем что все заказы оплачены
+                const allPaid = orderIds.every((orderId: string) => {
+                  const updatedOrder = ordersData.orders.find((o: any) => o.id === orderId);
+                  return updatedOrder && updatedOrder.статус === 'paid';
+                });
+                
+                if (allPaid) {
+                  clearInterval(checkInterval);
+                  setPaymentStatus('success');
+                  toast.success(`Все ${orderIds.length} заказов оплачены успешно!`);
+                  setTimeout(() => {
+                    onSuccess();
+                  }, 1500);
+                }
+              }
+            } catch (err) {
+              console.error('Failed to check order status:', err);
+            }
+          }, 1000);
+
+          // Stop checking after 10 seconds
+          setTimeout(() => {
+            clearInterval(checkInterval);
+            if (paymentStatus === 'processing') {
+              toast.warning('Проверка статуса заказа превысила лимит времени. Проверьте раздел "Заказы".');
+            }
+          }, 10000);
+        } else if (selectedMethod === 'usdt') {
+          // Show crypto payment instructions
+          setPaymentStatus('idle');
+          toast.info('Инструкции по оплате криптовалютой отображены');
         }
-        
-        console.log('✅ Order', orderId, 'marked as paid');
+      } else {
+        throw new Error('Failed to create payment');
       }
-      
-      setPaymentStatus('success');
-      toast.success(`${orderIds.length > 1 ? `Все ${orderIds.length} заказов оплачены` : 'Заказ оплачен'} успешно!`);
-      
-      setTimeout(() => {
-        onSuccess();
-      }, 1500);
-      
     } catch (error) {
       console.error('Payment error:', error);
       setPaymentStatus('error');
@@ -194,13 +223,7 @@ export function CheckoutRu({ order, onClose, onSuccess }: CheckoutRuProps) {
           <div className="flex items-center justify-between">
             <span className="text-[#666]" style={{ fontSize: '14px' }}>Сумма к оплате</span>
             <span className="text-[#39B7FF]" style={{ fontSize: '20px', fontWeight: '700' }}>
-              {(() => {
-                const amount = order.total_amount || order.суммаЗаказа || order.общаяСумма || order.цена;
-                if (!amount && amount !== 0) {
-                  return <Loader2 className="w-5 h-5 animate-spin inline" />;
-                }
-                return `₽${Number(amount).toLocaleString()}`;
-              })()}
+              ₽{(order.суммаЗаказа || order.общаяСумма || order.цена)?.toLocaleString()}
             </span>
           </div>
         </div>
@@ -280,7 +303,7 @@ export function CheckoutRu({ order, onClose, onSuccess }: CheckoutRuProps) {
                 <span>Обработка...</span>
               </>
             ) : (
-              <span>Оплатить ₽{Number(order.total_amount || order.суммаЗаказа || order.общаяСумма || order.цена || 0).toLocaleString()}</span>
+              <span>Оплатить ₽{(order.суммаЗаказа || order.общаяСумма || order.цена)?.toLocaleString()}</span>
             )}
           </button>
         </div>

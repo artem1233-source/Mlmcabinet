@@ -12,7 +12,6 @@ import { Calendar as CalendarComponent } from './ui/calendar';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { toast } from 'sonner';
 import * as api from '../utils/api';
-import { supabase } from '../utils/supabase/client';
 import { AvatarCropDialog } from './AvatarCropDialog';
 import { RankBadge } from './RankBadge';
 import { format } from 'date-fns';
@@ -141,45 +140,51 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
         return;
       }
       
+      // Объединяем имя и фамилию для отправки
+      const fullName = `${formData.имя.trim()} ${formData.фамилия.trim()}`.trim();
+      
+      // Подготовка данных: отправляем только непустые поля (чтобы не стереть существующие данные)
+      const normalizedData: any = {
+        имя: fullName,
+        телефон: formData.телефон,
+        аватарка: formData.аватарка,
+      };
+      
+      // Добавляем дату рождния если она указана
+      if (formData.датаРождения) {
+        normalizedData.датаРождения = formData.датаРождения;
+        console.log('📅 Saving birth date:', formData.датаРождения);
+      } else {
+        console.log('⚠️ Birth date is empty in formData');
+      }
+      
       // Добавляем соц сети только если они заполнены
       const telegram = formData.telegram.replace(/^@/, '').trim();
+      const whatsapp = formData.whatsapp.replace(/^@/, '').trim();
       const facebook = formData.facebook.replace(/^@/, '').trim();
       const instagram = formData.instagram.replace(/^@/, '').trim();
       const vk = formData.vk.replace(/^@/, '').trim();
       
-      // SQL profile update - map to profiles table columns
-      const sqlData: any = {
-        first_name: formData.имя.trim(),
-        last_name: formData.фамилия.trim(),
-        phone: formData.телефон || null,
-        avatar_url: formData.аватарка || null,
-      };
+      if (telegram) normalizedData.telegram = telegram;
+      if (whatsapp) normalizedData.whatsapp = whatsapp;
+      if (facebook) normalizedData.facebook = facebook;
+      if (instagram) normalizedData.instagram = instagram;
+      if (vk) normalizedData.vk = vk;
       
-      // Add social media only if filled
-      if (telegram) sqlData.telegram = telegram;
-      if (facebook) sqlData.facebook = facebook;
-      if (instagram) sqlData.instagram = instagram;
-      if (vk) sqlData.vk = vk;
+      console.log('📤 Sending profile update:', normalizedData);
+      const response = await api.updateProfile(normalizedData);
+      console.log('📥 Received profile response:', response);
       
-      console.log('📤 SQL profile update for user:', currentUser.id, sqlData);
-      
-      const { error } = await supabase
-        .from('profiles')
-        .update(sqlData)
-        .eq('id', currentUser.id);
-      
-      if (error) {
-        console.error('❌ SQL profile update error:', error);
-        throw new Error(error.message || 'Failed to update profile');
-      }
-      
-      console.log('✅ Profile updated via SQL');
-      toast.success('Профиль обновлён!');
-      setIsEditing(false);
-      
-      // Обновляем данные в родительском компоненте
-      if (onUpdate) {
-        await onUpdate();
+      if (response.success) {
+        toast.success('Профиь обновлён!');
+        setIsEditing(false);
+        
+        // Обновляем данные в родительском компоненте
+        if (onUpdate) {
+          await onUpdate();
+        }
+      } else {
+        throw new Error(response.error || 'Failed to update profile');
       }
     } catch (error) {
       console.error('Profile update error:', error);
