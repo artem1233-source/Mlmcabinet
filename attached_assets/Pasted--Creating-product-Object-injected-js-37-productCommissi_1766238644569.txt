@@ -1,0 +1,63 @@
+📦 Creating product: Object
+injected.js:37 💰 productCommission: Object
+injected.js:37 📦 Sending productData: Object
+injected.js:37 📦 API createProduct called
+injected.js:37 📦 Creating product: Object
+injected.js:37    - commission: Object
+injected.js:37    - retail_price: 19999
+injected.js:37    - partner_price: 19000
+injected.js:37 🌐 API Call: POST https://vbjueuhgcyfberivihiv.supabase.co/functions/v1/make-server-05aa3c8a/admin/products
+injected.js:37 🔑 User ID: seo
+injected.js:37 🔑 Anon Key: Present
+injected.js:37 🔍 CatalogRu: currentUser: Object
+injected.js:37 🔍 CatalogRu: isAdmin: true
+injected.js:37 🔍 CatalogRu: currentUser.isAdmin: true
+injected.js:37 🔍 CatalogRu: currentUser.email: artem1233@gmail.com
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: Object
+injected.js:37 ✅ Product created: Object
+injected.js:37 🔄 Loading products...
+injected.js:37 🌐 API Call: GET https://vbjueuhgcyfberivihiv.supabase.co/functions/v1/make-server-05aa3c8a/products
+injected.js:37 🔑 User ID: seo
+injected.js:37 🔑 Anon Key: Present
+injected.js:37 🔍 CatalogRu: currentUser: Object
+injected.js:37 🔍 CatalogRu: isAdmin: true
+injected.js:37 🔍 CatalogRu: currentUser.isAdmin: true
+injected.js:37 🔍 CatalogRu: currentUser.email: artem1233@gmail.com
+injected.js:37 🔍 CatalogRu: currentUser: Object
+injected.js:37 🔍 CatalogRu: isAdmin: true
+injected.js:37 🔍 CatalogRu: currentUser.isAdmin: true
+injected.js:37 🔍 CatalogRu: currentUser.email: artem1233@gmail.com
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: Object
+injected.js:37 📦 Products loaded: Object
+injected.js:37 ✅ Setting products: 3 items
+injected.js:37 🔍 CatalogRu: currentUser: Object
+injected.js:37 🔍 CatalogRu: isAdmin: true
+injected.js:37 🔍 CatalogRu: currentUser.isAdmin: true
+injected.js:37 🔍 CatalogRu: currentUser.email: artem1233@gmail.com
+prodregistryv2.org/v1/rgstr?k=client-Bp7m7pNB6H0fnSGjVtxN5BeWQw4BSAat4OFsXa3VcTF&st=javascript-client&sv=3.26.0&t=1766238617930&sid=a23efb7d-78a4-4c31-9deb-6ede5640bace&ec=2545&gz=1:1  Failed to load resource: net::ERR_BLOCKED_BY_CLIENT
+prodregistryv2.org/v1/rgstr?k=client-Bp7m7pNB6H0fnSGjVtxN5BeWQw4BSAat4OFsXa3VcTF&st=javascript-client&sv=3.26.0&t=1766238618438&sid=a23efb7d-78a4-4c31-9deb-6ede5640bace&ec=2545&gz=1:1  Failed to load resource: net::ERR_BLOCKED_BY_CLIENT
+prodregistryv2.org/v1/rgstr?k=client-Bp7m7pNB6H0fnSGjVtxN5BeWQw4BSAat4OFsXa3VcTF&st=javascript-client&sv=3.26.0&t=1766238620447&sid=a23efb7d-78a4-4c31-9deb-6ede5640bace&ec=2545&gz=1:1  Failed to load resource: net::ERR_BLOCKED_BY_CLIENT
+events.launchdarkly.com/events/bulk/62b35a865152ab14c5942820:1  Failed to load resource: net::ERR_BLOCKED_BY_CLIENT
+events.launchdarkly.com/events/bulk/62b35a865152ab14c5942820:1  Failed to load resource: net::ERR_BLOCKED_BY_CLIENT
+prodregistryv2.org/v1/rgstr?k=client-Bp7m7pNB6H0fnSGjVtxN5BeWQw4BSAat4OFsXa3VcTF&st=javascript-client&sv=3.26.0&t=1766238624959&sid=a23efb7d-78a4-4c31-9deb-6ede5640bace&ec=2545&gz=1:1  Failed to load resource: net::ERR_BLOCKED_BY_CLIENT
+42605816003b0097.js:2  ERROR  [Statsig] A networking error occurred during POST request to https://prodregistryv2.org/v1/rgstr?k=client-Bp7m7pNB6H0fnSGjVtxN5BeWQw4BSAat4OFsXa3VcTF&st=javascript-client&sv=3.26.0&t=1766238624959&sid=a23efb7d-78a4-4c31-9deb-6ede5640bace&ec=2545&gz=1. TypeError: Failed to fetch TypeError: Failed to fetch
+    at 42605816003b0097.js:2:106554
+    at t.<anonymous> (3530996c0853c60a.js:2:74360)
+    at Object.next (af94d8c8148f0061.js:2:33818)
+    at 3530996c0853c60a.js:2:71462
+    at new Promise (<anonymous>)
+    at 3530996c0853c60a.js:2:71216
+    at t.value (3530996c0853c60a.js:2:73450)
+    at 3530996c0853c60a.js:2:60278
+    at e.value (3530996c0853c60a.js:2:60685)
+    at e.<computed> [as _sendRequest] (3530996c0853c60a.js:2:60218)
+    at t.<anonymous> (3530996c0853c60a.js:2:75836)
+    at Object.next (af94d8c8148f0061.js:2:33818)
+    at s (3530996c0853c60a.js:2:71272)
+(anonymous) @ 42605816003b0097.js:2
+42605816003b0097.js:2   WARN  [Statsig] Failed to flush events.
+(anonymous) @ 42605816003b0097.js:2
+42605816003b0097.js:2   WARN  [Statsig] Unable to save failed logs to storage
+(anonymous) @ 42605816003b0097.js:2

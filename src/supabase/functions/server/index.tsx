@@ -2880,27 +2880,62 @@ app.get("/make-server-05aa3c8a/user/:userId/rank", async (c) => {
 
 app.get("/make-server-05aa3c8a/products", async (c) => {
   try {
-    // Get custom products from KV store with keys
+    // 🔥 READ FROM BOTH SQL AND KV, MERGE RESULTS
+    
+    // 1. Get products from SQL (new source of truth)
+    const { data: sqlProducts, error: sqlError } = await supabase
+      .from('products')
+      .select('*')
+      .eq('is_active', true)
+      .eq('is_archived', false);
+    
+    if (sqlError) {
+      console.error(`📦 SQL products query error: ${sqlError.message}`);
+    }
+    
+    console.log(`📦 GET /products - SQL products: ${sqlProducts?.length || 0}`);
+    
+    // 2. Get products from KV store (legacy)
     const allProductEntries = await kv.getByPrefixWithKeys('product:');
-    
-    console.log(`📦 GET /products - Total entries from KV: ${allProductEntries.length}`);
-    console.log(`📦 Entry keys preview:`, allProductEntries.slice(0, 5).map((e: any) => e.key));
-    
-    // Filter to get only product records (not SKU lookup keys)
-    // Product keys have format "product:prod_XXX", SKU lookup keys have format "product:sku:XXX"
     const productEntries = allProductEntries.filter((entry: any) => 
       entry.key.startsWith('product:prod_')
     );
+    const kvProducts = productEntries.map((e: any) => e.value);
+    const activeKvProducts = kvProducts.filter((p: any) => p.активен !== false && p.в_архиве !== true);
     
-    console.log(`📦 Filtered product entries (by key): ${productEntries.length}`);
+    console.log(`📦 GET /products - KV products: ${activeKvProducts.length}`);
     
-    // Extract values and filter active
-    const products = productEntries.map((e: any) => e.value);
-    const activeProducts = products.filter((p: any) => p.активен !== false);
+    // 3. Merge: SQL products + KV products (avoiding duplicates by ID)
+    const sqlProductIds = new Set((sqlProducts || []).map((p: any) => p.id));
+    const uniqueKvProducts = activeKvProducts.filter((p: any) => !sqlProductIds.has(p.id));
     
-    console.log(`📦 Active products: ${activeProducts.length}`);
+    // 4. Map SQL products to frontend format (Russian field names)
+    const mappedSqlProducts = (sqlProducts || []).map((p: any) => ({
+      id: p.id,
+      sku: p.sku,
+      название: p.name,
+      описание: p.description,
+      изображение: p.image_url,
+      цена_розница: String(p.price_retail || 0),
+      цена1: String(p.price_partner || 0),
+      цена2: String(p.price_l2 || 0),
+      цена3: String(p.price_l3 || 0),
+      цена4: String(p.price_company || 0),
+      retail_price: p.price_retail || 0,
+      partner_price: p.price_partner || 0,
+      категория: p.category || 'general',
+      активен: p.is_active !== false,
+      в_архиве: p.is_archived === true,
+      создан: p.created_at,
+      обновлён: p.updated_at,
+      commission: p.commission || null
+    }));
     
-    return c.json({ success: true, products: activeProducts });
+    const allProducts = [...mappedSqlProducts, ...uniqueKvProducts];
+    
+    console.log(`📦 GET /products - Total merged: ${allProducts.length}`);
+    
+    return c.json({ success: true, products: allProducts });
   } catch (error) {
     console.log(`Get products error: ${error}`);
     return c.json({ error: `Failed to get products: ${error}` }, 500);
@@ -5184,7 +5219,6 @@ app.post("/make-server-05aa3c8a/admin/products", async (c) => {
       category: категория || 'general',
       is_archived: в_архиве === true,
       is_active: true,
-      in_stock: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
