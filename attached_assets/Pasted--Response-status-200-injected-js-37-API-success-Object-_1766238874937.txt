@@ -1,0 +1,46 @@
+📡 Response status: 200 
+injected.js:37 ✅ API success: Object
+injected.js:37 📦 Products loaded: Object
+injected.js:37 ✅ Setting products: 7 items
+injected.js:37 🔍 CatalogRu: currentUser: Object
+injected.js:37 🔍 CatalogRu: isAdmin: true
+injected.js:37 🔍 CatalogRu: currentUser.isAdmin: true
+injected.js:37 🔍 CatalogRu: currentUser.email: artem1233@gmail.com
+prodregistryv2.org/v1/rgstr?k=client-Bp7m7pNB6H0fnSGjVtxN5BeWQw4BSAat4OFsXa3VcTF&st=javascript-client&sv=3.26.0&t=1766238825416&sid=a23efb7d-78a4-4c31-9deb-6ede5640bace&ec=2546&gz=1:1  Failed to load resource: net::ERR_BLOCKED_BY_CLIENT
+prodregistryv2.org/v1/rgstr?k=client-Bp7m7pNB6H0fnSGjVtxN5BeWQw4BSAat4OFsXa3VcTF&st=javascript-client&sv=3.26.0&t=1766238829919&sid=a23efb7d-78a4-4c31-9deb-6ede5640bace&ec=2546&gz=1:1  Failed to load resource: net::ERR_BLOCKED_BY_CLIENT
+42605816003b0097.js:2  ERROR  [Statsig] A networking error occurred during POST request to https://prodregistryv2.org/v1/rgstr?k=client-Bp7m7pNB6H0fnSGjVtxN5BeWQw4BSAat4OFsXa3VcTF&st=javascript-client&sv=3.26.0&t=1766238829919&sid=a23efb7d-78a4-4c31-9deb-6ede5640bace&ec=2546&gz=1. TypeError: Failed to fetch TypeError: Failed to fetch
+    at 42605816003b0097.js:2:106554
+    at t.<anonymous> (3530996c0853c60a.js:2:74360)
+    at Object.next (af94d8c8148f0061.js:2:33818)
+    at 3530996c0853c60a.js:2:71462
+    at new Promise (<anonymous>)
+    at 3530996c0853c60a.js:2:71216
+    at t.value (3530996c0853c60a.js:2:73450)
+    at 3530996c0853c60a.js:2:60278
+    at e.value (3530996c0853c60a.js:2:60685)
+    at e.<computed> [as _sendRequest] (3530996c0853c60a.js:2:60218)
+    at t.<anonymous> (3530996c0853c60a.js:2:75836)
+    at Object.next (af94d8c8148f0061.js:2:33818)
+    at s (3530996c0853c60a.js:2:71272)
+(anonymous) @ 42605816003b0097.js:2
+42605816003b0097.js:2   WARN  [Statsig] Failed to flush events.
+(anonymous) @ 42605816003b0097.js:2
+42605816003b0097.js:2   WARN  [Statsig] Unable to save failed logs to storage
+(anonymous) @ 42605816003b0097.js:2
+injected.js:37 📦 Deleting product: prod_1766238611105_a7xyqpfna
+injected.js:37 🌐 API Call: DELETE https://vbjueuhgcyfberivihiv.supabase.co/functions/v1/make-server-05aa3c8a/admin/products/prod_1766238611105_a7xyqpfna
+injected.js:37 🔑 User ID: seo
+injected.js:37 🔑 Anon Key: Present
+vbjueuhgcyfberivihiv.supabase.co/functions/v1/make-server-05aa3c8a/admin/products/prod_1766238611105_a7xyqpfna:1  Failed to load resource: the server responded with a status of 404 ()
+injected.js:37 📡 Response status: 404 
+injected.js:37 ❌ API error 404 for /admin/products/prod_1766238611105_a7xyqpfna: Object
+(anonymous) @ injected.js:37
+injected.js:37 💥 Fetch failed for /admin/products/prod_1766238611105_a7xyqpfna: Error: Продукт не найден
+    at apiCall (api.ts:79:13)
+    at async handleDeleteProduct (CatalogRu.tsx:655:20)
+(anonymous) @ injected.js:37
+injected.js:37 Delete product error: Error: Продукт не найден
+    at apiCall (api.ts:79:13)
+    at async handleDeleteProduct (CatalogRu.tsx:655:20)
+(anonymous) @ injected.js:37
+2 log entries are not shown.

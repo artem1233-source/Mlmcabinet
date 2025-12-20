@@ -5415,16 +5415,43 @@ app.delete("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
     await requireAdmin(c, currentUser);
     
     const productId = c.req.param('productId');
+    let deleted = false;
     
-    const product = await kv.get(`product:${productId}`);
-    if (!product) {
-      return c.json({ error: 'Продукт не найден' }, 404);
+    // 1. Try to delete from SQL first
+    const { data: sqlProduct, error: sqlSelectError } = await supabase
+      .from('products')
+      .select('id, sku')
+      .eq('id', productId)
+      .single();
+    
+    if (sqlProduct) {
+      const { error: sqlDeleteError } = await supabase
+        .from('products')
+        .delete()
+        .eq('id', productId);
+      
+      if (!sqlDeleteError) {
+        console.log(`✅ Product deleted from SQL: ${productId}`);
+        deleted = true;
+      } else {
+        console.error(`❌ SQL delete error: ${sqlDeleteError.message}`);
+      }
     }
     
-    await kv.del(`product:${productId}`);
-    await kv.del(`product:sku:${product.sku}`);
+    // 2. Also try to delete from KV (legacy)
+    const kvProduct = await kv.get(`product:${productId}`);
+    if (kvProduct) {
+      await kv.del(`product:${productId}`);
+      if (kvProduct.sku) {
+        await kv.del(`product:sku:${kvProduct.sku}`);
+      }
+      console.log(`✅ Product deleted from KV: ${productId}`);
+      deleted = true;
+    }
     
-    console.log(`Product deleted: ${productId}`);
+    if (!deleted) {
+      return c.json({ error: 'Продукт не найден' }, 404);
+    }
     
     return c.json({ success: true, message: 'Товар удалён' });
   } catch (error) {
