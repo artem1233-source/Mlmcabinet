@@ -862,10 +862,9 @@ async function createEarningsFromOrder(order: any): Promise<any[]> {
           order_id: order.id,        // UUID заказа
           amount: numAmount,
           level: level,
-          line_index: lineIndex,
-          from_user_id: order.покупательId,
-          sku: order.sku,
-          is_partner: order.партнёрскаяПокупка || false
+          order_type: order.партнёрскаяПокупка ? 'partner' : 'guest',  // 🔥 Required field!
+          product_sku: order.sku || null,
+          status: 'paid'
         })
         .select()
         .single();
@@ -2701,19 +2700,31 @@ app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
     
     console.log(`📊 Building team structure for user: ${userId}`);
     
-    // Get all users (excluding admins) from KV for structure
+    // Get all users from KV for structure (нужны все для поиска рефералов)
     const allUsers = await kv.getByPrefix('user:id:');
     const allUsersArray = Array.isArray(allUsers) ? allUsers : [];
     
-    // Filter out admins
-    const nonAdminUsers = allUsersArray.filter((u: any) => !isUserAdmin(u));
-    console.log(`📊 Filtered ${allUsersArray.length} total users to ${nonAdminUsers.length} non-admin users`);
+    // 🔥 ИСПРАВЛЕНО: НЕ фильтруем админов при поиске текущего пользователя!
+    // Админы (seo, CEO) тоже могут иметь рефералов
+    const currentUser = allUsersArray.find((u: any) => u.id === userId);
     
-    // Get current user for ref code
-    const currentUser = nonAdminUsers.find((u: any) => u.id === userId);
-    if (!currentUser) {
+    // Если не нашли среди user:id, проверим среди admin:id
+    let actualCurrentUser = currentUser;
+    if (!actualCurrentUser) {
+      const allAdmins = await kv.getByPrefix('admin:id:');
+      const allAdminsArray = Array.isArray(allAdmins) ? allAdmins : [];
+      actualCurrentUser = allAdminsArray.find((a: any) => a.id === userId);
+    }
+    
+    if (!actualCurrentUser) {
+      console.log(`⚠️ User ${userId} not found for team structure`);
       return c.json({ success: true, team: [] });
     }
+    
+    // Для поиска команды (рефералов) исключаем админов, но ищем среди обычных пользователей
+    const nonAdminUsers = allUsersArray.filter((u: any) => !isUserAdmin(u));
+    console.log(`📊 Filtered ${allUsersArray.length} total users to ${nonAdminUsers.length} non-admin users (for team search)`);
+    console.log(`📊 Current user: ${actualCurrentUser.id} (${actualCurrentUser.имя}), refCode: ${actualCurrentUser.рефКод}`);
     
     // Recursive function to build team with depth
     const buildTeamWithDepth = (sponsorId: string, sponsorRefCode: string, depth: number, visited: Set<string> = new Set()): any[] => {
@@ -2743,7 +2754,7 @@ app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
     };
     
     // Build team starting from depth 1
-    const teamMembers = buildTeamWithDepth(userId, currentUser.рефКод, 1);
+    const teamMembers = buildTeamWithDepth(userId, actualCurrentUser.рефКод, 1);
     
     console.log(`✅ Built team structure: ${teamMembers.length} members across all levels`);
     
@@ -9290,6 +9301,111 @@ app.post("/make-server-05aa3c8a/admin/migrate-activity", async (c) => {
     });
   } catch (error) {
     console.error('❌ Migration error:', error);
+    return c.json({ error: `Migration failed: ${error}` }, 500);
+  }
+});
+
+// 🔄 Migrate KV earnings to SQL table
+app.post("/make-server-05aa3c8a/admin/migrate-earnings-to-sql", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    console.log('🔄 Starting KV→SQL earnings migration...');
+    
+    // Get all earnings from KV
+    const kvEarnings = await kv.getByPrefix('earning:');
+    const earningsArray = Array.isArray(kvEarnings) ? kvEarnings : [];
+    
+    // Filter out duplicates (some are stored with user prefix)
+    const uniqueEarnings = new Map();
+    for (const e of earningsArray) {
+      if (e.id && e.userId && e.amount) {
+        uniqueEarnings.set(e.id, e);
+      }
+    }
+    
+    console.log(`📊 Found ${uniqueEarnings.size} unique earnings in KV`);
+    
+    let migratedCount = 0;
+    let errorCount = 0;
+    
+    for (const [id, earning] of uniqueEarnings) {
+      try {
+        // Check if already exists in SQL (use maybeSingle to avoid error on no match)
+        const { data: existingRecords } = await supabase
+          .from('earnings')
+          .select('id')
+          .eq('order_id', earning.orderId || earning.id)
+          .eq('user_id', earning.userId)
+          .eq('level', earning.level || 'L0');  // Must match unique constraint
+        
+        if (existingRecords && existingRecords.length > 0) {
+          console.log(`⏭️ Skipping ${earning.userId}: already exists for order ${earning.orderId}`);
+          continue;
+        }
+        
+        // Insert into SQL
+        const { error: insertError } = await supabase
+          .from('earnings')
+          .insert({
+            user_id: earning.userId,
+            order_id: earning.orderId || earning.id,
+            amount: earning.amount || earning.сумма || 0,
+            level: earning.level || 'L0',
+            order_type: earning.isPartner ? 'partner' : 'guest',  // 🔥 Required field!
+            product_sku: earning.sku || null,
+            status: 'paid',
+            created_at: earning.createdAt || new Date().toISOString()
+          });
+        
+        if (insertError) {
+          console.error(`❌ Failed to insert earning for ${earning.userId}:`, insertError.message, JSON.stringify({
+            user_id: earning.userId,
+            order_id: earning.orderId || earning.id,
+            amount: earning.amount || earning.сумма || 0,
+            level: earning.level || 'L0',
+            order_type: earning.isPartner ? 'partner' : 'guest'
+          }));
+          errorCount++;
+        } else {
+          migratedCount++;
+          console.log(`✅ Migrated earning: ${earning.amount}₽ → ${earning.userId} (order: ${earning.orderId})`);
+        }
+      } catch (e) {
+        console.error(`❌ Error processing earning ${id}:`, e, JSON.stringify(earning));
+        errorCount++;
+      }
+    }
+    
+    console.log(`🎉 Migration complete: ${migratedCount} migrated, ${errorCount} errors`);
+    
+    // Collect first 5 samples for debugging
+    const sampleEarnings: any[] = [];
+    let i = 0;
+    for (const [id, earning] of uniqueEarnings) {
+      if (i++ < 5) {
+        sampleEarnings.push({
+          id: earning.id,
+          userId: earning.userId,
+          orderId: earning.orderId,
+          amount: earning.amount,
+          level: earning.level,
+          isPartner: earning.isPartner
+        });
+      }
+    }
+    
+    return c.json({ 
+      success: true, 
+      message: `Migration complete: ${migratedCount} earnings migrated, ${errorCount} errors`,
+      totalKvEarnings: uniqueEarnings.size,
+      migratedCount,
+      errorCount,
+      sampleEarnings
+    });
+  } catch (error) {
+    console.error('❌ Earnings migration error:', error);
     return c.json({ error: `Migration failed: ${error}` }, 500);
   }
 });
