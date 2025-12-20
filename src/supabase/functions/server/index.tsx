@@ -848,8 +848,58 @@ async function createEarningsFromOrder(order: any): Promise<any[]> {
       createdAt: new Date().toISOString()
     };
     
+    // 🔥 ВАЖНО: Сохраняем в KV (для совместимости)
     await kv.set(earningId, earning);
     await kv.set(`earning:user:${userId}:${earningId}`, earning);
+    
+    // 🔥 КРИТИЧЕСКИ ВАЖНО: Сохраняем в SQL таблицу earnings!
+    // Без этого GET /earnings и Дашборд покажут 0
+    try {
+      const { data: insertedEarning, error: insertError } = await supabase
+        .from('earnings')
+        .insert({
+          user_id: userId,           // <--- простой ID: "004", "seo"
+          order_id: order.id,        // UUID заказа
+          amount: numAmount,
+          level: level,
+          line_index: lineIndex,
+          from_user_id: order.покупательId,
+          sku: order.sku,
+          is_partner: order.партнёрскаяПокупка || false
+        })
+        .select()
+        .single();
+      
+      if (insertError) {
+        console.error(`   ⚠️ SQL earnings insert failed for ${userId}:`, insertError.message);
+      } else {
+        console.log(`   💾 SQL earning saved: id=${insertedEarning?.id}, user_id=${userId}, amount=${numAmount}₽`);
+      }
+      
+      // 🔥 Также обновляем balance в SQL таблице profiles
+      const { error: balanceError } = await supabase.rpc('increment_balance', {
+        p_user_id: userId,
+        p_amount: numAmount
+      });
+      
+      if (balanceError) {
+        // Если RPC не существует, пробуем прямой UPDATE
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ balance: user.баланс })  // user.баланс уже обновлён выше
+          .eq('user_id', userId);
+        
+        if (updateError) {
+          console.log(`   ⚠️ Failed to update SQL profile balance: ${updateError.message}`);
+        } else {
+          console.log(`   💰 SQL profile balance updated: ${user.баланс}₽`);
+        }
+      } else {
+        console.log(`   💰 SQL balance incremented by ${numAmount}₽ for user ${userId}`);
+      }
+    } catch (sqlError) {
+      console.error(`   ⚠️ SQL operation failed:`, sqlError);
+    }
     
     createdEarnings.push(earning);
     console.log(`   ✅ Earning: ${numAmount}₽ → ${userId} (${level}, линия=${lineIndex})`);
@@ -2486,6 +2536,9 @@ app.get("/make-server-05aa3c8a/user/:userId", async (c) => {
     }
     
     // 🔥 GET BALANCE FROM SQL - THIS IS THE SOURCE OF TRUTH
+    // Сначала пробуем profiles.balance, потом считаем из earnings
+    let sqlBalance = 0;
+    
     const { data: sqlProfile, error: sqlError } = await supabase
       .from('profiles')
       .select('balance')
@@ -2496,9 +2549,26 @@ app.get("/make-server-05aa3c8a/user/:userId", async (c) => {
       console.log(`⚠️ SQL profile lookup failed for ${userId}: ${sqlError.message}`);
     }
     
-    // Override balance from SQL (source of truth)
-    const sqlBalance = sqlProfile?.balance ?? 0;
-    console.log(`💰 SQL balance for ${userId}: ${sqlBalance} (KV had: ${userData.баланс || 0})`);
+    if (sqlProfile?.balance) {
+      sqlBalance = sqlProfile.balance;
+      console.log(`💰 SQL profiles.balance for ${userId}: ${sqlBalance}₽`);
+    } else {
+      // 🔥 FALLBACK: Считаем баланс из таблицы earnings
+      const { data: earningsData, error: earningsError } = await supabase
+        .from('earnings')
+        .select('amount')
+        .eq('user_id', userId);
+      
+      if (!earningsError && earningsData) {
+        sqlBalance = earningsData.reduce((sum, e) => sum + (e.amount || 0), 0);
+        console.log(`💰 SQL earnings sum for ${userId}: ${sqlBalance}₽ (from ${earningsData.length} records)`);
+      } else {
+        console.log(`⚠️ SQL earnings lookup failed for ${userId}: ${earningsError?.message}`);
+        // Используем KV баланс как последний fallback
+        sqlBalance = userData.баланс || 0;
+        console.log(`💰 Fallback to KV balance for ${userId}: ${sqlBalance}₽`);
+      }
+    }
     
     // Merge: KV profile data + SQL balance
     const mergedUserData = {
