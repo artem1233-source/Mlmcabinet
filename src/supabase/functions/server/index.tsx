@@ -3681,17 +3681,28 @@ app.post("/make-server-05aa3c8a/withdrawal", async (c) => {
     
     // Round to 2 decimal places for NUMERIC(12,2)
     const amountNumeric = Math.round(requestAmount * 100) / 100;
-    const detailsStr = typeof details === 'object' ? JSON.stringify(details) : (details || '');
+    
+    // 🔄 Build details as JSONB object (not string)
+    let detailsObj: Record<string, unknown> | null = null;
+    if (details) {
+      if (typeof details === 'object') {
+        detailsObj = details;
+      } else if (typeof details === 'string' && details.trim()) {
+        // Wrap plain text in {raw: "..."} for consistency
+        detailsObj = { raw: details };
+      }
+    }
     
     console.log(`💸 Withdrawal request: ${amountNumeric}₽ from ${currentUser.имя} (${currentUser.id})`);
     
     // 🔐 ATOMIC: Call RPC function (lock + check + insert in single transaction)
+    // RPC now accepts JSONB directly (no string conversion)
     const { data: rpcResult, error: rpcError } = await supabase
       .rpc('create_withdrawal_if_sufficient', {
         p_user_id: currentUser.id,
         p_amount: amountNumeric,
         p_method: method || 'bank',
-        p_details: detailsStr
+        p_details: detailsObj
       });
     
     if (rpcError) {
@@ -3748,7 +3759,7 @@ app.post("/make-server-05aa3c8a/withdrawal", async (c) => {
         userId: currentUser.id,
         amount: amountNumeric,
         method: payout?.method || method || 'bank',
-        details: payout?.details || detailsStr,
+        details: payout?.details || detailsObj,
         status: 'pending',
         createdAt: payout?.created_at || new Date().toISOString()
       },
