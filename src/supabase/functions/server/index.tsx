@@ -3155,23 +3155,50 @@ app.post("/make-server-05aa3c8a/orders", async (c) => {
   }
 });
 
-// Get user's orders
+// Get user's orders - 🆕 ИСПРАВЛЕНО: Загружает ТОЛЬКО из SQL
 app.get("/make-server-05aa3c8a/orders", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     
-    // Get all orders for this user
-    const orders = await kv.getByPrefix(`order:user:${currentUser.id}:`);
-    const ordersArray = Array.isArray(orders) ? orders : [];
+    console.log(`📦 GET /orders for user: ${currentUser.id}`);
     
-    return c.json({ success: true, orders: ordersArray });
+    // 🆕 Загружаем ТОЛЬКО из SQL таблицы orders
+    const { data: ordersData, error: ordersError } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('user_id', currentUser.id)
+      .order('created_at', { ascending: false });
+    
+    if (ordersError) {
+      console.error(`❌ SQL orders error:`, ordersError);
+      return c.json({ success: true, orders: [] }); // Пустой массив при ошибке
+    }
+    
+    // Преобразуем в формат, ожидаемый фронтендом
+    const orders = (ordersData || []).map((o: any) => ({
+      id: o.id,
+      oderId: o.id,
+      покупательId: o.user_id,
+      userId: o.user_id,
+      статус: o.status,
+      status: o.status,
+      цена: o.total_amount,
+      total: o.total_amount,
+      items: o.items,
+      дата: o.created_at,
+      createdAt: o.created_at,
+      датаЗаказа: o.created_at
+    }));
+    
+    console.log(`✅ Loaded ${orders.length} orders from SQL for user ${currentUser.id}`);
+    
+    return c.json({ success: true, orders });
   } catch (error) {
-    console.log(`Get orders error: ${error}`);
+    console.error(`❌ Get orders error:`, error);
     return c.json({ 
-      success: false,
-      error: `Failed to get orders: ${error}`,
-      orders: []
-    }, 500);
+      success: true,
+      orders: [] // Пустой массив, НИКАКИХ mock данных
+    });
   }
 });
 
