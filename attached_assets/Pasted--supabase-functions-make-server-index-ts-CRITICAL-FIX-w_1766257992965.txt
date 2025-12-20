@@ -1,0 +1,48 @@
+@supabase/functions/make-server/index.ts
+
+CRITICAL FIX: withdrawals table does NOT exist in production DB.
+Use public.payouts as the ONLY canonical table for user withdrawal requests.
+
+DB facts:
+- to_regclass('public.withdrawals') is NULL
+- to_regclass('public.payouts') exists
+
+TASK (MUST):
+
+1) Canonical table:
+   - POST /withdrawal (createWithdrawal) must INSERT into public.payouts (NOT withdrawals) with status='pending'
+   - getAvailableBalance() must subtract locked/spent payouts from public.payouts
+
+2) Statuses:
+   - Ensure public.payouts.status supports at least: 'pending', 'approved', 'rejected' (optionally 'paid','canceled')
+   - If there is a CHECK constraint or enum preventing new statuses, create a migration to allow these values.
+   - Balance rules:
+       locked = payouts where status IN ('pending','approved','paid')   (only those that exist)
+       not_locked = payouts where status IN ('rejected','canceled','failed') (if exist)
+
+3) Balance endpoints:
+   - GET /balance must return:
+       totalEarned (sum earnings.amount),
+       lockedPayouts (sum payouts.amount where locked statuses),
+       available = greatest(totalEarned - lockedPayouts, 0)
+   - Never use profiles.balance / available_balance.
+
+4) Atomicity (race-condition protection):
+   - The “check available + insert pending payout” must be atomic.
+   - Preferred: Postgres RPC function public.create_payout_if_sufficient(user_id uuid, amount numeric)
+       - pg_advisory_xact_lock(hashtext(user_id::text))
+       - compute available in SQL
+       - insert into payouts with status='pending' if sufficient else raise error
+   - Call RPC from edge function.
+
+5) Admin/CEO visibility (demo):
+   - Implement GET /admin/payouts?status=pending to list pending requests (service role).
+   - Optional: admin_notifications table, but minimum is pending list visible in UI/DB.
+
+6) Compatibility (optional but recommended):
+   - Create VIEW public.withdrawals AS SELECT * FROM public.payouts;
+     So any old code referencing withdrawals won’t break.
+
+Deliver:
+- migration SQL (status support + RPC + optional view)
+- updated code snippets: getAvailableBalance(), POST /withdrawal, GET /balance, GET /admin/payouts
