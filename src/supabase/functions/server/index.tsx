@@ -3536,6 +3536,54 @@ app.get("/make-server-05aa3c8a/earnings", async (c) => {
   }
 });
 
+// 💰 Get user balance (SINGLE SOURCE OF TRUTH for UI)
+app.get("/make-server-05aa3c8a/balance", async (c) => {
+  try {
+    const targetUserId = c.req.header('X-User-Id');
+    
+    if (!targetUserId) {
+      return c.json({ success: false, error: "User ID required" }, 400);
+    }
+    
+    await verifyUser(targetUserId);
+    
+    const availableBalance = await getAvailableBalance(targetUserId);
+    
+    // Also get total earned and total withdrawn for display
+    const { data: earningsData } = await supabase
+      .from('earnings')
+      .select('amount')
+      .eq('user_id', targetUserId);
+    
+    const totalEarned = (earningsData || []).reduce((sum: number, e: any) => sum + (parseFloat(e.amount) || 0), 0);
+    
+    const { data: payoutsData } = await supabase
+      .from('payouts')
+      .select('amount, status')
+      .eq('user_id', targetUserId);
+    
+    const completedWithdrawals = (payoutsData || [])
+      .filter((p: any) => ['completed', 'approved', 'paid'].includes((p.status || '').toLowerCase()))
+      .reduce((sum: number, p: any) => sum + (parseFloat(p.amount) || 0), 0);
+    
+    const pendingWithdrawals = (payoutsData || [])
+      .filter((p: any) => ['pending', 'processing'].includes((p.status || '').toLowerCase()))
+      .reduce((sum: number, p: any) => sum + (parseFloat(p.amount) || 0), 0);
+    
+    return c.json({
+      success: true,
+      balance: availableBalance,
+      totalEarned,
+      totalWithdrawn: completedWithdrawals,
+      pendingWithdrawals,
+      availableBalance
+    });
+  } catch (error) {
+    console.error(`❌ Get balance error:`, error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
 // Request withdrawal (SQL payouts table)
 // 🔐 FIXED: Uses getAvailableBalance() instead of stale profiles.balance
 app.post("/make-server-05aa3c8a/withdrawal", async (c) => {
