@@ -200,12 +200,30 @@ function isUserAdmin(user: any): boolean {
          user?.id === '1';
 }
 
+// 💰 WITHDRAWAL STATUS MODEL (explicit):
+// - pending: awaiting admin review (BLOCKS funds)
+// - processing: admin approved, payment in progress (BLOCKS funds)
+// - approved: admin approved, synonymous with processing (BLOCKS funds)
+// - paid: successfully paid out (BLOCKS funds - money is gone)
+// - completed: successfully paid out, alias for paid (BLOCKS funds)
+// - rejected: admin rejected, funds returned (DOES NOT block)
+// - failed: payment failed, funds returned (DOES NOT block)
+// - canceled: user canceled, funds returned (DOES NOT block)
+const BLOCKING_STATUSES = ['pending', 'processing', 'approved', 'paid', 'completed'];
+const NON_BLOCKING_STATUSES = ['rejected', 'failed', 'canceled'];
+
 // 💰 Get available balance for a user (SINGLE SOURCE OF TRUTH)
-// Available = Total Earnings - Completed Withdrawals - Pending/Processing Withdrawals
-async function getAvailableBalance(userId: string): Promise<number> {
+// Available = Total Earnings - Sum of BLOCKING payouts
+async function getAvailableBalance(userId: string): Promise<{
+  available: number;
+  totalEarned: number;
+  blockedAmount: number;
+  pendingAmount: number;
+  paidAmount: number;
+}> {
   console.log(`💰 Computing available balance for user: "${userId}"`);
   
-  // 1. Get total earnings from SQL (Supabase)
+  // 1. Get total earnings from SQL (Supabase) - amount is NUMERIC
   const { data: earningsData, error: earningsError } = await supabase
     .from('earnings')
     .select('amount')
@@ -215,14 +233,13 @@ async function getAvailableBalance(userId: string): Promise<number> {
     console.error(`❌ Failed to get earnings for balance calc:`, earningsError);
   }
   
+  // Use Number() for NUMERIC type, NOT parseFloat to avoid float issues
   const totalEarned = (earningsData || []).reduce((sum: number, e: any) => {
-    const amt = parseFloat(e.amount) || 0;
+    const amt = Number(e.amount) || 0;
     return sum + amt;
   }, 0);
   
-  // 2. Get blocked withdrawals (pending, processing, approved = not yet rejected/completed)
-  // We block funds for: pending, processing
-  // Completed = already deducted, rejected = funds returned
+  // 2. Get payouts and calculate blocked amount
   const { data: payoutsData, error: payoutsError } = await supabase
     .from('payouts')
     .select('amount, status')
@@ -232,26 +249,27 @@ async function getAvailableBalance(userId: string): Promise<number> {
     console.error(`❌ Failed to get payouts for balance calc:`, payoutsError);
   }
   
-  let completedWithdrawals = 0;
-  let pendingWithdrawals = 0;
+  let pendingAmount = 0;  // pending + processing
+  let paidAmount = 0;     // approved + paid + completed
   
   (payoutsData || []).forEach((p: any) => {
-    const amt = parseFloat(p.amount) || 0;
+    const amt = Number(p.amount) || 0;
     const status = (p.status || '').toLowerCase();
     
-    if (status === 'completed' || status === 'approved' || status === 'paid') {
-      completedWithdrawals += amt;
-    } else if (status === 'pending' || status === 'processing') {
-      pendingWithdrawals += amt;
+    if (status === 'pending' || status === 'processing') {
+      pendingAmount += amt;
+    } else if (status === 'approved' || status === 'paid' || status === 'completed') {
+      paidAmount += amt;
     }
-    // rejected/failed/canceled = funds returned, don't subtract
+    // rejected/failed/canceled = funds returned, don't count
   });
   
-  const availableBalance = Math.max(0, totalEarned - completedWithdrawals - pendingWithdrawals);
+  const blockedAmount = pendingAmount + paidAmount;
+  const available = Math.max(0, totalEarned - blockedAmount);
   
-  console.log(`💰 Balance for "${userId}": earned=${totalEarned}, completed=${completedWithdrawals}, pending=${pendingWithdrawals}, available=${availableBalance}`);
+  console.log(`💰 Balance for "${userId}": earned=${totalEarned}, blocked=${blockedAmount} (pending=${pendingAmount}, paid=${paidAmount}), available=${available}`);
   
-  return availableBalance;
+  return { available, totalEarned, blockedAmount, pendingAmount, paidAmount };
 }
 
 // 🔄 ID Reuse Management
@@ -3547,36 +3565,17 @@ app.get("/make-server-05aa3c8a/balance", async (c) => {
     
     await verifyUser(targetUserId);
     
-    const availableBalance = await getAvailableBalance(targetUserId);
-    
-    // Also get total earned and total withdrawn for display
-    const { data: earningsData } = await supabase
-      .from('earnings')
-      .select('amount')
-      .eq('user_id', targetUserId);
-    
-    const totalEarned = (earningsData || []).reduce((sum: number, e: any) => sum + (parseFloat(e.amount) || 0), 0);
-    
-    const { data: payoutsData } = await supabase
-      .from('payouts')
-      .select('amount, status')
-      .eq('user_id', targetUserId);
-    
-    const completedWithdrawals = (payoutsData || [])
-      .filter((p: any) => ['completed', 'approved', 'paid'].includes((p.status || '').toLowerCase()))
-      .reduce((sum: number, p: any) => sum + (parseFloat(p.amount) || 0), 0);
-    
-    const pendingWithdrawals = (payoutsData || [])
-      .filter((p: any) => ['pending', 'processing'].includes((p.status || '').toLowerCase()))
-      .reduce((sum: number, p: any) => sum + (parseFloat(p.amount) || 0), 0);
+    // Use unified balance calculation
+    const balanceInfo = await getAvailableBalance(targetUserId);
     
     return c.json({
       success: true,
-      balance: availableBalance,
-      totalEarned,
-      totalWithdrawn: completedWithdrawals,
-      pendingWithdrawals,
-      availableBalance
+      balance: balanceInfo.available,
+      totalEarned: balanceInfo.totalEarned,
+      totalWithdrawn: balanceInfo.paidAmount,
+      pendingWithdrawals: balanceInfo.pendingAmount,
+      blockedAmount: balanceInfo.blockedAmount,
+      availableBalance: balanceInfo.available
     });
   } catch (error) {
     console.error(`❌ Get balance error:`, error);
@@ -3584,71 +3583,180 @@ app.get("/make-server-05aa3c8a/balance", async (c) => {
   }
 });
 
+// 📢 Get admin notifications (pending withdrawal requests)
+app.get("/make-server-05aa3c8a/admin/notifications", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    if (!isUserAdmin(currentUser)) {
+      return c.json({ success: false, error: "Admin access required" }, 403);
+    }
+    
+    const statusFilter = c.req.query('status'); // 'unread', 'read', or undefined for all
+    
+    let query = supabase
+      .from('admin_notifications')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    
+    if (statusFilter) {
+      query = query.eq('status', statusFilter);
+    }
+    
+    const { data: notifications, error } = await query;
+    
+    if (error) {
+      console.error(`❌ Failed to get admin notifications:`, error);
+      return c.json({ success: false, error: error.message, notifications: [] }, 500);
+    }
+    
+    // Get user names for requester_user_id
+    const enrichedNotifications = await Promise.all((notifications || []).map(async (n: any) => {
+      let userName = n.requester_user_id;
+      if (n.requester_user_id) {
+        const user = await kv.get(`user:id:${n.requester_user_id}`);
+        if (user) {
+          userName = user.имя || user.first_name || n.requester_user_id;
+        }
+      }
+      return {
+        ...n,
+        userName
+      };
+    }));
+    
+    const unreadCount = (notifications || []).filter((n: any) => n.status === 'unread').length;
+    
+    return c.json({
+      success: true,
+      notifications: enrichedNotifications,
+      unreadCount
+    });
+  } catch (error) {
+    console.error(`❌ Get admin notifications error:`, error);
+    return c.json({ success: false, error: String(error), notifications: [] }, 500);
+  }
+});
+
+// 📢 Mark admin notification as read
+app.post("/make-server-05aa3c8a/admin/notifications/:id/read", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    if (!isUserAdmin(currentUser)) {
+      return c.json({ success: false, error: "Admin access required" }, 403);
+    }
+    
+    const notificationId = c.req.param('id');
+    
+    const { error } = await supabase
+      .from('admin_notifications')
+      .update({ status: 'read' })
+      .eq('id', notificationId);
+    
+    if (error) {
+      return c.json({ success: false, error: error.message }, 500);
+    }
+    
+    return c.json({ success: true });
+  } catch (error) {
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
 // Request withdrawal (SQL payouts table)
-// 🔐 FIXED: Uses getAvailableBalance() instead of stale profiles.balance
+// 🔐 ATOMIC: Uses Postgres RPC function create_withdrawal_if_sufficient()
+// This prevents race conditions by using advisory lock + atomic check+insert
 app.post("/make-server-05aa3c8a/withdrawal", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     const { amount, method, details } = await c.req.json();
     
-    const requestAmount = parseFloat(amount);
-    if (!requestAmount || requestAmount <= 0) {
+    // Use Number() for NUMERIC type safety
+    const requestAmount = Number(amount);
+    if (!requestAmount || requestAmount <= 0 || !Number.isFinite(requestAmount)) {
       return c.json({ error: "Invalid amount" }, 400);
     }
     
-    // 💰 Use REAL available balance (same logic as UI)
-    const availableBalance = await getAvailableBalance(currentUser.id);
+    // Round to 2 decimal places for NUMERIC(12,2)
+    const amountNumeric = Math.round(requestAmount * 100) / 100;
+    const detailsStr = typeof details === 'object' ? JSON.stringify(details) : (details || '');
     
-    console.log(`💸 Withdrawal request: ${requestAmount}₽ from ${currentUser.имя} (available: ${availableBalance}₽)`);
+    console.log(`💸 Withdrawal request: ${amountNumeric}₽ from ${currentUser.имя} (${currentUser.id})`);
     
-    if (requestAmount > availableBalance) {
+    // 🔐 ATOMIC: Call RPC function (lock + check + insert in single transaction)
+    const { data: rpcResult, error: rpcError } = await supabase
+      .rpc('create_withdrawal_if_sufficient', {
+        p_user_id: currentUser.id,
+        p_amount: amountNumeric,
+        p_method: method || 'bank',
+        p_details: detailsStr
+      });
+    
+    if (rpcError) {
+      console.error(`❌ RPC error:`, rpcError);
+      return c.json({ error: `Failed to process withdrawal: ${rpcError.message}` }, 500);
+    }
+    
+    // RPC returns array with single row
+    const result = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
+    
+    if (!result || !result.success) {
+      const available = result?.available_balance || 0;
       return c.json({ 
         error: "Insufficient balance", 
-        message: `Недостаточно средств. Доступно: ${availableBalance.toFixed(2)}₽`,
-        available: availableBalance 
+        message: `Недостаточно средств. Доступно: ${available.toFixed(2)}₽`,
+        available: available 
       }, 400);
     }
     
-    // 🔐 ATOMIC INSERT: The pending status blocks these funds immediately
-    // (getAvailableBalance subtracts pending withdrawals)
-    const { data: payout, error: insertError } = await supabase
-      .from('payouts')
-      .insert({
-        user_id: currentUser.id,
-        amount: requestAmount,
-        method: method || 'bank',
-        details: typeof details === 'object' ? JSON.stringify(details) : details,
-        status: 'pending'
-      })
-      .select()
-      .single();
+    const withdrawalId = result.withdrawal_id;
+    const newAvailable = result.available_balance;
     
-    if (insertError) {
-      console.log(`Supabase insert error: ${insertError.message}`);
-      return c.json({ error: `Failed to create payout: ${insertError.message}` }, 500);
+    // 📢 INSERT ADMIN NOTIFICATION
+    const { error: notifyError } = await supabase
+      .from('admin_notifications')
+      .insert({
+        type: 'withdrawal_request',
+        withdrawal_id: withdrawalId,
+        requester_user_id: currentUser.id,
+        amount: amountNumeric,
+        status: 'unread',
+        message: `Заявка на вывод ${amountNumeric}₽ от ${currentUser.имя || currentUser.id}`
+      });
+    
+    if (notifyError) {
+      console.warn(`⚠️ Failed to create admin notification:`, notifyError);
+      // Don't fail the withdrawal - notification is secondary
     }
     
-    // ✅ No need to update KV balance - we calculate from SQL now
+    // Get full payout details
+    const { data: payout } = await supabase
+      .from('payouts')
+      .select('*')
+      .eq('id', withdrawalId)
+      .single();
     
-    console.log(`✅ Withdrawal created: ${requestAmount}₽ by ${currentUser.имя} (SQL payout id: ${payout.id})`);
+    console.log(`✅ Withdrawal created atomically: ${amountNumeric}₽ by ${currentUser.имя} (id: ${withdrawalId})`);
     
     return c.json({ 
       success: true, 
       withdrawal: {
-        id: payout.id,
-        oderId: payout.id,
-        userId: payout.user_id,
-        amount: payout.amount,
-        method: payout.method,
-        details: payout.details,
-        status: payout.status,
-        createdAt: payout.created_at
+        id: withdrawalId,
+        oderId: withdrawalId,
+        userId: currentUser.id,
+        amount: amountNumeric,
+        method: payout?.method || method || 'bank',
+        details: payout?.details || detailsStr,
+        status: 'pending',
+        createdAt: payout?.created_at || new Date().toISOString()
       },
-      availableBalance: availableBalance - requestAmount
+      availableBalance: newAvailable
     });
     
   } catch (error) {
-    console.log(`Withdrawal error: ${error}`);
+    console.error(`❌ Withdrawal error:`, error);
     return c.json({ error: `Failed to process withdrawal: ${error}` }, 500);
   }
 });
