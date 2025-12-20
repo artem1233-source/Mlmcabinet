@@ -223,6 +223,16 @@ export async function createOrder(sku: string, isPartner: boolean, quantity = 1)
   });
 }
 
+// 🆕 Создание заказа с ПОЛНЫМИ данными товаров (включая комиссии)
+export async function createOrderWithItems(items: any[]) {
+  console.log('📦 Creating order with full items data:', items);
+  
+  return apiCall('/orders', {
+    method: 'POST',
+    body: JSON.stringify({ items }),
+  });
+}
+
 export async function getOrders() {
   return apiCall('/orders');
 }

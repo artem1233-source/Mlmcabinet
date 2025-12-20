@@ -53,46 +53,67 @@ export function CartRu({
 
     setCreatingOrder(true);
     try {
-      const orders = [];
-      
-      for (const item of cartItems) {
-        const sku = item.product.sku;
+      // 🆕 Формируем массив items с ПОЛНЫМИ данными товаров включая комиссии
+      const items = cartItems.map(item => {
+        const product = item.product;
+        const isGuest = !item.isPartner;
         
-        if (!sku || sku.length < 2) {
-          throw new Error(`Некорректный SKU товара "${item.product.название}"`);
-        }
+        // Цены
+        const retailPrice = Number(product.цена_розница) || Number(product.розничнаяЦена) || 0;
+        const partnerPrice = Number(product.цена1) || Number(product.партнёрскаяЦена) || 0;
+        const priceL2 = Number(product.цена2) || 0;
+        const priceL3 = Number(product.цена3) || 0;
+        const companyPrice = Number(product.цена4) || Number(product.ценаКомпании) || 0;
         
-        const data = await api.createOrder(sku, item.isPartner, item.quantity);
+        // Вычисляем комиссии по водопадной схеме
+        const payoutL0 = isGuest ? Math.max(0, retailPrice - partnerPrice) : 0;
+        const payoutL1 = priceL2 > 0 ? Math.max(0, partnerPrice - priceL2) : 0;
+        const payoutL2 = (priceL2 > 0 && priceL3 > 0) ? Math.max(0, priceL2 - priceL3) : 0;
+        const payoutL3 = (priceL3 > 0 && companyPrice > 0) ? Math.max(0, priceL3 - companyPrice) : 0;
         
-        if (data.success && data.order) {
-          orders.push(data.order);
-        } else {
-          throw new Error(`Ошибка создания заказа для ${item.product.название}`);
-        }
-      }
-
-      if (orders.length === 1) {
-        setSelectedOrder(orders[0]);
-      } else {
-        const totalPrice = orders.reduce((sum, o) => sum + (o.суммаЗаказа || (o.цена || 0) * (o.количество || 1)), 0);
-        const productNames = orders.map(o => `${o.товар} (x${o.количество})`).join(', ');
+        // Цена продажи
+        const salePrice = isGuest ? retailPrice : partnerPrice;
         
-        const combinedOrder = {
-          id: orders[0].id,
-          orderIds: orders.map(o => o.id),
-          товар: productNames,
-          цена: totalPrice,
-          количество: orders.reduce((sum, o) => sum + (o.количество || 0), 0),
-          суммаЗаказа: totalPrice,
-          userId: orders[0].userId,
-          статус: orders[0].статус,
-          датаЗаказа: orders[0].датаЗаказа,
-          isMultipleOrders: true,
-          orders: orders
+        return {
+          product_id: product.id || product.sku,
+          sku: product.sku,
+          name: product.название || product.name || 'Без названия',
+          quantity: item.quantity,
+          price: salePrice,
+          is_guest: isGuest,
+          partner_price: partnerPrice,
+          retail_price: retailPrice,
+          price_l2: priceL2,
+          price_l3: priceL3,
+          company_price: companyPrice,
+          payout_l0: payoutL0,
+          payout_l1: payoutL1,
+          payout_l2: payoutL2,
+          payout_l3: payoutL3,
         };
-        
-        setSelectedOrder(combinedOrder);
+      });
+      
+      console.log('📦 Creating order with items:', items);
+      
+      // Отправляем заказ с полными данными
+      const data = await api.createOrderWithItems(items);
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Ошибка создания заказа');
       }
+      
+      const order = data.order;
+      setSelectedOrder({
+        id: order.id,
+        orderId: order.id,
+        товар: items.map(i => `${i.name} (x${i.quantity})`).join(', '),
+        цена: totalAmount,
+        количество: totalItems,
+        суммаЗаказа: totalAmount,
+        статус: order.status || 'pending',
+        датаЗаказа: order.created_at,
+        items: items
+      });
       
       setShowCheckout(true);
       onClose();
