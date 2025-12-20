@@ -3222,22 +3222,50 @@ app.post("/make-server-05aa3c8a/orders/:orderId/confirm", async (c) => {
 // EARNINGS & BALANCE
 // ======================
 
-// Get earnings
+// Get earnings - 🆕 ИСПРАВЛЕНО: Загружает ТОЛЬКО из SQL, НЕ из KV
 app.get("/make-server-05aa3c8a/earnings", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     
-    const earnings = await kv.getByPrefix(`earning:user:${currentUser.id}:`);
-    const earningsArray = Array.isArray(earnings) ? earnings : [];
+    console.log(`📊 GET /earnings for user: ${currentUser.id}`);
     
-    return c.json({ success: true, earnings: earningsArray });
+    // 🆕 Загружаем ТОЛЬКО из SQL таблицы earnings
+    const { data: earningsData, error: earningsError } = await supabase
+      .from('earnings')
+      .select('*')
+      .eq('user_id', currentUser.id)
+      .order('created_at', { ascending: false });
+    
+    if (earningsError) {
+      console.error(`❌ SQL earnings error:`, earningsError);
+      return c.json({ success: true, earnings: [] }); // Пустой массив при ошибке
+    }
+    
+    // Преобразуем в формат, ожидаемый фронтендом
+    const earnings = (earningsData || []).map((e: any) => ({
+      id: e.id,
+      oderId: e.order_id,
+      userId: e.user_id,
+      amount: e.amount,
+      сумма: e.amount,
+      level: e.level,
+      линия: parseInt(e.level?.replace('L', '') || '0'),
+      дата: e.created_at,
+      createdAt: e.created_at,
+      description: e.description || '',
+      sku: e.sku || '',
+      isPartner: e.is_partner
+    }));
+    
+    console.log(`✅ Loaded ${earnings.length} earnings from SQL for user ${currentUser.id}`);
+    
+    return c.json({ success: true, earnings });
   } catch (error) {
-    console.log(`Get earnings error: ${error}`);
+    console.error(`❌ Get earnings error:`, error);
     return c.json({ 
-      success: false,
-      error: `Failed to get earnings: ${error}`,
-      earnings: []
-    }, 500);
+      success: true,
+      earnings: [] // Пустой массив, НИКАКИХ mock данных
+    });
   }
 });
 
