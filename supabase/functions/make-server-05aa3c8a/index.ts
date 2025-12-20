@@ -3405,10 +3405,32 @@ app.get("/make-server-05aa3c8a/earnings", async (c) => {
       return c.json({ success: true, earnings: [] });
     }
     
+    // Получаем все уникальные order_id для поиска названий товаров
+    const orderIds = [...new Set((earningsData || []).map((e: any) => e.order_id).filter(Boolean))];
+    
+    // Загружаем информацию о заказах для получения названий товаров
+    let orderTitlesMap = new Map<string, string>();
+    if (orderIds.length > 0) {
+      const { data: ordersData } = await supabase
+        .from('orders')
+        .select('id, items, description')
+        .in('id', orderIds);
+      
+      (ordersData || []).forEach((order: any) => {
+        let title = 'Бонус за покупку';
+        if (order.items && Array.isArray(order.items) && order.items.length > 0) {
+          title = order.items.map((item: any) => item.name || item.название || 'Товар').join(', ');
+        } else if (order.description) {
+          title = order.description;
+        }
+        orderTitlesMap.set(order.id, title);
+      });
+    }
+    
     // Преобразуем в формат, ожидаемый фронтендом
     const earnings = (earningsData || []).map((e: any) => ({
       id: e.id,
-      oderId: e.order_id,
+      orderId: e.order_id,
       userId: e.user_id,
       amount: e.amount,
       сумма: e.amount,
@@ -3417,8 +3439,10 @@ app.get("/make-server-05aa3c8a/earnings", async (c) => {
       дата: e.created_at,
       createdAt: e.created_at,
       description: e.description || '',
-      sku: e.sku || '',
-      isPartner: e.is_partner
+      sku: e.product_sku || e.sku || '',
+      isPartner: e.order_type === 'partner',
+      title: orderTitlesMap.get(e.order_id) || 'Бонус за покупку',
+      название: orderTitlesMap.get(e.order_id) || 'Бонус за покупку'
     }));
     
     console.log(`✅ Loaded ${earnings.length} earnings from SQL for user "${targetUserId}"`);
