@@ -2758,40 +2758,43 @@ app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
     
     console.log(`✅ Built team structure: ${teamMembers.length} members across all levels`);
     
-    // 🔥 GET BALANCES FROM SQL - THIS IS THE SOURCE OF TRUTH
+    // 🔥 GET EARNINGS FROM SQL - THIS IS THE SOURCE OF TRUTH
     if (teamMembers.length > 0) {
       try {
         const teamIds = teamMembers.map((m: any) => m.id);
         
-        // Load balances from SQL profiles table
-        const { data: sqlProfiles, error: sqlError } = await supabase
-          .from('profiles')
-          .select('user_id, balance')
+        // Load earnings from SQL earnings table (NOT profiles!)
+        const { data: sqlEarnings, error: sqlError } = await supabase
+          .from('earnings')
+          .select('user_id, amount')
           .in('user_id', teamIds);
         
         if (sqlError) {
-          console.error(`❌ SQL profiles query error: ${sqlError.message}`);
+          console.error(`❌ SQL earnings query error: ${sqlError.message}`);
         }
         
-        // Create balance map from SQL data
-        const balanceMap = new Map<string, number>();
-        (sqlProfiles || []).forEach((profile: any) => {
-          balanceMap.set(profile.user_id, profile.balance ?? 0);
+        // Calculate total earnings per user from earnings table
+        const earningsMap = new Map<string, number>();
+        (sqlEarnings || []).forEach((earning: any) => {
+          const current = earningsMap.get(earning.user_id) || 0;
+          earningsMap.set(earning.user_id, current + (parseFloat(earning.amount) || 0));
         });
         
-        // Override KV balances with SQL balances (source of truth)
+        console.log(`📊 Earnings from SQL: ${JSON.stringify(Object.fromEntries(earningsMap))}`);
+        
+        // Override KV balances with calculated earnings from SQL
         teamMembers.forEach((member: any) => {
-          const sqlBalance = balanceMap.get(member.id) ?? 0;
+          const sqlEarningsTotal = earningsMap.get(member.id) ?? 0;
           const kvBalance = member.баланс || 0;
-          if (sqlBalance !== kvBalance) {
-            console.log(`💰 Balance override for ${member.id}: KV=${kvBalance} → SQL=${sqlBalance}`);
+          if (sqlEarningsTotal !== kvBalance) {
+            console.log(`💰 Earnings override for ${member.id}: KV=${kvBalance} → SQL=${sqlEarningsTotal}`);
           }
-          member.баланс = sqlBalance;
+          member.баланс = sqlEarningsTotal;
         });
         
-        console.log(`✅ Synced ${balanceMap.size} balances from SQL (profiles table)`);
+        console.log(`✅ Synced ${earningsMap.size} earnings from SQL (earnings table)`);
       } catch (syncError) {
-        console.log(`⚠️ Failed to sync team balances from SQL: ${syncError}`);
+        console.log(`⚠️ Failed to sync team earnings from SQL: ${syncError}`);
         // If SQL fails, set all balances to 0 (safe default)
         teamMembers.forEach((member: any) => {
           member.баланс = 0;
