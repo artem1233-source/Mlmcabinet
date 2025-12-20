@@ -3393,12 +3393,29 @@ app.get("/make-server-05aa3c8a/earnings", async (c) => {
     
     console.log(`📊 GET /earnings for user: "${targetUserId}" (using X-User-Id directly)`);
     
+    // 🆕 DEBUG: Сначала проверим общее количество записей в таблице
+    const { data: allEarnings, error: countError } = await supabase
+      .from('earnings')
+      .select('user_id, amount');
+    
+    console.log(`📊 DEBUG: Total earnings in SQL table: ${allEarnings?.length || 0}, error: ${countError?.message || 'none'}`);
+    if (countError) {
+      console.error(`❌ DEBUG: Count error details:`, JSON.stringify(countError));
+    }
+    console.log(`📊 DEBUG: All user_ids: ${[...new Set(allEarnings?.map((e: any) => e.user_id) || [])].join(', ')}`);
+    console.log(`📊 DEBUG: First 3 records:`, JSON.stringify(allEarnings?.slice(0, 3)));
+    
     // 🆕 Загружаем из SQL таблицы earnings СТРОГО по ID из заголовка
     const { data: earningsData, error: earningsError } = await supabase
       .from('earnings')
       .select('*')
       .eq('user_id', targetUserId)  // <--- КЛЮЧЕВОЙ МОМЕНТ: используем targetUserId напрямую
       .order('created_at', { ascending: false });
+    
+    console.log(`📊 DEBUG: Earnings for user "${targetUserId}": ${earningsData?.length || 0}, error: ${earningsError?.message || 'none'}`);
+    if (earningsError) {
+      console.error(`❌ DEBUG: Earnings error details:`, JSON.stringify(earningsError));
+    }
     
     if (earningsError) {
       console.error(`❌ SQL earnings error for user "${targetUserId}":`, earningsError);
@@ -3428,22 +3445,30 @@ app.get("/make-server-05aa3c8a/earnings", async (c) => {
     }
     
     // Преобразуем в формат, ожидаемый фронтендом
-    const earnings = (earningsData || []).map((e: any) => ({
-      id: e.id,
-      orderId: e.order_id,
-      userId: e.user_id,
-      amount: e.amount,
-      сумма: e.amount,
-      level: e.level,
-      линия: parseInt(e.level?.replace('L', '') || '0'),
-      дата: e.created_at,
-      createdAt: e.created_at,
-      description: e.description || '',
-      sku: e.product_sku || e.sku || '',
-      isPartner: e.order_type === 'partner',
-      title: orderTitlesMap.get(e.order_id) || 'Бонус за покупку',
-      название: orderTitlesMap.get(e.order_id) || 'Бонус за покупку'
-    }));
+    // Supabase schema: id, user_id, amount, source_user_id, level (int), created_at, order_type
+    const earnings = (earningsData || []).map((e: any) => {
+      // level может быть integer (0,1,2,3) или string ('L0','L1','L2','L3')
+      const levelNum = typeof e.level === 'number' ? e.level : parseInt(String(e.level).replace('L', '') || '0');
+      const levelStr = typeof e.level === 'string' && e.level.startsWith('L') ? e.level : `L${levelNum}`;
+      
+      return {
+        id: e.id,
+        orderId: e.order_id || e.source_user_id || '',
+        userId: e.user_id,
+        amount: parseFloat(e.amount) || 0,
+        сумма: parseFloat(e.amount) || 0,
+        level: levelStr,
+        линия: levelNum,
+        дата: e.created_at,
+        createdAt: e.created_at,
+        description: e.description || '',
+        sku: e.product_sku || e.sku || '',
+        isPartner: e.order_type === 'partner' || e.order_type === 'personal',
+        title: orderTitlesMap.get(e.order_id) || 'Бонус за покупку',
+        название: orderTitlesMap.get(e.order_id) || 'Бонус за покупку',
+        sourceUserId: e.source_user_id || ''
+      };
+    });
     
     console.log(`✅ Loaded ${earnings.length} earnings from SQL for user "${targetUserId}"`);
     
