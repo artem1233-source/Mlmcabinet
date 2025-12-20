@@ -3249,23 +3249,32 @@ app.post("/make-server-05aa3c8a/orders/:orderId/confirm", async (c) => {
 // EARNINGS & BALANCE
 // ======================
 
-// Get earnings - 🆕 ИСПРАВЛЕНО: Загружает ТОЛЬКО из SQL, НЕ из KV
+// Get earnings - 🆕 ИСПРАВЛЕНО: Использует X-User-Id НАПРЯМУЮ для фильтрации
 app.get("/make-server-05aa3c8a/earnings", async (c) => {
   try {
-    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    // 🆕 Берём ID НАПРЯМУЮ из заголовка (например, "004", "seo")
+    const targetUserId = c.req.header('X-User-Id');
     
-    console.log(`📊 GET /earnings for user: ${currentUser.id}`);
+    if (!targetUserId) {
+      console.error(`❌ GET /earnings: No X-User-Id header provided`);
+      return c.json({ success: false, error: "User ID required", earnings: [] }, 400);
+    }
     
-    // 🆕 Загружаем ТОЛЬКО из SQL таблицы earnings
+    // Проверяем что пользователь существует (но используем ID из заголовка для запроса)
+    await verifyUser(targetUserId);
+    
+    console.log(`📊 GET /earnings for user: "${targetUserId}" (using X-User-Id directly)`);
+    
+    // 🆕 Загружаем из SQL таблицы earnings СТРОГО по ID из заголовка
     const { data: earningsData, error: earningsError } = await supabase
       .from('earnings')
       .select('*')
-      .eq('user_id', currentUser.id)
+      .eq('user_id', targetUserId)  // <--- КЛЮЧЕВОЙ МОМЕНТ: используем targetUserId напрямую
       .order('created_at', { ascending: false });
     
     if (earningsError) {
-      console.error(`❌ SQL earnings error:`, earningsError);
-      return c.json({ success: true, earnings: [] }); // Пустой массив при ошибке
+      console.error(`❌ SQL earnings error for user "${targetUserId}":`, earningsError);
+      return c.json({ success: true, earnings: [] });
     }
     
     // Преобразуем в формат, ожидаемый фронтендом
@@ -3284,14 +3293,14 @@ app.get("/make-server-05aa3c8a/earnings", async (c) => {
       isPartner: e.is_partner
     }));
     
-    console.log(`✅ Loaded ${earnings.length} earnings from SQL for user ${currentUser.id}`);
+    console.log(`✅ Loaded ${earnings.length} earnings from SQL for user "${targetUserId}"`);
     
     return c.json({ success: true, earnings });
   } catch (error) {
     console.error(`❌ Get earnings error:`, error);
     return c.json({ 
       success: true,
-      earnings: [] // Пустой массив, НИКАКИХ mock данных
+      earnings: []
     });
   }
 });
