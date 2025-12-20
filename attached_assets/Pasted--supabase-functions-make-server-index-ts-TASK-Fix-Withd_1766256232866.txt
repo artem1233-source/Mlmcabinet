@@ -1,0 +1,53 @@
+@supabase/functions/make-server/index.ts
+
+TASK: Fix Withdrawal Logic (REAL Available Balance) + Admin/CEO Notification (visible).
+
+BUG:
+UI shows Current/Available balance (e.g. 5999 ₽), but backend createWithdrawal returns "Insufficient balance"
+because it checks profiles.balance (stale/0). We must unify the source of truth.
+
+MUST:
+
+0) Verify DB schema (do not guess):
+   - Check if tables exist: earnings, withdrawals.
+   - Check columns/types: earnings.amount (+ optional status), withdrawals.amount/status, profiles.role or admin identification.
+   - If withdrawals table does not exist: create SQL migration for it.
+
+1) Implement server helper getAvailableBalance(userId):
+   - IMPORTANT: Use EXACTLY the same logic/filters that the Balance widget currently uses to show "Current/Available balance".
+   - First locate the UI balance calculation query/helper, then port/copy it to server (backend becomes the source of truth).
+   - Earnings part: count only withdrawable earnings statuses (if status exists) and exclude canceled/reversed if such statuses exist.
+   - Withdrawals part: subtract all withdrawals that should block funds (pending/processing/approved/paid). Exclude rejected/failed/canceled (only if those statuses exist).
+   - Clamp availableBalance >= 0.
+   - Money safety: avoid float. Use numeric/integers consistent with DB types.
+
+2) Fix createWithdrawal:
+   - Do NOT use profiles.balance at all.
+   - available = await getAvailableBalance(userId)
+   - If requestAmount > available => return error "Insufficient balance"
+   - Else insert withdrawals row:
+       (user_id, amount, status='pending', created_at, optional: method/details)
+   - Return created withdrawal.
+
+3) Prevent double-withdraw race condition (required):
+   - The check (available) + insert must be atomic.
+   - Choose the simplest supported method:
+       Option A (fast): DB transaction + row lock (SELECT ... FOR UPDATE) on a stable row (e.g. profiles row for that user),
+                        recompute available inside transaction, then insert.
+       Option B (preferred): Postgres RPC function create_withdrawal_if_sufficient(user_id, amount) that computes available + inserts.
+   - Implement at least one of these so two parallel requests cannot overdraw.
+
+4) Admin/CEO notification (DEMO, must be visible):
+   - After creating a pending withdrawal, admin must be able to see it.
+   - Minimal approach:
+       - Ensure admin dashboard/list endpoint exists to fetch withdrawals WHERE status='pending' (this is the notification).
+   - Optional extra:
+       - Create admin_notifications table (migration) and insert:
+           type='withdrawal_request', withdrawal_id, requester_user_id, amount, status='unread', created_at
+       - Define how to identify admins (profiles.role='admin' OR fixed CEO user id in env). Do not leave it ambiguous.
+
+Acceptance tests:
+- If UI shows 5999 available and user requests 1999 => success, withdrawals.status='pending'.
+- If available is 5000 and user requests 5001 => "Insufficient balance".
+- If user already has a pending withdrawal, available must be reduced accordingly.
+- Two parallel withdrawal requests must not both succeed if combined amount > available.
