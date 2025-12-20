@@ -3155,23 +3155,32 @@ app.post("/make-server-05aa3c8a/orders", async (c) => {
   }
 });
 
-// Get user's orders - 🆕 ИСПРАВЛЕНО: Загружает ТОЛЬКО из SQL
+// Get user's orders - 🆕 ИСПРАВЛЕНО: Использует X-User-Id НАПРЯМУЮ
 app.get("/make-server-05aa3c8a/orders", async (c) => {
   try {
-    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    // 🆕 Берём ID НАПРЯМУЮ из заголовка (например, "004", "seo")
+    const targetUserId = c.req.header('X-User-Id');
     
-    console.log(`📦 GET /orders for user: ${currentUser.id}`);
+    if (!targetUserId) {
+      console.error(`❌ GET /orders: No X-User-Id header provided`);
+      return c.json({ success: false, error: "User ID required", orders: [] }, 400);
+    }
     
-    // 🆕 Загружаем ТОЛЬКО из SQL таблицы orders
+    // Проверяем что пользователь существует
+    await verifyUser(targetUserId);
+    
+    console.log(`📦 GET /orders for user: "${targetUserId}" (using X-User-Id directly)`);
+    
+    // 🆕 Загружаем из SQL таблицы orders СТРОГО по ID из заголовка
     const { data: ordersData, error: ordersError } = await supabase
       .from('orders')
       .select('*')
-      .eq('user_id', currentUser.id)
+      .eq('user_id', targetUserId)  // <--- КЛЮЧЕВОЙ МОМЕНТ
       .order('created_at', { ascending: false });
     
     if (ordersError) {
-      console.error(`❌ SQL orders error:`, ordersError);
-      return c.json({ success: true, orders: [] }); // Пустой массив при ошибке
+      console.error(`❌ SQL orders error for user "${targetUserId}":`, ordersError);
+      return c.json({ success: true, orders: [] });
     }
     
     // Преобразуем в формат, ожидаемый фронтендом
@@ -3190,14 +3199,14 @@ app.get("/make-server-05aa3c8a/orders", async (c) => {
       датаЗаказа: o.created_at
     }));
     
-    console.log(`✅ Loaded ${orders.length} orders from SQL for user ${currentUser.id}`);
+    console.log(`✅ Loaded ${orders.length} orders from SQL for user "${targetUserId}"`);
     
     return c.json({ success: true, orders });
   } catch (error) {
     console.error(`❌ Get orders error:`, error);
     return c.json({ 
       success: true,
-      orders: [] // Пустой массив, НИКАКИХ mock данных
+      orders: []
     });
   }
 });
@@ -3366,20 +3375,31 @@ app.post("/make-server-05aa3c8a/withdrawal", async (c) => {
   }
 });
 
-// Get withdrawal history (SQL payouts table)
+// Get withdrawal history (SQL payouts table) - 🆕 ИСПРАВЛЕНО: Использует X-User-Id НАПРЯМУЮ
 app.get("/make-server-05aa3c8a/withdrawals", async (c) => {
   try {
-    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    // 🆕 Берём ID НАПРЯМУЮ из заголовка
+    const targetUserId = c.req.header('X-User-Id');
+    
+    if (!targetUserId) {
+      console.error(`❌ GET /withdrawals: No X-User-Id header provided`);
+      return c.json({ success: false, error: "User ID required", withdrawals: [] }, 400);
+    }
+    
+    // Проверяем что пользователь существует
+    await verifyUser(targetUserId);
+    
+    console.log(`💸 GET /withdrawals for user: "${targetUserId}" (using X-User-Id directly)`);
     
     const { data: payouts, error: selectError } = await supabase
       .from('payouts')
       .select('*')
-      .eq('user_id', currentUser.id)
+      .eq('user_id', targetUserId)  // <--- КЛЮЧЕВОЙ МОМЕНТ
       .order('created_at', { ascending: false });
     
     if (selectError) {
-      console.log(`Supabase select error: ${selectError.message}`);
-      return c.json({ success: false, error: selectError.message, withdrawals: [] }, 500);
+      console.error(`❌ SQL payouts error for user "${targetUserId}":`, selectError);
+      return c.json({ success: true, withdrawals: [] });
     }
     
     const withdrawals = (payouts || []).map((p: any) => ({
@@ -3395,14 +3415,15 @@ app.get("/make-server-05aa3c8a/withdrawals", async (c) => {
       adminComment: p.admin_comment
     }));
     
+    console.log(`✅ Loaded ${withdrawals.length} withdrawals from SQL for user "${targetUserId}"`);
+    
     return c.json({ success: true, withdrawals });
   } catch (error) {
-    console.log(`Get withdrawals error: ${error}`);
+    console.error(`❌ Get withdrawals error:`, error);
     return c.json({ 
-      success: false,
-      error: `Failed to get withdrawals: ${error}`,
+      success: true,
       withdrawals: []
-    }, 500);
+    });
   }
 });
 
