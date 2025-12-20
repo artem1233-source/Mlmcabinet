@@ -3416,60 +3416,90 @@ app.get("/make-server-05aa3c8a/payment/methods", (c) => {
   }
 });
 
-// Create payment for order
+// Create payment for order - 🆕 ИСПРАВЛЕНО: Загружает заказы из SQL
 app.post("/make-server-05aa3c8a/payment/create", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     const { orderId, method } = await c.req.json();
     
-    const order = await kv.get(`order:${orderId}`);
+    console.log(`💳 Payment create for orderId: ${orderId}, method: ${method}`);
     
-    if (!order) {
+    // 🆕 Загружаем заказ из SQL таблицы orders
+    const { data: orderData, error: orderError } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', orderId)
+      .single();
+    
+    if (orderError || !orderData) {
+      console.error(`❌ Order not found in SQL: ${orderId}`, orderError);
       return c.json({ error: "Order not found" }, 404);
     }
     
-    if (order.покупательId !== currentUser.id) {
+    const order = orderData;
+    
+    if (order.user_id !== currentUser.id) {
       return c.json({ error: "Unauthorized" }, 403);
     }
     
-    if (order.статус === 'paid') {
+    if (order.status === 'paid') {
       return c.json({ error: "Order already paid" }, 400);
     }
     
     let paymentData;
     
     if (method === 'yookassa') {
-      // TODO: Implement YooKassa payment integration
       return c.json({ error: 'YooKassa not yet configured' }, 501);
     } else if (method === 'usdt') {
-      // TODO: Implement crypto payment integration
       return c.json({ error: 'Crypto payments not yet configured' }, 501);
     } else if (method === 'demo') {
       // Demo payment - auto confirm after 2 seconds
       setTimeout(async () => {
         try {
-          const confirmOrder = await kv.get(`order:${orderId}`);
-          if (confirmOrder && confirmOrder.статус !== 'paid') {
-            // Update order status
-            confirmOrder.статус = 'paid';
-            confirmOrder.paidAt = new Date().toISOString();
-            await kv.set(`order:${orderId}`, confirmOrder);
-            await kv.set(`order:user:${confirmOrder.покупательId}:${orderId}`, confirmOrder);
-            
-            // 🆕 Используем единую функцию для создания earnings
-            await createEarningsFromOrder(confirmOrder);
-            
-            // ✨ АВТОМАТИЧЕСКИЙ ПЕРЕСЧЁТ РАНГОВ после демо-оплаты
-            console.log(`🏆 [demo-payment] Auto-updating ranks for buyer and upline...`);
-            try {
-              await updateUplineRanks(confirmOrder.покупательId);
-              console.log(`✅ Ranks updated successfully after demo payment`);
-            } catch (rankError) {
-              console.error(`⚠️ Failed to update ranks after demo payment:`, rankError);
-            }
-            
-            console.log(`Demo payment auto-confirmed for ${orderId}`);
+          // 🆕 Обновляем статус заказа в SQL
+          const { error: updateError } = await supabase
+            .from('orders')
+            .update({ status: 'paid', updated_at: new Date().toISOString() })
+            .eq('id', orderId);
+          
+          if (updateError) {
+            console.error(`❌ Failed to update order status:`, updateError);
+            return;
           }
+          
+          console.log(`✅ Order ${orderId} marked as paid in SQL`);
+          
+          // Получаем обновленный заказ для earnings
+          const { data: paidOrder } = await supabase
+            .from('orders')
+            .select('*')
+            .eq('id', orderId)
+            .single();
+          
+          if (paidOrder) {
+            // Преобразуем в формат для createEarningsFromOrder
+            const orderForEarnings = {
+              id: paidOrder.id,
+              покупательId: paidOrder.user_id,
+              userId: paidOrder.user_id,
+              цена: paidOrder.total_amount,
+              items: paidOrder.items,
+              статус: 'paid'
+            };
+            
+            await createEarningsFromOrder(orderForEarnings);
+            
+            // Пересчёт рангов
+            console.log(`🏆 [demo-payment] Auto-updating ranks...`);
+            try {
+              await updateUplineRanks(paidOrder.user_id);
+              console.log(`✅ Ranks updated successfully`);
+            } catch (rankError) {
+              console.error(`⚠️ Failed to update ranks:`, rankError);
+            }
+          }
+          
+          console.log(`Demo payment auto-confirmed for ${orderId}`);
         } catch (err) {
           console.error(`Demo payment confirmation error: ${err}`);
         }
@@ -3479,7 +3509,7 @@ app.post("/make-server-05aa3c8a/payment/create", async (c) => {
         paymentId: `demo-${orderId}`,
         paymentUrl: null,
         status: 'processing',
-        message: 'Демо-оплата будет подтверждена автоматически ч��рез 2 секунды'
+        message: 'Демо-оплата будет подтверждена автоматически через 2 секунды'
       };
     } else {
       return c.json({ error: "Invalid payment method" }, 400);
@@ -3491,7 +3521,7 @@ app.post("/make-server-05aa3c8a/payment/create", async (c) => {
       orderId,
       userId: currentUser.id,
       method,
-      amount: order.цена,
+      amount: order.total_amount,
       status: paymentData.status || 'pending',
       createdAt: new Date().toISOString(),
       ...paymentData
@@ -3500,12 +3530,12 @@ app.post("/make-server-05aa3c8a/payment/create", async (c) => {
     await kv.set(`payment:${payment.id}`, payment);
     await kv.set(`payment:order:${orderId}`, payment);
     
-    console.log(`Payment created: ${payment.id} for order ${orderId} (${method})`);
+    console.log(`✅ Payment created: ${payment.id} for order ${orderId} (${method})`);
     
     return c.json({ success: true, payment });
     
   } catch (error) {
-    console.log(`Create payment error: ${error}`);
+    console.error(`❌ Create payment error:`, error);
     return c.json({ error: `Failed to create payment: ${error}` }, 500);
   }
 });
