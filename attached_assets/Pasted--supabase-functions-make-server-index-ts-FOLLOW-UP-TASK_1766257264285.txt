@@ -1,0 +1,42 @@
+@supabase/functions/make-server/index.ts
+
+FOLLOW-UP TASK: Stabilize withdrawal implementation (naming, statuses, atomicity, admin notification).
+
+1) TABLE NAMING CONSISTENCY (critical):
+   - You said withdrawals table didn't exist, but final result writes to "payouts".
+   - Choose ONE canonical table name and align everything (migrations + queries + UI).
+   - Preferred: use `withdrawals` (or keep `payouts` if already used), but then:
+     a) update all server code and balance calculation to use the same table
+     b) update any UI queries accordingly
+   - Provide the final schema (SQL) of the canonical table.
+
+2) STATUS MODEL (explicit, no guessing):
+   - Define allowed statuses for withdrawals/payouts:
+       pending, processing/approved, paid, rejected, failed, canceled (use only those that you implement).
+   - Available balance must subtract statuses that lock or spend money:
+       pending + processing/approved + paid
+     and must NOT subtract rejected/failed/canceled.
+   - Update getAvailableBalance() + GET /balance accordingly.
+
+3) ATOMICITY (race condition fix):
+   - Ensure "check available + insert pending withdrawal" is atomic.
+   - Implement either:
+       A) Postgres transaction with row lock (SELECT ... FOR UPDATE) on a stable row (profiles row for user),
+          recompute available inside the transaction, then insert; OR
+       B) Supabase RPC function create_withdrawal_if_sufficient(user_id, amount) that computes + inserts in SQL.
+   - Add a quick concurrency test or explanation of how atomicity is guaranteed.
+
+4) ADMIN/CEO NOTIFICATION (must be visible, not console.log):
+   - Create migration for `admin_notifications` table:
+       id, created_at, type, withdrawal_id, requester_user_id, amount, status (unread/read)
+   - On successful pending withdrawal insert, also insert admin_notifications row with status='unread'.
+   - Ensure admin can query unread notifications (endpoint GET /admin/notifications or include in admin dashboard).
+
+5) MONEY SAFETY:
+   - Confirm the amount type (numeric/int) and ensure no float math in TS.
+   - If amount is numeric, keep it numeric and format only at UI level.
+
+Return:
+- the migration SQL you added/modified
+- the final code snippets of getAvailableBalance(), POST /withdrawal, GET /balance
+- where admin sees the notification.
