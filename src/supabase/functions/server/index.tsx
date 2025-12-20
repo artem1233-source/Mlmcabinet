@@ -200,6 +200,60 @@ function isUserAdmin(user: any): boolean {
          user?.id === '1';
 }
 
+// 💰 Get available balance for a user (SINGLE SOURCE OF TRUTH)
+// Available = Total Earnings - Completed Withdrawals - Pending/Processing Withdrawals
+async function getAvailableBalance(userId: string): Promise<number> {
+  console.log(`💰 Computing available balance for user: "${userId}"`);
+  
+  // 1. Get total earnings from SQL (Supabase)
+  const { data: earningsData, error: earningsError } = await supabase
+    .from('earnings')
+    .select('amount')
+    .eq('user_id', userId);
+  
+  if (earningsError) {
+    console.error(`❌ Failed to get earnings for balance calc:`, earningsError);
+  }
+  
+  const totalEarned = (earningsData || []).reduce((sum: number, e: any) => {
+    const amt = parseFloat(e.amount) || 0;
+    return sum + amt;
+  }, 0);
+  
+  // 2. Get blocked withdrawals (pending, processing, approved = not yet rejected/completed)
+  // We block funds for: pending, processing
+  // Completed = already deducted, rejected = funds returned
+  const { data: payoutsData, error: payoutsError } = await supabase
+    .from('payouts')
+    .select('amount, status')
+    .eq('user_id', userId);
+  
+  if (payoutsError) {
+    console.error(`❌ Failed to get payouts for balance calc:`, payoutsError);
+  }
+  
+  let completedWithdrawals = 0;
+  let pendingWithdrawals = 0;
+  
+  (payoutsData || []).forEach((p: any) => {
+    const amt = parseFloat(p.amount) || 0;
+    const status = (p.status || '').toLowerCase();
+    
+    if (status === 'completed' || status === 'approved' || status === 'paid') {
+      completedWithdrawals += amt;
+    } else if (status === 'pending' || status === 'processing') {
+      pendingWithdrawals += amt;
+    }
+    // rejected/failed/canceled = funds returned, don't subtract
+  });
+  
+  const availableBalance = Math.max(0, totalEarned - completedWithdrawals - pendingWithdrawals);
+  
+  console.log(`💰 Balance for "${userId}": earned=${totalEarned}, completed=${completedWithdrawals}, pending=${pendingWithdrawals}, available=${availableBalance}`);
+  
+  return availableBalance;
+}
+
 // 🔄 ID Reuse Management
 // Get next available user ID (checks freed IDs first, then uses counter)
 async function getNextUserId(): Promise<string> {
@@ -3483,25 +3537,37 @@ app.get("/make-server-05aa3c8a/earnings", async (c) => {
 });
 
 // Request withdrawal (SQL payouts table)
+// 🔐 FIXED: Uses getAvailableBalance() instead of stale profiles.balance
 app.post("/make-server-05aa3c8a/withdrawal", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     const { amount, method, details } = await c.req.json();
     
-    if (!amount || amount <= 0) {
+    const requestAmount = parseFloat(amount);
+    if (!requestAmount || requestAmount <= 0) {
       return c.json({ error: "Invalid amount" }, 400);
     }
     
-    if (currentUser.баланс < amount) {
-      return c.json({ error: "Insufficient balance" }, 400);
+    // 💰 Use REAL available balance (same logic as UI)
+    const availableBalance = await getAvailableBalance(currentUser.id);
+    
+    console.log(`💸 Withdrawal request: ${requestAmount}₽ from ${currentUser.имя} (available: ${availableBalance}₽)`);
+    
+    if (requestAmount > availableBalance) {
+      return c.json({ 
+        error: "Insufficient balance", 
+        message: `Недостаточно средств. Доступно: ${availableBalance.toFixed(2)}₽`,
+        available: availableBalance 
+      }, 400);
     }
     
-    // Insert into SQL payouts table
+    // 🔐 ATOMIC INSERT: The pending status blocks these funds immediately
+    // (getAvailableBalance subtracts pending withdrawals)
     const { data: payout, error: insertError } = await supabase
       .from('payouts')
       .insert({
         user_id: currentUser.id,
-        amount: amount,
+        amount: requestAmount,
         method: method || 'bank',
         details: typeof details === 'object' ? JSON.stringify(details) : details,
         status: 'pending'
@@ -3514,14 +3580,9 @@ app.post("/make-server-05aa3c8a/withdrawal", async (c) => {
       return c.json({ error: `Failed to create payout: ${insertError.message}` }, 500);
     }
     
-    // Deduct from balance (will be refunded if rejected)
-    currentUser.баланс -= amount;
-    await kv.set(`user:id:${currentUser.id}`, currentUser);
-    if (currentUser.telegramId) {
-      await kv.set(`user:tg:${currentUser.telegramId}`, currentUser);
-    }
+    // ✅ No need to update KV balance - we calculate from SQL now
     
-    console.log(`💸 Withdrawal requested: ${amount}₽ by ${currentUser.имя} (SQL payout id: ${payout.id})`);
+    console.log(`✅ Withdrawal created: ${requestAmount}₽ by ${currentUser.имя} (SQL payout id: ${payout.id})`);
     
     return c.json({ 
       success: true, 
@@ -3534,7 +3595,8 @@ app.post("/make-server-05aa3c8a/withdrawal", async (c) => {
         details: payout.details,
         status: payout.status,
         createdAt: payout.created_at
-      }
+      },
+      availableBalance: availableBalance - requestAmount
     });
     
   } catch (error) {
