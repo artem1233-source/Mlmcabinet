@@ -1,0 +1,53 @@
+@src/pages/AdminFinance.tsx @supabase/functions/make-server/index.ts
+
+TASK: Fix Admin Finance Dashboard (Correct Math + Unified Backend Summary + Pretty Payout Details).
+
+GOAL:
+1) Net Profit is wrong (currently equals turnover). It must be turnover - PAID payouts.
+2) Payout "Details" must be human-readable (not raw JSON).
+3) Backend must be the single source of truth for KPI values.
+
+STEP 0 (CRITICAL): Inspect DB schema first
+- Inspect `orders` table columns + distinct statuses.
+- Find the correct money column (total/amount/total_price/grand_total etc).
+- Determine the correct "final/paid" order statuses (exclude canceled/refunded/failed/draft).
+
+STEP 1: BACKEND — GET /admin/finance/summary
+Create or update endpoint:
+GET /admin/finance/summary?range=all|year|month (default all)
+
+Response:
+{
+  turnover,
+  payoutsPaid,      // payouts where status IN ('paid','completed')
+  payoutsLocked,    // payouts where status IN ('pending','approved','processing')
+  payoutsCount,     // count of locked payouts
+  netProfit,        // turnover - payoutsPaid (MUST)
+  partnersBalance   // SUM of available balances across users using SAME logic as Balance widget (earnings - locked payouts), NOT profiles.balance
+}
+
+Rules:
+- turnover = SUM(order_amount) ONLY for final/paid orders.
+- Use paid/completed timestamp if exists (paid_at/completed_at), else created_at, for date range filtering.
+- payoutsPaid and payoutsLocked must be filtered by the SAME date range (use payouts.created_at).
+- netProfit must be strictly turnover - payoutsPaid.
+
+STEP 2: FRONTEND — Bind KPI cards to summary endpoint
+AdminFinance.tsx must use GET /admin/finance/summary.
+- "Общий оборот" = turnover
+- "Чистая прибыль" subtitle: "Оборот минус выплаты" and value = netProfit
+- "Выплаты" card:
+   main = payoutsPaid
+   secondary = payoutsLocked + payoutsCount (e.g. "ожидают: X заявок / Y ₽")
+
+STEP 3: FRONTEND — Beautify payout details
+In payouts table, render details nicely (details is JSONB object):
+- if details.type == 'crypto': "USDT (TRC20): TXy...abc" (truncate address middle)
+- if details.type == 'card': "Карта •••• 1234"
+- if details.raw exists: show raw
+- otherwise: safe fallback (e.g. "-")
+
+Acceptance:
+- Net Profit != Turnover when payoutsPaid > 0
+- payoutsLocked reduces available balances
+- details column never shows raw JSON blob
