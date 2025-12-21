@@ -171,6 +171,57 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
     return ops.slice(0, 50);
   }, [stats?.recentOperations, activeTab, searchTerm]);
 
+  // Helper: Format payout details for display
+  const formatPayoutDetails = (details: any, method?: string): string => {
+    if (!details) return 'Не указаны';
+    
+    // If details is a string, try to parse
+    if (typeof details === 'string') {
+      try {
+        details = JSON.parse(details);
+      } catch {
+        return details; // Return as-is if not JSON
+      }
+    }
+    
+    // Type: crypto
+    if (details.type === 'crypto' || method === 'USDT' || method === 'crypto') {
+      const network = details.network || 'TRC20';
+      const address = details.address || details.wallet || '';
+      const asset = details.asset || 'USDT';
+      if (address) {
+        const truncated = address.length > 12 
+          ? `${address.slice(0, 6)}...${address.slice(-4)}` 
+          : address;
+        return `${asset} (${network}): ${truncated}`;
+      }
+      return `${asset} ${network}`;
+    }
+    
+    // Type: card
+    if (details.type === 'card' || method === 'card' || method === 'bank') {
+      const last4 = details.card_last4 || details.cardLast4 || details.card || '';
+      if (last4) {
+        const digits = last4.replace(/\D/g, '').slice(-4);
+        return `Карта •••• ${digits || last4}`;
+      }
+    }
+    
+    // Has raw field (from migration)
+    if (details.raw) {
+      return details.raw;
+    }
+    
+    // Has details field (legacy nested)
+    if (details.details) {
+      return typeof details.details === 'string' ? details.details : JSON.stringify(details.details);
+    }
+    
+    // Fallback: show first meaningful value or "-"
+    const vals = Object.values(details).filter(v => v && typeof v !== 'object');
+    return vals.length > 0 ? String(vals[0]) : '-';
+  };
+
   const exportCSV = () => {
     if (!filteredOperations.length) return;
     const headers = ['Дата', 'Тип', 'Партнёр', 'Сумма', 'Описание'];
@@ -418,7 +469,7 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
                           </div>
                         </td>
                         <td className="py-4 px-5 text-sm text-slate-600 max-w-[200px] truncate">
-                          {typeof w.details === 'object' ? JSON.stringify(w.details) : w.details || 'Не указаны'}
+                          {formatPayoutDetails(w.details, w.method)}
                         </td>
                         <td className="py-4 px-5 text-right">
                           <span className="font-bold text-slate-900 tabular-nums">

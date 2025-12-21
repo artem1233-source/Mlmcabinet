@@ -4727,19 +4727,17 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
       }, 500);
     }
     
-    // Use RPC data ONLY - NO FALLBACKS
-    const usersBalanceTotal = rpcStats?.users_liability ?? 0;
-    const pendingPayoutsSum = rpcStats?.pending_payouts ?? 0;
-    const totalRevenue = rpcStats?.total_revenue ?? 0;
-    const totalEarnings = rpcStats?.total_earnings ?? 0;
-    const totalPaidOut = rpcStats?.total_paid_out ?? 0;
-    const totalOrders = rpcStats?.total_orders ?? 0;
-    const totalUsers = rpcStats?.total_users ?? 0;
+    // Use RPC data ONLY - CORRECT MATH from SQL
+    // RPC now returns: turnover, payouts_paid, payouts_locked, payouts_locked_count, net_profit, partners_balance
+    const totalRevenue = Number(rpcStats?.turnover ?? 0);
+    const payoutsPaid = Number(rpcStats?.payouts_paid ?? 0);
+    const payoutsLocked = Number(rpcStats?.payouts_locked ?? 0);
+    const payoutsLockedCount = Number(rpcStats?.payouts_locked_count ?? 0);
+    const netProfit = Number(rpcStats?.net_profit ?? 0); // turnover - payouts_paid (STRICT)
+    const partnersBalance = Number(rpcStats?.partners_balance ?? 0); // earnings - locked payouts
+    const totalEarnings = Number(rpcStats?.total_earnings ?? 0);
     
-    console.log(`📊 Parsed RPC values: revenue=${totalRevenue}, balance=${usersBalanceTotal}, pending=${pendingPayoutsSum}, paid=${totalPaidOut}`);
-    
-    // Net Profit - чистая прибыль компании
-    const netProfit = totalRevenue - totalEarnings;
+    console.log(`📊 Finance RPC: turnover=${totalRevenue}, paid=${payoutsPaid}, locked=${payoutsLocked}(${payoutsLockedCount}), netProfit=${netProfit}, partnersBalance=${partnersBalance}`);
     
     // Pending Payouts list (SQL) for display - NO JOIN to avoid RLS issues
     const { data: pendingPayoutsData, error: pendingError } = await supabase
@@ -4816,20 +4814,18 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
       }))
     ].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()).slice(0, 20);
     
-    console.log(`📊 Admin finance stats (RPC): revenue=${totalRevenue}, balance=${usersBalanceTotal}, pending=${pendingPayoutsSum}`);
+    console.log(`📊 Admin finance stats (RPC): turnover=${totalRevenue}, paid=${payoutsPaid}, locked=${payoutsLocked}, netProfit=${netProfit}`);
     
     return c.json({
       success: true,
       stats: {
-        totalRevenue,
-        usersBalanceTotal,
-        pendingPayoutsSum,
-        pendingPayoutsCount: pendingWithdrawals.length,
-        totalEarnings,
-        netProfit,
-        totalPaidOut,
-        totalOrders,
-        totalUsers
+        totalRevenue,                              // Оборот (turnover)
+        usersBalanceTotal: partnersBalance,        // Баланс партнёров (earnings - locked payouts)
+        pendingPayoutsSum: payoutsLocked,          // Ожидающие выплаты (pending/approved/processing)
+        pendingPayoutsCount: payoutsLockedCount,   // Количество ожидающих заявок
+        totalEarnings,                             // Всего начислено
+        netProfit,                                 // Чистая прибыль = turnover - paid
+        totalPaidOut: payoutsPaid                  // Выплачено (paid/completed)
       },
       pendingWithdrawals: pendingWithdrawals.map((p: any) => ({
         id: p.id,
