@@ -1,0 +1,53 @@
+@src/pages/AdminFinance.tsx @supabase/functions/make-server/index.ts @src/pages/Balance.tsx
+
+TASK: Fix Admin Payouts Filters + Sync User Balance UI with Backend (payouts as source of truth).
+
+CONTEXT:
+- payouts is canonical for withdrawals.
+- locked statuses must be consistent everywhere.
+- Admin card already shows locked_sum correctly, but the list shows "0 pending" due to wrong filter.
+- User Balance UI is outdated (still client-calculated or using old endpoint).
+
+DEFINE (single source of truth):
+Awaiting/Locked payout statuses = ('pending','approved','processing')
+Paid payout statuses = ('paid','completed')
+Non-blocking statuses = ('rejected','failed','canceled')
+
+PART A — BACKEND
+1) Locate the existing admin finance endpoint used by AdminFinance.tsx (it may be /admin/finance/stats or /admin/finance/summary).
+   Update that endpoint to return:
+   - payoutsAwaitingCount = count(*) where status in Awaiting
+   - payoutsLocked = sum(amount) where status in Awaiting
+   - payoutsPaid = sum(amount) where status in Paid
+   - turnover (sum of completed/paid orders) using correct orders amount column (inspect schema first)
+   - netProfit = turnover - payoutsPaid
+
+2) Add (or update) an endpoint for listing awaiting payouts for admin:
+   GET /admin/payouts?status=awaiting
+   It must return payouts where status in Awaiting, ordered by created_at desc.
+
+PART B — ADMIN UI (AdminFinance.tsx)
+1) Replace any local “pending-only” filter:
+   - Badge "заявок ожидают" must use payoutsAwaitingCount from backend.
+   - The payouts table must fetch GET /admin/payouts?status=awaiting (not pending-only).
+   - Empty state ONLY if payoutsAwaitingCount === 0.
+
+2) Keep "netProfit" meaning: turnover - payoutsPaid (cash method). Do NOT subtract locked.
+
+PART C — USER UI (Balance.tsx OR the real balance widget file)
+1) Find the component/page that shows user balance / available balance / withdraw button.
+   Replace client-side calculations with backend GET /balance only.
+   UI must show:
+   - totalEarned
+   - locked (sum of payouts in Awaiting + Paid if you treat paid as already deducted from available; keep consistent with backend)
+   - availableBalance
+
+2) Transaction history:
+   - User must see their payout requests with status (pending/approved/processing/paid/rejected).
+   - Implement GET /payouts/my (returns current user's payouts) OR reuse existing endpoint if present.
+   - Update the “История транзакций” table to include these payouts rows (and keep earnings rows too if needed).
+
+GOAL / ACCEPTANCE:
+- Admin: if payoutsLocked > 0, the awaiting payouts list must not be empty.
+- User: available balance and locked must match backend /balance and reflect awaiting payouts.
+- Both sides show the same statuses and amounts from payouts.

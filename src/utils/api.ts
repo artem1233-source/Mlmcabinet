@@ -266,6 +266,11 @@ export async function getWithdrawals() {
   return apiCall('/withdrawals');
 }
 
+// Get user balance (SINGLE SOURCE OF TRUTH from backend)
+export async function getBalance() {
+  return apiCall('/balance');
+}
+
 // ======================
 // PAYMENTS
 // ======================

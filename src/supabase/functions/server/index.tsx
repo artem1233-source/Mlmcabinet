@@ -4739,19 +4739,20 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
     
     console.log(`📊 Finance RPC: turnover=${totalRevenue}, paid=${payoutsPaid}, locked=${payoutsLocked}(${payoutsLockedCount}), netProfit=${netProfit}, partnersBalance=${partnersBalance}`);
     
-    // Pending Payouts list (SQL) for display - NO JOIN to avoid RLS issues
-    const { data: pendingPayoutsData, error: pendingError } = await supabase
+    // Awaiting Payouts list (SQL) - includes pending, approved, processing (BLOCKING statuses)
+    const AWAITING_STATUSES = ['pending', 'approved', 'processing'];
+    const { data: awaitingPayoutsData, error: awaitingError } = await supabase
       .from('payouts')
       .select('*')
-      .eq('status', 'pending')
+      .in('status', AWAITING_STATUSES)
       .order('created_at', { ascending: false });
     
-    if (pendingError) {
-      console.error(`❌ Pending payouts query error: ${pendingError.message}`);
+    if (awaitingError) {
+      console.error(`❌ Awaiting payouts query error: ${awaitingError.message}`);
     }
-    console.log(`📋 Pending payouts from SQL: ${pendingPayoutsData?.length || 0} items`);
+    console.log(`📋 Awaiting payouts from SQL: ${awaitingPayoutsData?.length || 0} items (statuses: ${AWAITING_STATUSES.join(',')})`);
     
-    const pendingWithdrawals = pendingPayoutsData || [];
+    const pendingWithdrawals = awaitingPayoutsData || [];
     
     // All payouts for history (SQL) - NO JOIN
     const { data: allPayoutsData, error: allPayoutsError } = await supabase
@@ -4852,21 +4853,35 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
   }
 });
 
-// Get all withdrawals (SQL payouts table)
+// Get all withdrawals (SQL payouts table) - supports ?status=awaiting|paid|all
 app.get("/make-server-05aa3c8a/admin/withdrawals", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    const { data: payouts, error: selectError } = await supabase
-      .from('payouts')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const statusFilter = c.req.query('status') || 'all';
+    
+    // Status groups
+    const AWAITING_STATUSES = ['pending', 'approved', 'processing'];
+    const PAID_STATUSES = ['paid', 'completed'];
+    
+    let query = supabase.from('payouts').select('*');
+    
+    if (statusFilter === 'awaiting') {
+      query = query.in('status', AWAITING_STATUSES);
+    } else if (statusFilter === 'paid') {
+      query = query.in('status', PAID_STATUSES);
+    }
+    // 'all' - no filter
+    
+    const { data: payouts, error: selectError } = await query.order('created_at', { ascending: false });
     
     if (selectError) {
       console.log(`Supabase select error: ${selectError.message}`);
       return c.json({ success: false, error: selectError.message, withdrawals: [] }, 500);
     }
+    
+    console.log(`📋 Admin withdrawals (filter=${statusFilter}): ${payouts?.length || 0} items`);
     
     const withdrawals = (payouts || []).map((p: any) => ({
       id: p.id,

@@ -30,6 +30,15 @@ export function BalanceRu({ currentUser, onRefresh, refreshTrigger }: BalanceRuP
   const [showWithdrawForm, setShowWithdrawForm] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
   
+  // 💰 Balance from backend (SINGLE SOURCE OF TRUTH)
+  const [balanceData, setBalanceData] = useState<{
+    totalEarned: number;
+    availableBalance: number;
+    blockedAmount: number;
+    pendingWithdrawals: number;
+    totalWithdrawn: number;
+  } | null>(null);
+  
   // Withdrawal form state
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawMethod, setWithdrawMethod] = useState('USDT');
@@ -57,10 +66,24 @@ export function BalanceRu({ currentUser, onRefresh, refreshTrigger }: BalanceRuP
         }
       }
 
-      const [withdrawalsData, earningsData] = await Promise.all([
+      // 💰 Load balance from backend (SINGLE SOURCE OF TRUTH)
+      const [balanceResult, withdrawalsData, earningsData] = await Promise.all([
+        api.getBalance().catch(() => ({ success: false })),
         api.getWithdrawals().catch(() => ({ success: false, withdrawals: [] })),
         api.getEarnings().catch(() => ({ success: false, earnings: [] }))
       ]);
+
+      // Use backend balance data
+      if (balanceResult.success) {
+        setBalanceData({
+          totalEarned: balanceResult.totalEarned || 0,
+          availableBalance: balanceResult.availableBalance || 0,
+          blockedAmount: balanceResult.blockedAmount || 0,
+          pendingWithdrawals: balanceResult.pendingWithdrawals || 0,
+          totalWithdrawn: balanceResult.totalWithdrawn || 0
+        });
+        console.log('💰 Balance from backend:', balanceResult);
+      }
 
       if (withdrawalsData.success) {
         setWithdrawals(withdrawalsData.withdrawals.sort((a: any, b: any) => 
@@ -104,7 +127,9 @@ export function BalanceRu({ currentUser, onRefresh, refreshTrigger }: BalanceRuP
       return;
     }
 
-    if (amount > currentUser.баланс) {
+    // 💰 Use backend balance for validation (SINGLE SOURCE OF TRUTH)
+    const availableAmount = balanceData?.availableBalance ?? currentUser?.баланс ?? 0;
+    if (amount > availableAmount) {
       toast.error('Недостаточно средств');
       return;
     }
@@ -152,10 +177,12 @@ export function BalanceRu({ currentUser, onRefresh, refreshTrigger }: BalanceRuP
     }
   };
 
-  const totalEarned = earnings.reduce((sum, e) => sum + (e.amount || e.сумма || 0), 0);
-  const totalWithdrawn = withdrawals
-    .filter(w => w.status === 'completed')
-    .reduce((sum, w) => sum + (w.amount || w.сумма || 0), 0);
+  // 💰 Use backend balance (SINGLE SOURCE OF TRUTH) - NO client-side calculations
+  const totalEarned = balanceData?.totalEarned ?? 0;
+  const totalWithdrawn = balanceData?.totalWithdrawn ?? 0;
+  const availableBalance = balanceData?.availableBalance ?? 0;
+  const blockedAmount = balanceData?.blockedAmount ?? 0;
+  const pendingWithdrawals = balanceData?.pendingWithdrawals ?? 0;
 
   if (loading) {
     return (
@@ -312,7 +339,7 @@ export function BalanceRu({ currentUser, onRefresh, refreshTrigger }: BalanceRuP
       </div>}
 
       {/* Balance Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-6 lg:mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-6 lg:mb-8">
         <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
           <CardContent className="p-6">
             <div className="flex items-center gap-3 mb-4">
@@ -320,14 +347,14 @@ export function BalanceRu({ currentUser, onRefresh, refreshTrigger }: BalanceRuP
                 <Wallet className="w-6 h-6 text-white" />
               </div>
               <div className="text-[#666]" style={{ fontSize: '14px', fontWeight: '600' }}>
-                Текущий баланс
+                Доступный баланс
               </div>
             </div>
             <div className="text-[#1E1E1E]" style={{ fontSize: '32px', fontWeight: '700' }}>
-              ₽{(currentUser.баланс || 0).toLocaleString('ru-RU')}
+              ₽{availableBalance.toLocaleString('ru-RU')}
             </div>
             <div className="text-[#666] mt-2" style={{ fontSize: '13px' }}>
-              Доступно к выводу
+              Можно вывести
             </div>
           </CardContent>
         </Card>
@@ -343,13 +370,34 @@ export function BalanceRu({ currentUser, onRefresh, refreshTrigger }: BalanceRuP
               </div>
             </div>
             <div className="text-[#1E1E1E]" style={{ fontSize: '32px', fontWeight: '700' }}>
-              ₽{(totalEarned || 0).toLocaleString('ru-RU')}
+              ₽{totalEarned.toLocaleString('ru-RU')}
             </div>
             <div className="text-[#666] mt-2" style={{ fontSize: '13px' }}>
               За всё время
             </div>
           </CardContent>
         </Card>
+
+        {pendingWithdrawals > 0 && (
+          <Card className="border-yellow-200 rounded-2xl shadow-sm bg-yellow-50">
+            <CardContent className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 bg-yellow-100 rounded-xl flex items-center justify-center">
+                  <Clock className="w-6 h-6 text-yellow-600" />
+                </div>
+                <div className="text-[#666]" style={{ fontSize: '14px', fontWeight: '600' }}>
+                  Ожидает выплаты
+                </div>
+              </div>
+              <div className="text-yellow-700" style={{ fontSize: '32px', fontWeight: '700' }}>
+                ₽{pendingWithdrawals.toLocaleString('ru-RU')}
+              </div>
+              <div className="text-yellow-600 mt-2" style={{ fontSize: '13px' }}>
+                Заблокировано
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-white">
           <CardContent className="p-6">
@@ -362,7 +410,7 @@ export function BalanceRu({ currentUser, onRefresh, refreshTrigger }: BalanceRuP
               </div>
             </div>
             <div className="text-[#1E1E1E]" style={{ fontSize: '32px', fontWeight: '700' }}>
-              ₽{(totalWithdrawn || 0).toLocaleString('ru-RU')}
+              ₽{totalWithdrawn.toLocaleString('ru-RU')}
             </div>
             <div className="text-[#666] mt-2" style={{ fontSize: '13px' }}>
               Успешно выплачено
@@ -386,13 +434,13 @@ export function BalanceRu({ currentUser, onRefresh, refreshTrigger }: BalanceRuP
             </p>
             <Button
               onClick={() => setShowWithdrawForm(true)}
-              disabled={currentUser.баланс < 1000}
+              disabled={availableBalance < 1000}
               className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] hover:opacity-90 text-white px-8"
             >
               <ArrowDownToLine size={18} className="mr-2" />
               Создать заявку на вывод
             </Button>
-            {currentUser.баланс < 1000 && (
+            {availableBalance < 1000 && (
               <p className="text-orange-600 mt-3" style={{ fontSize: '13px' }}>
                 Недостаточно средств для вывода
               </p>
