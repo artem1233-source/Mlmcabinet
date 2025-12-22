@@ -1,0 +1,52 @@
+@src/pages/AdminUsers.tsx @supabase/functions/make-server/index.ts
+
+TASK: Fix Admin "Users" tab (SEO Mismatch) via Ledger Logic, Route Unification, and Legacy Data Elimination.
+
+DIAGNOSIS:
+The "Users" tab shows ~264,700 RUB (legacy static data) instead of the correct ~3,500 RUB (dynamic ledger data).
+SEO user sees old data likely due to alternate routing or caching.
+
+=== PART 1: CODEBASE UNIFICATION & CLEANUP ===
+
+1.  **Route & Component Unification (CRITICAL):**
+    * Check if SEO/Managers use a different component (e.g., `AdminUsersSeo.tsx`) or a different route.
+    * **UNIFY:** All roles (Admin, SEO, Manager) MUST use the exact same `AdminUsers` component and the same `GET /admin/users/paginated` endpoint.
+    * Remove/Deprecate any alternate "lightweight" user lists.
+
+2.  **Kill Legacy Endpoints:**
+    * Identify old endpoints (e.g., `/admin/users/list`).
+    * Make them return `410 Gone` or proxy to the new ledger endpoint.
+
+3.  **Response Hygiene:**
+    * In `GET /admin/users/paginated`:
+        * **REMOVE** `balance` from the response object.
+        * **ADD** `real_balance` (calculated from ledger).
+        * **ADD** `legacy_balance_do_not_use` (mapped from old profile column, just for debug).
+
+=== PART 2: LEDGER LOGIC (The Only Truth) ===
+
+1.  **Calculation:**
+    * `real_balance` = `earned_sum` - `locked_sum` - `paid_sum`.
+    * `locked_sum` = Payouts IN ('pending','approved','processing').
+    * `paid_sum` = Payouts IN ('paid','completed').
+    * *Do NOT rely on 'NOT IN'. Use explicit IN lists.*
+
+2.  **Performance & Indexes (SQL):**
+    * Ensure indexes exist on:
+        * `earnings(user_id)`
+        * `payouts(user_id)`
+        * `payouts(status)`
+    * Use CTEs/Subqueries for aggregation to avoid N+1 query performance issues.
+
+=== PART 3: FRONTEND SAFETY ===
+
+1.  **Type Safety:**
+    * Update TypeScript interface: Remove `balance`. Add `real_balance`.
+    * Bind table columns ONLY to `real_balance`.
+
+2.  **Telemetry:**
+    * Show `v<BuildID>` in the footer.
+    * Add `Cache-Control: no-store` headers to the endpoint.
+
+GOAL:
+Total Balance drops to ~3.5k RUB for ALL users. No legacy columns used. No alternate routes for SEO.
