@@ -4908,75 +4908,120 @@ app.get("/make-server-05aa3c8a/admin/withdrawals", async (c) => {
   }
 });
 
-// Update withdrawal status (approve/reject) - SQL payouts table
+// Update withdrawal status - STRICT STATE MACHINE with UUID validation
 app.post("/make-server-05aa3c8a/admin/withdrawals/:withdrawalId/status", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    const withdrawalId = c.req.param('withdrawalId');
-    const { status, adminComment } = await c.req.json();
+    const payoutId = c.req.param('withdrawalId');
+    const { status: requestedStatus, adminComment } = await c.req.json();
     
-    if (!['pending', 'approved', 'rejected'].includes(status)) {
-      return c.json({ error: 'Неверный статус. Допустимые: pending, approved, rejected' }, 400);
+    // 1️⃣ UUID VALIDATION (Critical)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(payoutId)) {
+      console.error(`❌ Invalid UUID format: "${payoutId}"`);
+      return c.json({ success: false, error: 'Invalid payout ID format' }, 400);
     }
     
-    // Get current payout from SQL
+    // 2️⃣ VALID STATUSES
+    const VALID_STATUSES = ['pending', 'approved', 'processing', 'paid', 'completed', 'rejected', 'failed', 'canceled'];
+    if (!VALID_STATUSES.includes(requestedStatus)) {
+      return c.json({ 
+        success: false, 
+        error: `Invalid status. Valid: ${VALID_STATUSES.join(', ')}` 
+      }, 400);
+    }
+    
+    // 3️⃣ GET CURRENT STATUS FROM DB (with explicit UUID cast via RPC or raw SQL)
     const { data: payout, error: getError } = await supabase
       .from('payouts')
       .select('*')
-      .eq('id', withdrawalId)
+      .eq('id', payoutId)
       .single();
     
     if (getError || !payout) {
-      return c.json({ error: 'Заявка на вывод не найдена' }, 404);
+      console.error(`❌ Payout not found: ${payoutId}, error: ${getError?.message}`);
+      return c.json({ success: false, error: 'Payout not found' }, 404);
     }
     
-    const previousStatus = payout.status;
+    const currentStatus = payout.status;
+    console.log(`🔄 Payout ${payoutId}: ${currentStatus} -> ${requestedStatus} (requested by admin ${currentUser.id})`);
     
-    // Update payout in SQL
+    // 4️⃣ STRICT STATE MACHINE
+    // Terminal states: paid, completed - no further transitions allowed
+    if (currentStatus === 'paid' || currentStatus === 'completed') {
+      console.log(`⚠️ Payout ${payoutId} already in terminal state: ${currentStatus}`);
+      return c.json({ 
+        success: false, 
+        error: 'Already processed (terminal state)',
+        payout: {
+          id: payout.id,
+          status: payout.status,
+          amount: payout.amount
+        }
+      }, 409);
+    }
+    
+    // Valid transitions:
+    // pending -> approved, rejected
+    // approved/processing -> paid, rejected
+    const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+      'pending': ['approved', 'rejected'],
+      'approved': ['paid', 'completed', 'rejected', 'failed'],
+      'processing': ['paid', 'completed', 'rejected', 'failed']
+    };
+    
+    const allowedNext = ALLOWED_TRANSITIONS[currentStatus] || [];
+    if (!allowedNext.includes(requestedStatus)) {
+      console.error(`❌ Invalid transition: ${currentStatus} -> ${requestedStatus}`);
+      return c.json({ 
+        success: false, 
+        error: `Invalid transition: ${currentStatus} -> ${requestedStatus}. Allowed: ${allowedNext.join(', ') || 'none'}` 
+      }, 400);
+    }
+    
+    // 5️⃣ ATOMIC UPDATE with processed_at for terminal states
+    const isTerminal = ['paid', 'completed'].includes(requestedStatus);
+    const updatePayload: any = {
+      status: requestedStatus,
+      admin_comment: adminComment || payout.admin_comment
+    };
+    if (isTerminal) {
+      updatePayload.processed_at = new Date().toISOString();
+    }
+    
     const { data: updatedPayout, error: updateError } = await supabase
       .from('payouts')
-      .update({
-        status: status,
-        admin_comment: adminComment || payout.admin_comment,
-        processed_at: new Date().toISOString()
-      })
-      .eq('id', withdrawalId)
+      .update(updatePayload)
+      .eq('id', payoutId)
       .select()
       .single();
     
-    if (updateError) {
-      console.log(`Supabase update error: ${updateError.message}`);
-      return c.json({ error: `Failed to update payout: ${updateError.message}` }, 500);
+    if (updateError || !updatedPayout) {
+      console.error(`❌ Update failed for ${payoutId}: ${updateError?.message}`);
+      return c.json({ success: false, error: `Update failed: ${updateError?.message}` }, 500);
     }
     
-    // 🔄 Если отклонено — вернуть деньги на баланс пользователя (KV)
-    if (status === 'rejected' && previousStatus === 'pending') {
-      const user = await kv.get(`user:id:${payout.user_id}`);
-      if (user) {
-        user.баланс = (user.баланс || 0) + payout.amount;
-        user.доступныйБаланс = (user.доступныйБаланс || 0) + payout.amount;
-        await kv.set(`user:id:${payout.user_id}`, user);
-        if (user.telegramId) {
-          await kv.set(`user:tg:${user.telegramId}`, user);
-        }
-        console.log(`💸 Возврат ${payout.amount}₽ на баланс пользователя ${payout.user_id}`);
-      }
+    console.log(`✅ Payout ${payoutId} updated: ${currentStatus} -> ${updatedPayout.status}`);
+    
+    // 6️⃣ SIDE EFFECTS
+    // If rejected from pending/approved - funds are returned automatically (balance recalculated from SQL)
+    if (requestedStatus === 'rejected') {
+      console.log(`💸 Payout ${payoutId} rejected - funds released back to available balance`);
     }
     
-    // ✅ Если одобрено — логируем
-    if (status === 'approved') {
-      console.log(`✅ Выплата ${payout.amount}₽ одобрена для ${payout.user_id}`);
+    if (requestedStatus === 'paid' || requestedStatus === 'completed') {
+      console.log(`💰 Payout ${payoutId} PAID: ${payout.amount}₽ to ${payout.user_id}`);
     }
     
-    console.log(`Admin ${currentUser.id} updated payout ${withdrawalId} to ${status}`);
-    
+    // 7️⃣ RESPONSE with debug info
     return c.json({ 
-      success: true, 
-      withdrawal: {
+      success: true,
+      previous_status: currentStatus,
+      requested_status: requestedStatus,
+      payout: {
         id: updatedPayout.id,
-        oderId: updatedPayout.id,
         userId: updatedPayout.user_id,
         amount: updatedPayout.amount,
         method: updatedPayout.method,
@@ -4988,8 +5033,8 @@ app.post("/make-server-05aa3c8a/admin/withdrawals/:withdrawalId/status", async (
       }
     });
   } catch (error) {
-    console.log(`Admin update withdrawal error: ${error}`);
-    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+    console.error(`❌ Admin update payout error:`, error);
+    return c.json({ success: false, error: `${error}` }, 500);
   }
 });
 

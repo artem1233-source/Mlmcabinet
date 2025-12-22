@@ -111,14 +111,67 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
     return `${day} ${months[d.getMonth()]}`;
   };
 
+  // Step 1: pending -> approved
   const handleApprove = async (withdrawalId: string) => {
     if (processingId) return;
     setProcessingId(withdrawalId);
     try {
-      await api.updateWithdrawalStatus(withdrawalId, 'approved');
-      await loadStats();
-    } catch (error) {
+      const result = await api.updateWithdrawalStatus(withdrawalId, 'approved');
+      if (result.success && result.payout) {
+        // Optimistic UI: update local state immediately
+        setStats(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            pendingWithdrawals: prev.pendingWithdrawals.map(w => 
+              w.id === withdrawalId ? { ...w, status: result.payout.status } : w
+            )
+          };
+        });
+        console.log(`✅ Approved: ${withdrawalId} -> ${result.payout.status}`);
+      } else {
+        console.error('Approve failed:', result.error);
+        // Show error toast
+        alert(result.error || 'Ошибка одобрения');
+      }
+    } catch (error: any) {
       console.error('Failed to approve:', error);
+      alert(error.message || 'Ошибка сети');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  // Step 2: approved -> paid (with confirmation)
+  const handlePay = async (withdrawalId: string, amount: number) => {
+    if (processingId) return;
+    
+    // Confirmation dialog
+    const confirmed = window.confirm(`Подтвердить выплату ₽${amount.toLocaleString('ru-RU')}?`);
+    if (!confirmed) return;
+    
+    setProcessingId(withdrawalId);
+    try {
+      const result = await api.updateWithdrawalStatus(withdrawalId, 'paid');
+      if (result.success && result.payout) {
+        // Optimistic UI: REMOVE from awaiting list
+        setStats(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            pendingWithdrawals: prev.pendingWithdrawals.filter(w => w.id !== withdrawalId),
+            totalPaidOut: (prev.totalPaidOut || 0) + amount,
+            pendingPayoutsSum: Math.max(0, (prev.pendingPayoutsSum || 0) - amount)
+          };
+        });
+        console.log(`💰 Paid: ${withdrawalId} (${amount}₽)`);
+      } else {
+        console.error('Pay failed:', result.error);
+        alert(result.error || 'Ошибка выплаты');
+      }
+    } catch (error: any) {
+      console.error('Failed to pay:', error);
+      alert(error.message || 'Ошибка сети');
     } finally {
       setProcessingId(null);
     }
@@ -126,12 +179,30 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
 
   const handleReject = async (withdrawalId: string) => {
     if (processingId) return;
+    
+    const confirmed = window.confirm('Отклонить заявку? Средства вернутся на баланс партнёра.');
+    if (!confirmed) return;
+    
     setProcessingId(withdrawalId);
     try {
-      await api.updateWithdrawalStatus(withdrawalId, 'rejected');
-      await loadStats();
-    } catch (error) {
+      const result = await api.updateWithdrawalStatus(withdrawalId, 'rejected');
+      if (result.success) {
+        // Remove from list
+        setStats(prev => {
+          if (!prev) return prev;
+          const rejectedAmount = prev.pendingWithdrawals.find(w => w.id === withdrawalId)?.amount || 0;
+          return {
+            ...prev,
+            pendingWithdrawals: prev.pendingWithdrawals.filter(w => w.id !== withdrawalId),
+            pendingPayoutsSum: Math.max(0, (prev.pendingPayoutsSum || 0) - rejectedAmount)
+          };
+        });
+      } else {
+        alert(result.error || 'Ошибка отклонения');
+      }
+    } catch (error: any) {
       console.error('Failed to reject:', error);
+      alert(error.message || 'Ошибка сети');
     } finally {
       setProcessingId(null);
     }
@@ -437,10 +508,10 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
                 <Button 
                   onClick={handleBulkApprove}
                   disabled={processingId === 'bulk'}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
+                  className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
                 >
                   <CheckCheck className="w-4 h-4" />
-                  Оплатить все ({pendingCount})
+                  Одобрить все ({stats?.pendingWithdrawals?.filter(w => w.status === 'pending').length || 0})
                 </Button>
               </div>
               <div className="overflow-x-auto">
@@ -450,6 +521,7 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
                       <th className="text-left py-3 px-5 font-medium">Партнёр</th>
                       <th className="text-left py-3 px-5 font-medium">Реквизиты</th>
                       <th className="text-right py-3 px-5 font-medium">Сумма</th>
+                      <th className="text-center py-3 px-5 font-medium">Статус</th>
                       <th className="text-left py-3 px-5 font-medium">Дата</th>
                       <th className="text-right py-3 px-5 font-medium min-w-[200px]">Действия</th>
                     </tr>
@@ -476,31 +548,80 @@ export function AdminFinanceRu({ currentUser: _currentUser }: AdminFinanceRuProp
                             ₽{(w.amount || 0).toLocaleString()}
                           </span>
                         </td>
+                        <td className="py-4 px-5 text-center">
+                          <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full ${
+                            w.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                            w.status === 'approved' || w.status === 'processing' ? 'bg-blue-100 text-blue-700' :
+                            w.status === 'paid' || w.status === 'completed' ? 'bg-green-100 text-green-700' :
+                            'bg-red-100 text-red-700'
+                          }`}>
+                            {w.status === 'pending' ? '⏳ Ожидает' :
+                             w.status === 'approved' ? '✓ Одобрено' :
+                             w.status === 'processing' ? '⏳ В процессе' :
+                             w.status === 'paid' || w.status === 'completed' ? '✅ Выплачено' :
+                             '✗ Отклонено'}
+                          </span>
+                        </td>
                         <td className="py-4 px-5 text-sm text-slate-500">
                           {w.createdAt?.split('T')[0] || '-'}
                         </td>
                         <td className="py-4 px-5 min-w-[200px]">
                           <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => handleApprove(w.id)}
-                              disabled={!!processingId}
-                              type="button"
-                              className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md text-white disabled:opacity-50"
-                              style={{ backgroundColor: '#10b981', minWidth: '90px' }}
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              Выплатить
-                            </button>
-                            <button
-                              onClick={() => handleReject(w.id)}
-                              disabled={!!processingId}
-                              type="button"
-                              className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md disabled:opacity-50"
-                              style={{ backgroundColor: 'white', color: '#dc2626', border: '1px solid #fecaca', minWidth: '90px' }}
-                            >
-                              <XCircle className="w-3.5 h-3.5" />
-                              Отказать
-                            </button>
+                            {/* 2-Step Workflow: pending -> approved -> paid */}
+                            {w.status === 'pending' && (
+                              <>
+                                <button
+                                  onClick={() => handleApprove(w.id)}
+                                  disabled={!!processingId}
+                                  type="button"
+                                  className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md text-white disabled:opacity-50"
+                                  style={{ backgroundColor: '#3b82f6', minWidth: '90px' }}
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  Одобрить
+                                </button>
+                                <button
+                                  onClick={() => handleReject(w.id)}
+                                  disabled={!!processingId}
+                                  type="button"
+                                  className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md disabled:opacity-50"
+                                  style={{ backgroundColor: 'white', color: '#dc2626', border: '1px solid #fecaca', minWidth: '90px' }}
+                                >
+                                  <XCircle className="w-3.5 h-3.5" />
+                                  Отказать
+                                </button>
+                              </>
+                            )}
+                            {(w.status === 'approved' || w.status === 'processing') && (
+                              <>
+                                <button
+                                  onClick={() => handlePay(w.id, w.amount || 0)}
+                                  disabled={!!processingId}
+                                  type="button"
+                                  className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md text-white disabled:opacity-50"
+                                  style={{ backgroundColor: '#10b981', minWidth: '90px' }}
+                                >
+                                  <Landmark className="w-3.5 h-3.5" />
+                                  Перевести
+                                </button>
+                                <button
+                                  onClick={() => handleReject(w.id)}
+                                  disabled={!!processingId}
+                                  type="button"
+                                  className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md disabled:opacity-50"
+                                  style={{ backgroundColor: 'white', color: '#dc2626', border: '1px solid #fecaca', minWidth: '90px' }}
+                                >
+                                  <XCircle className="w-3.5 h-3.5" />
+                                  Отказать
+                                </button>
+                              </>
+                            )}
+                            {(w.status === 'paid' || w.status === 'completed') && (
+                              <span className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-green-700 bg-green-100 rounded-md">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                Выплачено
+                              </span>
+                            )}
                           </div>
                         </td>
                       </tr>

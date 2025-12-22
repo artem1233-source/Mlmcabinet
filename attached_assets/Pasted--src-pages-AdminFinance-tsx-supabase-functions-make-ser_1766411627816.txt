@@ -1,0 +1,55 @@
+@src/pages/AdminFinance.tsx @supabase/functions/make-server/index.ts
+
+TASK: Fix "Groundhog Day" Payout Bug via Robust 2-Step Workflow & Strict Server Validation.
+
+CONTEXT:
+Currently, the UI sends a request, gets 200 OK, but the status often remains "approved" instead of moving to "paid".
+We need to enforce a strict State Machine on the backend and a clear 2-step UI on the frontend.
+DATABASE INTEGRITY IS PARAMOUNT: DO NOT DELETE DATA. Fix the code logic.
+
+=== PART 1: BACKEND (The Guard) ===
+Update `POST /admin/withdrawals/:id/status`:
+
+1.  **Input Validation (CRITICAL UUID CHECK):**
+    * `payoutId` matches valid UUID format. If not -> return 400 "Invalid payout ID format".
+    * Log `payoutId`, `current_status` (fetch from DB first), and `requested_status`.
+
+2.  **Authorization:** Strictly verify admin role (403 if not).
+
+3.  **Strict State Machine (Validation):**
+    * `pending` -> `approved` (OK)
+    * `approved` OR `processing` -> `paid` (OK)
+    * `paid` OR `completed` -> Any status (IDEMPOTENT / TERMINAL: Return 409 "Already processed")
+    * Any other transition -> 400 "Invalid transition".
+    * *Treat 'completed' exactly like 'paid' (terminal success state).*
+
+4.  **Atomic Update (HARDENING):**
+    * Target EXACTLY the table `public.payouts`.
+    * SQL: `UPDATE public.payouts SET status=$1, processed_at=(CASE WHEN $1 IN ('paid','completed') THEN now() ELSE processed_at END) WHERE id=$2::uuid RETURNING *;`
+    * **Note the `::uuid` cast.** This prevents silent failures.
+    * **Check Result:** If the UPDATE returns 0 rows -> Respond **404 Not Found**.
+
+5.  **Response:**
+    * Return debug info: `{ success: true, payout: <updated_row>, previous_status: <...>, requested_status: <...> }`.
+
+=== PART 2: FRONTEND (The Interface) ===
+Update `AdminFinance.tsx` Payouts Table "Actions" column:
+
+1.  **Logic:**
+    * **IF status == 'pending':**
+        * Btn: "Одобрить" (Blue/Primary).
+        * Click -> API `{ status: 'approved' }`.
+    * **IF status == 'approved' (or 'processing'):**
+        * Btn: "Перевести" (Green/Success).
+        * Click -> Confirm Dialog -> API `{ status: 'paid' }`.
+    * **IF status == 'paid' (or 'completed'):**
+        * Text: "✅ Выплачено" (No buttons).
+
+2.  **Optimistic UI & Handling:**
+    * On API Success: Update the local list state IMMEDIATELY using the `payout` object returned by the server.
+    * **Crucial:** If the new status is 'paid'/'completed', REMOVE the row from the "Awaiting" list.
+    * On API Error (409/400/404): Show the error message in a Toast.
+
+GOAL:
+1. Admin clicks "Одобрить" -> Badge turns Approved.
+2. Admin clicks "Перевести" -> Server casts UUID, validates transition -> Row DISAPPEARS. Total Paid increases.
