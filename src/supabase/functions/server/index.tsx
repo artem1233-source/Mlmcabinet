@@ -4909,6 +4909,15 @@ app.get("/make-server-05aa3c8a/admin/withdrawals", async (c) => {
 });
 
 // Update withdrawal status - STRICT STATE MACHINE with UUID validation
+// 
+// TIMESTAMP SEMANTICS:
+// - processed_at = cashflow date (when money left the system)
+// - ONLY set when status becomes 'paid' or 'completed'
+// - All other statuses have processed_at = NULL
+//
+// MANUAL SQL CLEANUP REQUIRED (run once after deployment):
+//   UPDATE public.payouts SET processed_at = NULL WHERE status NOT IN ('paid','completed');
+//
 app.post("/make-server-05aa3c8a/admin/withdrawals/:withdrawalId/status", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
@@ -4981,26 +4990,57 @@ app.post("/make-server-05aa3c8a/admin/withdrawals/:withdrawalId/status", async (
       }, 400);
     }
     
-    // 5️⃣ ATOMIC UPDATE with processed_at for terminal states
-    const isTerminal = ['paid', 'completed'].includes(requestedStatus);
-    const updatePayload: any = {
-      status: requestedStatus,
-      admin_comment: adminComment || payout.admin_comment
-    };
-    if (isTerminal) {
-      updatePayload.processed_at = new Date().toISOString();
+    // 5️⃣ ATOMIC UPDATE with processed_at semantics:
+    // - paid/completed: processed_at = now() (cashflow date)
+    // - any other status: processed_at = NULL
+    // Uses raw SQL with UUID cast for atomicity
+    const finalComment = adminComment || payout.admin_comment || null;
+    
+    const { data: updateResult, error: updateError } = await supabase.rpc('exec_sql', {
+      query: `
+        UPDATE public.payouts
+        SET status = $1,
+            admin_comment = $2,
+            processed_at = CASE WHEN $1 IN ('paid','completed') THEN now() ELSE NULL END
+        WHERE id = $3::uuid
+        RETURNING *;
+      `,
+      params: [requestedStatus, finalComment, payoutId]
+    });
+    
+    // Fallback to Supabase client if RPC doesn't exist
+    let updatedPayout: any = null;
+    if (updateError?.message?.includes('function') || updateError?.code === '42883') {
+      // RPC not available, use regular update with explicit NULL
+      const updatePayload: any = {
+        status: requestedStatus,
+        admin_comment: finalComment,
+        processed_at: ['paid', 'completed'].includes(requestedStatus) ? new Date().toISOString() : null
+      };
+      
+      const { data, error } = await supabase
+        .from('payouts')
+        .update(updatePayload)
+        .eq('id', payoutId)
+        .select()
+        .single();
+      
+      if (error) {
+        console.error(`❌ Update failed for ${payoutId}: ${error.message}`);
+        return c.json({ success: false, error: `Update failed: ${error.message}` }, 500);
+      }
+      updatedPayout = data;
+    } else if (updateError) {
+      console.error(`❌ Update failed for ${payoutId}: ${updateError.message}`);
+      return c.json({ success: false, error: `Update failed: ${updateError.message}` }, 500);
+    } else {
+      updatedPayout = updateResult?.[0] || null;
     }
     
-    const { data: updatedPayout, error: updateError } = await supabase
-      .from('payouts')
-      .update(updatePayload)
-      .eq('id', payoutId)
-      .select()
-      .single();
-    
-    if (updateError || !updatedPayout) {
-      console.error(`❌ Update failed for ${payoutId}: ${updateError?.message}`);
-      return c.json({ success: false, error: `Update failed: ${updateError?.message}` }, 500);
+    // 404 if no rows updated (should not happen after SELECT check, but defensive)
+    if (!updatedPayout) {
+      console.error(`❌ Payout ${payoutId} not found during update`);
+      return c.json({ success: false, error: 'Payout not found' }, 404);
     }
     
     console.log(`✅ Payout ${payoutId} updated: ${currentStatus} -> ${updatedPayout.status}`);
