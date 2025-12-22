@@ -140,6 +140,30 @@ Compact, non-intrusive shopping experience:
 - API endpoints: `/admin/withdrawals`, `/admin/withdrawals/:id/status`
 - Status can be: pending, approved, rejected
 
+## Balance System (December 22, 2025)
+
+### Ledger-Based Balance (Single Source of Truth)
+
+Partner balances are calculated from SQL ledger tables, NOT from legacy `profiles.balance` or `u.баланс`:
+
+**Data source:**
+- `get_admin_finance_stats` RPC → `partners_balance` = SUM(earnings) - locked_payouts
+- This is the single source of truth for all balance displays
+
+**Where used:**
+- Admin Users tab (`/users/optimized`) → stats.totalBalance
+- Admin Finance tab → same RPC
+- StatsWidgets → displays stats.totalBalance
+
+**Key changes (December 22):**
+- Disabled page caching in `/users/optimized` to prevent stale data
+- Added `Cache-Control: no-store` headers
+- totalBalance now comes from SQL ledger RPC, not legacy sum
+
+**Per-user sorting:**
+- Uses legacy `u.баланс` as proxy (N queries for real_balance too slow)
+- The aggregate totalBalance stat is correct from ledger
+
 ## Deployment Notes (December 6, 2025)
 
 ### Edge Functions Deployment
