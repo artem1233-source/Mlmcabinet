@@ -4551,6 +4551,21 @@ app.get("/make-server-05aa3c8a/admin/users/paginated", async (c) => {
     // Passive users = didn't make purchases this month
     const passiveUsersCount = partners.filter((u: any) => !activeUserBuyersIds.has(u.id)).length;
     
+    // 📊 Get ledger-based total balance from SQL (NOT profiles.balance)
+    // available = SUM(earnings) - SUM(payouts where status IN pending/approved/processing/paid/completed)
+    let ledgerTotalBalance = 0;
+    try {
+      const { data: ledgerData, error: ledgerError } = await supabase.rpc('get_admin_finance_stats');
+      if (!ledgerError && ledgerData) {
+        // partners_balance = total_earnings - payouts_locked (pending+approved+processing)
+        // This is the sum of all partners' available balances
+        ledgerTotalBalance = Number(ledgerData.partners_balance ?? 0);
+        console.log(`📊 Ledger-based total balance: ${ledgerTotalBalance}`);
+      }
+    } catch (e) {
+      console.error('Error getting ledger balance:', e);
+    }
+    
     const stats = {
       totalUsers: userArray.length,
       newToday: userArray.filter((u: any) => {
@@ -4566,7 +4581,7 @@ app.get("/make-server-05aa3c8a/admin/users/paginated", async (c) => {
       activeUsers: activeUsersCount,
       passiveUsers: passiveUsersCount,
       withTeam: userArray.filter((u: any) => (u.команда?.length || 0) > 0).length,
-      totalBalance: userArray.reduce((sum: number, u: any) => sum + (u.баланс || 0), 0),
+      totalBalance: ledgerTotalBalance, // 🔥 Ledger-based, NOT profiles.balance sum
       orphans: userArray.filter((u: any) => !u.спонсорId || u.спонсорId === '').length
     };
     
