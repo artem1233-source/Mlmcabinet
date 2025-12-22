@@ -9975,8 +9975,14 @@ app.post("/make-server-05aa3c8a/admin/recalculate-ranks", async (c) => {
 /**
  * 🚀 Оптимизированная загрузка пользователей с кэшированными метриками
  * Используется новым компонентом UsersManagementOptimized
+ * 
+ * ВАЖНО: totalBalance берётся из SQL ledger (get_admin_finance_stats RPC)
+ * а НЕ из profiles.balance или u.баланс (legacy)
  */
 app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
+  // 🔥 Cache-Control: no-store для предотвращения устаревших данных
+  c.header('Cache-Control', 'no-store, no-cache, must-revalidate');
+  
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
@@ -9988,19 +9994,26 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
     const sortOrder = c.req.query('sortOrder') || 'desc';
     const statsFilter = c.req.query('statsFilter') || ''; // 🆕 Фильтр из виджетов
 
-    // Проверяем кэш страницы (включая statsFilter)
-    const cacheKey = `users_page:${page}:${limit}:${search}:${sortBy}:${sortOrder}:${statsFilter}`;
-    const cached = await kv.get(cacheKey);
-    
-    if (cached && cached.timestamp) {
-      const cacheAge = Date.now() - new Date(cached.timestamp).getTime();
-      if (cacheAge < 5 * 60 * 1000) { // 5 минут
-        console.log(`✅ Cache hit for page ${page}`);
-        return c.json(cached.data);
-      }
-    }
+    // 🔥 DISABLED: Page caching causes stale data for SEO users
+    // const cacheKey = `users_page:${page}:${limit}:${search}:${sortBy}:${sortOrder}:${statsFilter}`;
+    // Cache disabled - always fetch fresh data
 
     console.log(`📊 Loading optimized users page ${page} with statsFilter: ${statsFilter}...`);
+    
+    // 📊 Get ledger-based total balance from SQL (NOT profiles.balance)
+    // This is the SINGLE SOURCE OF TRUTH for partner balances
+    let ledgerTotalBalance = 0;
+    try {
+      const { data: ledgerData, error: ledgerError } = await supabase.rpc('get_admin_finance_stats');
+      if (!ledgerError && ledgerData) {
+        ledgerTotalBalance = Number(ledgerData.partners_balance ?? 0);
+        console.log(`📊 Ledger totalBalance from SQL: ${ledgerTotalBalance}₽`);
+      } else {
+        console.warn(`⚠️ Could not get ledger balance: ${ledgerError?.message}`);
+      }
+    } catch (e) {
+      console.error('Error getting ledger balance:', e);
+    }
 
     // 🎯 КРИТИЧЕСКАЯ ОПТИМИЗАЦИЯ #1: Кэш списка всех пользователей (2 минуты)
     const ALL_USERS_CACHE_KEY = 'cache:all_users_list';
@@ -10139,7 +10152,9 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
             break;
             
           case 'totalBalance':
-            // От большего баланса к меньшему
+            // 🔥 NOTE: Per-user balance sorting uses legacy u.баланс as proxy
+            // The aggregate totalBalance stat comes from SQL ledger
+            // Per-user real_balance would require N queries - too slow
             filteredUsers.sort((a: any, b: any) => (b.баланс || 0) - (a.баланс || 0));
             break;
             
@@ -10270,10 +10285,10 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
         passivePartners,
         activeUsers: users.filter((u: any) => activeUserIdsSet.has(u.id)).length,
         passiveUsers: users.filter((u: any) => !activeUserIdsSet.has(u.id)).length,
-        totalBalance: users.reduce((sum: number, u: any) => sum + (u.баланс || 0), 0),
+        totalBalance: ledgerTotalBalance, // 🔥 FROM SQL LEDGER, not legacy u.баланс
       };
       
-      console.log(`⚡ ULTRA-FAST path: ${paginatedUsers.length} users (page ${page}/${totalPages}) - NO METRICS LOADED`);
+      console.log(`⚡ ULTRA-FAST path: ${paginatedUsers.length} users, totalBalance=${ledgerTotalBalance}₽ (LEDGER)`);
       
       return c.json({
         success: true,
@@ -10359,7 +10374,7 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
       passivePartners,
       activeUsers: users.filter((u: any) => activeUserIdsSet.has(u.id)).length,
       passiveUsers: users.filter((u: any) => !activeUserIdsSet.has(u.id)).length,
-      totalBalance: users.reduce((sum: number, u: any) => sum + (u.баланс || 0), 0),
+      totalBalance: ledgerTotalBalance, // 🔥 FROM SQL LEDGER, not legacy u.баланс
     };
 
     const result = {
@@ -10369,7 +10384,7 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
       stats
     };
 
-    console.log(`✅ Loaded ${paginatedUsers.length} users (page ${page}/${totalPages})`);
+    console.log(`✅ Loaded ${paginatedUsers.length} users, totalBalance=${ledgerTotalBalance}₽ (LEDGER)`);
 
     return c.json(result);
   } catch (error) {

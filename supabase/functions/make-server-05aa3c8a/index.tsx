@@ -200,6 +200,78 @@ function isUserAdmin(user: any): boolean {
          user?.id === '1';
 }
 
+// 💰 WITHDRAWAL STATUS MODEL (explicit):
+// - pending: awaiting admin review (BLOCKS funds)
+// - processing: admin approved, payment in progress (BLOCKS funds)
+// - approved: admin approved, synonymous with processing (BLOCKS funds)
+// - paid: successfully paid out (BLOCKS funds - money is gone)
+// - completed: successfully paid out, alias for paid (BLOCKS funds)
+// - rejected: admin rejected, funds returned (DOES NOT block)
+// - failed: payment failed, funds returned (DOES NOT block)
+// - canceled: user canceled, funds returned (DOES NOT block)
+const BLOCKING_STATUSES = ['pending', 'processing', 'approved', 'paid', 'completed'];
+const NON_BLOCKING_STATUSES = ['rejected', 'failed', 'canceled'];
+
+// 💰 Get available balance for a user (SINGLE SOURCE OF TRUTH)
+// Available = Total Earnings - Sum of BLOCKING payouts
+async function getAvailableBalance(userId: string): Promise<{
+  available: number;
+  totalEarned: number;
+  blockedAmount: number;
+  pendingAmount: number;
+  paidAmount: number;
+}> {
+  console.log(`💰 Computing available balance for user: "${userId}"`);
+  
+  // 1. Get total earnings from SQL (Supabase) - amount is NUMERIC
+  const { data: earningsData, error: earningsError } = await supabase
+    .from('earnings')
+    .select('amount')
+    .eq('user_id', userId);
+  
+  if (earningsError) {
+    console.error(`❌ Failed to get earnings for balance calc:`, earningsError);
+  }
+  
+  // Use Number() for NUMERIC type, NOT parseFloat to avoid float issues
+  const totalEarned = (earningsData || []).reduce((sum: number, e: any) => {
+    const amt = Number(e.amount) || 0;
+    return sum + amt;
+  }, 0);
+  
+  // 2. Get payouts and calculate blocked amount
+  const { data: payoutsData, error: payoutsError } = await supabase
+    .from('payouts')
+    .select('amount, status')
+    .eq('user_id', userId);
+  
+  if (payoutsError) {
+    console.error(`❌ Failed to get payouts for balance calc:`, payoutsError);
+  }
+  
+  let pendingAmount = 0;  // pending + processing
+  let paidAmount = 0;     // approved + paid + completed
+  
+  (payoutsData || []).forEach((p: any) => {
+    const amt = Number(p.amount) || 0;
+    const status = (p.status || '').toLowerCase();
+    
+    if (status === 'pending' || status === 'processing') {
+      pendingAmount += amt;
+    } else if (status === 'approved' || status === 'paid' || status === 'completed') {
+      paidAmount += amt;
+    }
+    // rejected/failed/canceled = funds returned, don't count
+  });
+  
+  const blockedAmount = pendingAmount + paidAmount;
+  const available = Math.max(0, totalEarned - blockedAmount);
+  
+  console.log(`💰 Balance for "${userId}": earned=${totalEarned}, blocked=${blockedAmount} (pending=${pendingAmount}, paid=${paidAmount}), available=${available}`);
+  
+  return { available, totalEarned, blockedAmount, pendingAmount, paidAmount };
+}
+
 // 🔄 ID Reuse Management
 // Get next available user ID (checks freed IDs first, then uses counter)
 async function getNextUserId(): Promise<string> {
@@ -848,8 +920,57 @@ async function createEarningsFromOrder(order: any): Promise<any[]> {
       createdAt: new Date().toISOString()
     };
     
+    // 🔥 ВАЖНО: Сохраняем в KV (для совместимости)
     await kv.set(earningId, earning);
     await kv.set(`earning:user:${userId}:${earningId}`, earning);
+    
+    // 🔥 КРИТИЧЕСКИ ВАЖНО: Сохраняем в SQL таблицу earnings!
+    // Без этого GET /earnings и Дашборд покажут 0
+    try {
+      const { data: insertedEarning, error: insertError } = await supabase
+        .from('earnings')
+        .insert({
+          user_id: userId,           // <--- простой ID: "004", "seo"
+          order_id: order.id,        // UUID заказа
+          amount: numAmount,
+          level: level,
+          order_type: order.партнёрскаяПокупка ? 'partner' : 'guest',  // 🔥 Required field!
+          product_sku: order.sku || null,
+          status: 'paid'
+        })
+        .select()
+        .single();
+      
+      if (insertError) {
+        console.error(`   ⚠️ SQL earnings insert failed for ${userId}:`, insertError.message);
+      } else {
+        console.log(`   💾 SQL earning saved: id=${insertedEarning?.id}, user_id=${userId}, amount=${numAmount}₽`);
+      }
+      
+      // 🔥 Также обновляем balance в SQL таблице profiles
+      const { error: balanceError } = await supabase.rpc('increment_balance', {
+        p_user_id: userId,
+        p_amount: numAmount
+      });
+      
+      if (balanceError) {
+        // Если RPC не существует, пробуем прямой UPDATE
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ balance: user.баланс })  // user.баланс уже обновлён выше
+          .eq('user_id', userId);
+        
+        if (updateError) {
+          console.log(`   ⚠️ Failed to update SQL profile balance: ${updateError.message}`);
+        } else {
+          console.log(`   💰 SQL profile balance updated: ${user.баланс}₽`);
+        }
+      } else {
+        console.log(`   💰 SQL balance incremented by ${numAmount}₽ for user ${userId}`);
+      }
+    } catch (sqlError) {
+      console.error(`   ⚠️ SQL operation failed:`, sqlError);
+    }
     
     createdEarnings.push(earning);
     console.log(`   ✅ Earning: ${numAmount}₽ → ${userId} (${level}, линия=${lineIndex})`);
@@ -2486,6 +2607,9 @@ app.get("/make-server-05aa3c8a/user/:userId", async (c) => {
     }
     
     // 🔥 GET BALANCE FROM SQL - THIS IS THE SOURCE OF TRUTH
+    // Сначала пробуем profiles.balance, потом считаем из earnings
+    let sqlBalance = 0;
+    
     const { data: sqlProfile, error: sqlError } = await supabase
       .from('profiles')
       .select('balance')
@@ -2496,9 +2620,26 @@ app.get("/make-server-05aa3c8a/user/:userId", async (c) => {
       console.log(`⚠️ SQL profile lookup failed for ${userId}: ${sqlError.message}`);
     }
     
-    // Override balance from SQL (source of truth)
-    const sqlBalance = sqlProfile?.balance ?? 0;
-    console.log(`💰 SQL balance for ${userId}: ${sqlBalance} (KV had: ${userData.баланс || 0})`);
+    if (sqlProfile?.balance) {
+      sqlBalance = sqlProfile.balance;
+      console.log(`💰 SQL profiles.balance for ${userId}: ${sqlBalance}₽`);
+    } else {
+      // 🔥 FALLBACK: Считаем баланс из таблицы earnings
+      const { data: earningsData, error: earningsError } = await supabase
+        .from('earnings')
+        .select('amount')
+        .eq('user_id', userId);
+      
+      if (!earningsError && earningsData) {
+        sqlBalance = earningsData.reduce((sum, e) => sum + (e.amount || 0), 0);
+        console.log(`💰 SQL earnings sum for ${userId}: ${sqlBalance}₽ (from ${earningsData.length} records)`);
+      } else {
+        console.log(`⚠️ SQL earnings lookup failed for ${userId}: ${earningsError?.message}`);
+        // Используем KV баланс как последний fallback
+        sqlBalance = userData.баланс || 0;
+        console.log(`💰 Fallback to KV balance for ${userId}: ${sqlBalance}₽`);
+      }
+    }
     
     // Merge: KV profile data + SQL balance
     const mergedUserData = {
@@ -2631,19 +2772,31 @@ app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
     
     console.log(`📊 Building team structure for user: ${userId}`);
     
-    // Get all users (excluding admins) from KV for structure
+    // Get all users from KV for structure (нужны все для поиска рефералов)
     const allUsers = await kv.getByPrefix('user:id:');
     const allUsersArray = Array.isArray(allUsers) ? allUsers : [];
     
-    // Filter out admins
-    const nonAdminUsers = allUsersArray.filter((u: any) => !isUserAdmin(u));
-    console.log(`📊 Filtered ${allUsersArray.length} total users to ${nonAdminUsers.length} non-admin users`);
+    // 🔥 ИСПРАВЛЕНО: НЕ фильтруем админов при поиске текущего пользователя!
+    // Админы (seo, CEO) тоже могут иметь рефералов
+    const currentUser = allUsersArray.find((u: any) => u.id === userId);
     
-    // Get current user for ref code
-    const currentUser = nonAdminUsers.find((u: any) => u.id === userId);
-    if (!currentUser) {
+    // Если не нашли среди user:id, проверим среди admin:id
+    let actualCurrentUser = currentUser;
+    if (!actualCurrentUser) {
+      const allAdmins = await kv.getByPrefix('admin:id:');
+      const allAdminsArray = Array.isArray(allAdmins) ? allAdmins : [];
+      actualCurrentUser = allAdminsArray.find((a: any) => a.id === userId);
+    }
+    
+    if (!actualCurrentUser) {
+      console.log(`⚠️ User ${userId} not found for team structure`);
       return c.json({ success: true, team: [] });
     }
+    
+    // Для поиска команды (рефералов) исключаем админов, но ищем среди обычных пользователей
+    const nonAdminUsers = allUsersArray.filter((u: any) => !isUserAdmin(u));
+    console.log(`📊 Filtered ${allUsersArray.length} total users to ${nonAdminUsers.length} non-admin users (for team search)`);
+    console.log(`📊 Current user: ${actualCurrentUser.id} (${actualCurrentUser.имя}), refCode: ${actualCurrentUser.рефКод}`);
     
     // Recursive function to build team with depth
     const buildTeamWithDepth = (sponsorId: string, sponsorRefCode: string, depth: number, visited: Set<string> = new Set()): any[] => {
@@ -2673,44 +2826,47 @@ app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
     };
     
     // Build team starting from depth 1
-    const teamMembers = buildTeamWithDepth(userId, currentUser.рефКод, 1);
+    const teamMembers = buildTeamWithDepth(userId, actualCurrentUser.рефКод, 1);
     
     console.log(`✅ Built team structure: ${teamMembers.length} members across all levels`);
     
-    // 🔥 GET BALANCES FROM SQL - THIS IS THE SOURCE OF TRUTH
+    // 🔥 GET EARNINGS FROM SQL - THIS IS THE SOURCE OF TRUTH
     if (teamMembers.length > 0) {
       try {
         const teamIds = teamMembers.map((m: any) => m.id);
         
-        // Load balances from SQL profiles table
-        const { data: sqlProfiles, error: sqlError } = await supabase
-          .from('profiles')
-          .select('user_id, balance')
+        // Load earnings from SQL earnings table (NOT profiles!)
+        const { data: sqlEarnings, error: sqlError } = await supabase
+          .from('earnings')
+          .select('user_id, amount')
           .in('user_id', teamIds);
         
         if (sqlError) {
-          console.error(`❌ SQL profiles query error: ${sqlError.message}`);
+          console.error(`❌ SQL earnings query error: ${sqlError.message}`);
         }
         
-        // Create balance map from SQL data
-        const balanceMap = new Map<string, number>();
-        (sqlProfiles || []).forEach((profile: any) => {
-          balanceMap.set(profile.user_id, profile.balance ?? 0);
+        // Calculate total earnings per user from earnings table
+        const earningsMap = new Map<string, number>();
+        (sqlEarnings || []).forEach((earning: any) => {
+          const current = earningsMap.get(earning.user_id) || 0;
+          earningsMap.set(earning.user_id, current + (parseFloat(earning.amount) || 0));
         });
         
-        // Override KV balances with SQL balances (source of truth)
+        console.log(`📊 Earnings from SQL: ${JSON.stringify(Object.fromEntries(earningsMap))}`);
+        
+        // Override KV balances with calculated earnings from SQL
         teamMembers.forEach((member: any) => {
-          const sqlBalance = balanceMap.get(member.id) ?? 0;
+          const sqlEarningsTotal = earningsMap.get(member.id) ?? 0;
           const kvBalance = member.баланс || 0;
-          if (sqlBalance !== kvBalance) {
-            console.log(`💰 Balance override for ${member.id}: KV=${kvBalance} → SQL=${sqlBalance}`);
+          if (sqlEarningsTotal !== kvBalance) {
+            console.log(`💰 Earnings override for ${member.id}: KV=${kvBalance} → SQL=${sqlEarningsTotal}`);
           }
-          member.баланс = sqlBalance;
+          member.баланс = sqlEarningsTotal;
         });
         
-        console.log(`✅ Synced ${balanceMap.size} balances from SQL (profiles table)`);
+        console.log(`✅ Synced ${earningsMap.size} earnings from SQL (earnings table)`);
       } catch (syncError) {
-        console.log(`⚠️ Failed to sync team balances from SQL: ${syncError}`);
+        console.log(`⚠️ Failed to sync team earnings from SQL: ${syncError}`);
         // If SQL fails, set all balances to 0 (safe default)
         teamMembers.forEach((member: any) => {
           member.баланс = 0;
@@ -2796,27 +2952,62 @@ app.get("/make-server-05aa3c8a/user/:userId/rank", async (c) => {
 
 app.get("/make-server-05aa3c8a/products", async (c) => {
   try {
-    // Get custom products from KV store with keys
+    // 🔥 READ FROM BOTH SQL AND KV, MERGE RESULTS
+    
+    // 1. Get products from SQL (new source of truth)
+    const { data: sqlProducts, error: sqlError } = await supabase
+      .from('products')
+      .select('*')
+      .eq('is_active', true)
+      .eq('is_archived', false);
+    
+    if (sqlError) {
+      console.error(`📦 SQL products query error: ${sqlError.message}`);
+    }
+    
+    console.log(`📦 GET /products - SQL products: ${sqlProducts?.length || 0}`);
+    
+    // 2. Get products from KV store (legacy)
     const allProductEntries = await kv.getByPrefixWithKeys('product:');
-    
-    console.log(`📦 GET /products - Total entries from KV: ${allProductEntries.length}`);
-    console.log(`📦 Entry keys preview:`, allProductEntries.slice(0, 5).map((e: any) => e.key));
-    
-    // Filter to get only product records (not SKU lookup keys)
-    // Product keys have format "product:prod_XXX", SKU lookup keys have format "product:sku:XXX"
     const productEntries = allProductEntries.filter((entry: any) => 
       entry.key.startsWith('product:prod_')
     );
+    const kvProducts = productEntries.map((e: any) => e.value);
+    const activeKvProducts = kvProducts.filter((p: any) => p.активен !== false && p.в_архиве !== true);
     
-    console.log(`📦 Filtered product entries (by key): ${productEntries.length}`);
+    console.log(`📦 GET /products - KV products: ${activeKvProducts.length}`);
     
-    // Extract values and filter active
-    const products = productEntries.map((e: any) => e.value);
-    const activeProducts = products.filter((p: any) => p.активен !== false);
+    // 3. Merge: SQL products + KV products (avoiding duplicates by ID)
+    const sqlProductIds = new Set((sqlProducts || []).map((p: any) => p.id));
+    const uniqueKvProducts = activeKvProducts.filter((p: any) => !sqlProductIds.has(p.id));
     
-    console.log(`📦 Active products: ${activeProducts.length}`);
+    // 4. Map SQL products to frontend format (Russian field names)
+    const mappedSqlProducts = (sqlProducts || []).map((p: any) => ({
+      id: p.id,
+      sku: p.sku,
+      название: p.name,
+      описание: p.description,
+      изображение: p.image_url,
+      цена_розница: String(p.price_retail || 0),
+      цена1: String(p.price_partner || 0),
+      цена2: String(p.price_l2 || 0),
+      цена3: String(p.price_l3 || 0),
+      цена4: String(p.price_company || 0),
+      retail_price: p.price_retail || 0,
+      partner_price: p.price_partner || 0,
+      категория: p.category || 'general',
+      активен: p.is_active !== false,
+      в_архиве: p.is_archived === true,
+      создан: p.created_at,
+      обновлён: p.updated_at,
+      commission: p.commission || null
+    }));
     
-    return c.json({ success: true, products: activeProducts });
+    const allProducts = [...mappedSqlProducts, ...uniqueKvProducts];
+    
+    console.log(`📦 GET /products - Total merged: ${allProducts.length}`);
+    
+    return c.json({ success: true, products: allProducts });
   } catch (error) {
     console.log(`Get products error: ${error}`);
     return c.json({ error: `Failed to get products: ${error}` }, 500);
@@ -3023,7 +3214,7 @@ app.post("/make-server-05aa3c8a/orders", async (c) => {
       const orderPayload = {
         user_id: currentUser.id,
         status: 'pending',
-        total: totalPrice,
+        total_amount: totalPrice,
         items: items, // JSONB массив с товарами и комиссиями
         created_at: new Date().toISOString(),
       };
@@ -3097,7 +3288,7 @@ app.post("/make-server-05aa3c8a/orders", async (c) => {
     const orderPayload = {
       user_id: currentUser.id,
       status: 'pending',
-      total: price * quantity,
+      total_amount: price * quantity,
       items: [singleItem],
       created_at: new Date().toISOString(),
     };
@@ -3155,23 +3346,59 @@ app.post("/make-server-05aa3c8a/orders", async (c) => {
   }
 });
 
-// Get user's orders
+// Get user's orders - 🆕 ИСПРАВЛЕНО: Использует X-User-Id НАПРЯМУЮ
 app.get("/make-server-05aa3c8a/orders", async (c) => {
   try {
-    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    // 🆕 Берём ID НАПРЯМУЮ из заголовка (например, "004", "seo")
+    const targetUserId = c.req.header('X-User-Id');
     
-    // Get all orders for this user
-    const orders = await kv.getByPrefix(`order:user:${currentUser.id}:`);
-    const ordersArray = Array.isArray(orders) ? orders : [];
+    if (!targetUserId) {
+      console.error(`❌ GET /orders: No X-User-Id header provided`);
+      return c.json({ success: false, error: "User ID required", orders: [] }, 400);
+    }
     
-    return c.json({ success: true, orders: ordersArray });
+    // Проверяем что пользователь существует
+    await verifyUser(targetUserId);
+    
+    console.log(`📦 GET /orders for user: "${targetUserId}" (using X-User-Id directly)`);
+    
+    // 🆕 Загружаем из SQL таблицы orders СТРОГО по ID из заголовка
+    const { data: ordersData, error: ordersError } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('user_id', targetUserId)  // <--- КЛЮЧЕВОЙ МОМЕНТ
+      .order('created_at', { ascending: false });
+    
+    if (ordersError) {
+      console.error(`❌ SQL orders error for user "${targetUserId}":`, ordersError);
+      return c.json({ success: true, orders: [] });
+    }
+    
+    // Преобразуем в формат, ожидаемый фронтендом
+    const orders = (ordersData || []).map((o: any) => ({
+      id: o.id,
+      oderId: o.id,
+      покупательId: o.user_id,
+      userId: o.user_id,
+      статус: o.status,
+      status: o.status,
+      цена: o.total_amount,
+      total: o.total_amount,
+      items: o.items,
+      дата: o.created_at,
+      createdAt: o.created_at,
+      датаЗаказа: o.created_at
+    }));
+    
+    console.log(`✅ Loaded ${orders.length} orders from SQL for user "${targetUserId}"`);
+    
+    return c.json({ success: true, orders });
   } catch (error) {
-    console.log(`Get orders error: ${error}`);
+    console.error(`❌ Get orders error:`, error);
     return c.json({ 
-      success: false,
-      error: `Failed to get orders: ${error}`,
+      success: true,
       orders: []
-    }, 500);
+    });
   }
 });
 
@@ -3222,100 +3449,354 @@ app.post("/make-server-05aa3c8a/orders/:orderId/confirm", async (c) => {
 // EARNINGS & BALANCE
 // ======================
 
-// Get earnings
+// Get earnings - 🆕 ИСПРАВЛЕНО: Использует X-User-Id НАПРЯМУЮ для фильтрации
 app.get("/make-server-05aa3c8a/earnings", async (c) => {
+  try {
+    // 🆕 Берём ID НАПРЯМУЮ из заголовка (например, "004", "seo")
+    const targetUserId = c.req.header('X-User-Id');
+    
+    if (!targetUserId) {
+      console.error(`❌ GET /earnings: No X-User-Id header provided`);
+      return c.json({ success: false, error: "User ID required", earnings: [] }, 400);
+    }
+    
+    // Проверяем что пользователь существует (но используем ID из заголовка для запроса)
+    await verifyUser(targetUserId);
+    
+    console.log(`📊 GET /earnings for user: "${targetUserId}" (using X-User-Id directly)`);
+    
+    // 🆕 DEBUG: Сначала проверим общее количество записей в таблице
+    const { data: allEarnings, error: countError } = await supabase
+      .from('earnings')
+      .select('user_id, amount');
+    
+    console.log(`📊 DEBUG: Total earnings in SQL table: ${allEarnings?.length || 0}, error: ${countError?.message || 'none'}`);
+    if (countError) {
+      console.error(`❌ DEBUG: Count error details:`, JSON.stringify(countError));
+    }
+    console.log(`📊 DEBUG: All user_ids: ${[...new Set(allEarnings?.map((e: any) => e.user_id) || [])].join(', ')}`);
+    console.log(`📊 DEBUG: First 3 records:`, JSON.stringify(allEarnings?.slice(0, 3)));
+    
+    // 🆕 Загружаем из SQL таблицы earnings СТРОГО по ID из заголовка
+    const { data: earningsData, error: earningsError } = await supabase
+      .from('earnings')
+      .select('*')
+      .eq('user_id', targetUserId)  // <--- КЛЮЧЕВОЙ МОМЕНТ: используем targetUserId напрямую
+      .order('created_at', { ascending: false });
+    
+    console.log(`📊 DEBUG: Earnings for user "${targetUserId}": ${earningsData?.length || 0}, error: ${earningsError?.message || 'none'}`);
+    if (earningsError) {
+      console.error(`❌ DEBUG: Earnings error details:`, JSON.stringify(earningsError));
+    }
+    
+    if (earningsError) {
+      console.error(`❌ SQL earnings error for user "${targetUserId}":`, earningsError);
+      return c.json({ success: true, earnings: [] });
+    }
+    
+    // Получаем все уникальные order_id для поиска названий товаров
+    const orderIds = [...new Set((earningsData || []).map((e: any) => e.order_id).filter(Boolean))];
+    
+    // Загружаем информацию о заказах для получения названий товаров
+    let orderTitlesMap = new Map<string, string>();
+    if (orderIds.length > 0) {
+      const { data: ordersData } = await supabase
+        .from('orders')
+        .select('id, items, description')
+        .in('id', orderIds);
+      
+      (ordersData || []).forEach((order: any) => {
+        let title = 'Бонус за покупку';
+        if (order.items && Array.isArray(order.items) && order.items.length > 0) {
+          title = order.items.map((item: any) => item.name || item.название || 'Товар').join(', ');
+        } else if (order.description) {
+          title = order.description;
+        }
+        orderTitlesMap.set(order.id, title);
+      });
+    }
+    
+    // Преобразуем в формат, ожидаемый фронтендом
+    // Supabase schema: id, user_id, amount, source_user_id, level (int), created_at, order_type
+    const earnings = (earningsData || []).map((e: any) => {
+      // level может быть integer (0,1,2,3) или string ('L0','L1','L2','L3')
+      const levelNum = typeof e.level === 'number' ? e.level : parseInt(String(e.level).replace('L', '') || '0');
+      const levelStr = typeof e.level === 'string' && e.level.startsWith('L') ? e.level : `L${levelNum}`;
+      
+      return {
+        id: e.id,
+        orderId: e.order_id || e.source_user_id || '',
+        userId: e.user_id,
+        amount: parseFloat(e.amount) || 0,
+        сумма: parseFloat(e.amount) || 0,
+        level: levelStr,
+        линия: levelNum,
+        дата: e.created_at,
+        createdAt: e.created_at,
+        description: e.description || '',
+        sku: e.product_sku || e.sku || '',
+        isPartner: e.order_type === 'partner' || e.order_type === 'personal',
+        title: orderTitlesMap.get(e.order_id) || 'Бонус за покупку',
+        название: orderTitlesMap.get(e.order_id) || 'Бонус за покупку',
+        sourceUserId: e.source_user_id || ''
+      };
+    });
+    
+    console.log(`✅ Loaded ${earnings.length} earnings from SQL for user "${targetUserId}"`);
+    
+    return c.json({ success: true, earnings });
+  } catch (error) {
+    console.error(`❌ Get earnings error:`, error);
+    return c.json({ 
+      success: true,
+      earnings: []
+    });
+  }
+});
+
+// 💰 Get user balance (SINGLE SOURCE OF TRUTH for UI)
+app.get("/make-server-05aa3c8a/balance", async (c) => {
+  try {
+    const targetUserId = c.req.header('X-User-Id');
+    
+    if (!targetUserId) {
+      return c.json({ success: false, error: "User ID required" }, 400);
+    }
+    
+    await verifyUser(targetUserId);
+    
+    // Use unified balance calculation
+    const balanceInfo = await getAvailableBalance(targetUserId);
+    
+    return c.json({
+      success: true,
+      balance: balanceInfo.available,
+      totalEarned: balanceInfo.totalEarned,
+      totalWithdrawn: balanceInfo.paidAmount,
+      pendingWithdrawals: balanceInfo.pendingAmount,
+      blockedAmount: balanceInfo.blockedAmount,
+      availableBalance: balanceInfo.available
+    });
+  } catch (error) {
+    console.error(`❌ Get balance error:`, error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// 📢 Get admin notifications (pending withdrawal requests)
+app.get("/make-server-05aa3c8a/admin/notifications", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     
-    const earnings = await kv.getByPrefix(`earning:user:${currentUser.id}:`);
-    const earningsArray = Array.isArray(earnings) ? earnings : [];
+    if (!isUserAdmin(currentUser)) {
+      return c.json({ success: false, error: "Admin access required" }, 403);
+    }
     
-    return c.json({ success: true, earnings: earningsArray });
+    const statusFilter = c.req.query('status'); // 'unread', 'read', or undefined for all
+    
+    let query = supabase
+      .from('admin_notifications')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    
+    if (statusFilter) {
+      query = query.eq('status', statusFilter);
+    }
+    
+    const { data: notifications, error } = await query;
+    
+    if (error) {
+      console.error(`❌ Failed to get admin notifications:`, error);
+      return c.json({ success: false, error: error.message, notifications: [] }, 500);
+    }
+    
+    // Get user names for requester_user_id
+    const enrichedNotifications = await Promise.all((notifications || []).map(async (n: any) => {
+      let userName = n.requester_user_id;
+      if (n.requester_user_id) {
+        const user = await kv.get(`user:id:${n.requester_user_id}`);
+        if (user) {
+          userName = user.имя || user.first_name || n.requester_user_id;
+        }
+      }
+      return {
+        ...n,
+        userName
+      };
+    }));
+    
+    const unreadCount = (notifications || []).filter((n: any) => n.status === 'unread').length;
+    
+    return c.json({
+      success: true,
+      notifications: enrichedNotifications,
+      unreadCount
+    });
   } catch (error) {
-    console.log(`Get earnings error: ${error}`);
-    return c.json({ 
-      success: false,
-      error: `Failed to get earnings: ${error}`,
-      earnings: []
-    }, 500);
+    console.error(`❌ Get admin notifications error:`, error);
+    return c.json({ success: false, error: String(error), notifications: [] }, 500);
+  }
+});
+
+// 📢 Mark admin notification as read
+app.post("/make-server-05aa3c8a/admin/notifications/:id/read", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    
+    if (!isUserAdmin(currentUser)) {
+      return c.json({ success: false, error: "Admin access required" }, 403);
+    }
+    
+    const notificationId = c.req.param('id');
+    
+    const { error } = await supabase
+      .from('admin_notifications')
+      .update({ status: 'read' })
+      .eq('id', notificationId);
+    
+    if (error) {
+      return c.json({ success: false, error: error.message }, 500);
+    }
+    
+    return c.json({ success: true });
+  } catch (error) {
+    return c.json({ success: false, error: String(error) }, 500);
   }
 });
 
 // Request withdrawal (SQL payouts table)
+// 🔐 ATOMIC: Uses Postgres RPC function create_withdrawal_if_sufficient()
+// This prevents race conditions by using advisory lock + atomic check+insert
 app.post("/make-server-05aa3c8a/withdrawal", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     const { amount, method, details } = await c.req.json();
     
-    if (!amount || amount <= 0) {
+    // Use Number() for NUMERIC type safety
+    const requestAmount = Number(amount);
+    if (!requestAmount || requestAmount <= 0 || !Number.isFinite(requestAmount)) {
       return c.json({ error: "Invalid amount" }, 400);
     }
     
-    if (currentUser.баланс < amount) {
-      return c.json({ error: "Insufficient balance" }, 400);
+    // Round to 2 decimal places for NUMERIC(12,2)
+    const amountNumeric = Math.round(requestAmount * 100) / 100;
+    
+    // 🔄 Build details as JSONB object (not string)
+    let detailsObj: Record<string, unknown> | null = null;
+    if (details) {
+      if (typeof details === 'object') {
+        detailsObj = details;
+      } else if (typeof details === 'string' && details.trim()) {
+        // Wrap plain text in {raw: "..."} for consistency
+        detailsObj = { raw: details };
+      }
     }
     
-    // Insert into SQL payouts table
-    const { data: payout, error: insertError } = await supabase
-      .from('payouts')
+    console.log(`💸 Withdrawal request: ${amountNumeric}₽ from ${currentUser.имя} (${currentUser.id})`);
+    
+    // 🔐 ATOMIC: Call RPC function (lock + check + insert in single transaction)
+    // RPC now accepts JSONB directly (no string conversion)
+    const { data: rpcResult, error: rpcError } = await supabase
+      .rpc('create_withdrawal_if_sufficient', {
+        p_user_id: currentUser.id,
+        p_amount: amountNumeric,
+        p_method: method || 'bank',
+        p_details: detailsObj
+      });
+    
+    if (rpcError) {
+      console.error(`❌ RPC error:`, rpcError);
+      return c.json({ error: `Failed to process withdrawal: ${rpcError.message}` }, 500);
+    }
+    
+    // RPC returns array with single row
+    const result = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
+    
+    if (!result || !result.success) {
+      const available = result?.available_balance || 0;
+      return c.json({ 
+        error: "Insufficient balance", 
+        message: `Недостаточно средств. Доступно: ${available.toFixed(2)}₽`,
+        available: available 
+      }, 400);
+    }
+    
+    const withdrawalId = result.withdrawal_id;
+    const newAvailable = result.available_balance;
+    
+    // 📢 INSERT ADMIN NOTIFICATION
+    const { error: notifyError } = await supabase
+      .from('admin_notifications')
       .insert({
-        user_id: currentUser.id,
-        amount: amount,
-        method: method || 'bank',
-        details: typeof details === 'object' ? JSON.stringify(details) : details,
-        status: 'pending'
-      })
-      .select()
+        type: 'withdrawal_request',
+        withdrawal_id: withdrawalId,
+        requester_user_id: currentUser.id,
+        amount: amountNumeric,
+        status: 'unread',
+        message: `Заявка на вывод ${amountNumeric}₽ от ${currentUser.имя || currentUser.id}`
+      });
+    
+    if (notifyError) {
+      console.warn(`⚠️ Failed to create admin notification:`, notifyError);
+      // Don't fail the withdrawal - notification is secondary
+    }
+    
+    // Get full payout details
+    const { data: payout } = await supabase
+      .from('payouts')
+      .select('*')
+      .eq('id', withdrawalId)
       .single();
     
-    if (insertError) {
-      console.log(`Supabase insert error: ${insertError.message}`);
-      return c.json({ error: `Failed to create payout: ${insertError.message}` }, 500);
-    }
-    
-    // Deduct from balance (will be refunded if rejected)
-    currentUser.баланс -= amount;
-    await kv.set(`user:id:${currentUser.id}`, currentUser);
-    if (currentUser.telegramId) {
-      await kv.set(`user:tg:${currentUser.telegramId}`, currentUser);
-    }
-    
-    console.log(`💸 Withdrawal requested: ${amount}₽ by ${currentUser.имя} (SQL payout id: ${payout.id})`);
+    console.log(`✅ Withdrawal created atomically: ${amountNumeric}₽ by ${currentUser.имя} (id: ${withdrawalId})`);
     
     return c.json({ 
       success: true, 
       withdrawal: {
-        id: payout.id,
-        oderId: payout.id,
-        userId: payout.user_id,
-        amount: payout.amount,
-        method: payout.method,
-        details: payout.details,
-        status: payout.status,
-        createdAt: payout.created_at
-      }
+        id: withdrawalId,
+        oderId: withdrawalId,
+        userId: currentUser.id,
+        amount: amountNumeric,
+        method: payout?.method || method || 'bank',
+        details: payout?.details || detailsObj,
+        status: 'pending',
+        createdAt: payout?.created_at || new Date().toISOString()
+      },
+      availableBalance: newAvailable
     });
     
   } catch (error) {
-    console.log(`Withdrawal error: ${error}`);
+    console.error(`❌ Withdrawal error:`, error);
     return c.json({ error: `Failed to process withdrawal: ${error}` }, 500);
   }
 });
 
-// Get withdrawal history (SQL payouts table)
+// Get withdrawal history (SQL payouts table) - 🆕 ИСПРАВЛЕНО: Использует X-User-Id НАПРЯМУЮ
 app.get("/make-server-05aa3c8a/withdrawals", async (c) => {
   try {
-    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    // 🆕 Берём ID НАПРЯМУЮ из заголовка
+    const targetUserId = c.req.header('X-User-Id');
+    
+    if (!targetUserId) {
+      console.error(`❌ GET /withdrawals: No X-User-Id header provided`);
+      return c.json({ success: false, error: "User ID required", withdrawals: [] }, 400);
+    }
+    
+    // Проверяем что пользователь существует
+    await verifyUser(targetUserId);
+    
+    console.log(`💸 GET /withdrawals for user: "${targetUserId}" (using X-User-Id directly)`);
     
     const { data: payouts, error: selectError } = await supabase
       .from('payouts')
       .select('*')
-      .eq('user_id', currentUser.id)
+      .eq('user_id', targetUserId)  // <--- КЛЮЧЕВОЙ МОМЕНТ
       .order('created_at', { ascending: false });
     
     if (selectError) {
-      console.log(`Supabase select error: ${selectError.message}`);
-      return c.json({ success: false, error: selectError.message, withdrawals: [] }, 500);
+      console.error(`❌ SQL payouts error for user "${targetUserId}":`, selectError);
+      return c.json({ success: true, withdrawals: [] });
     }
     
     const withdrawals = (payouts || []).map((p: any) => ({
@@ -3331,14 +3812,15 @@ app.get("/make-server-05aa3c8a/withdrawals", async (c) => {
       adminComment: p.admin_comment
     }));
     
+    console.log(`✅ Loaded ${withdrawals.length} withdrawals from SQL for user "${targetUserId}"`);
+    
     return c.json({ success: true, withdrawals });
   } catch (error) {
-    console.log(`Get withdrawals error: ${error}`);
+    console.error(`❌ Get withdrawals error:`, error);
     return c.json({ 
-      success: false,
-      error: `Failed to get withdrawals: ${error}`,
+      success: true,
       withdrawals: []
-    }, 500);
+    });
   }
 });
 
@@ -3361,60 +3843,90 @@ app.get("/make-server-05aa3c8a/payment/methods", (c) => {
   }
 });
 
-// Create payment for order
+// Create payment for order - 🆕 ИСПРАВЛЕНО: Загружает заказы из SQL
 app.post("/make-server-05aa3c8a/payment/create", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     const { orderId, method } = await c.req.json();
     
-    const order = await kv.get(`order:${orderId}`);
+    console.log(`💳 Payment create for orderId: ${orderId}, method: ${method}`);
     
-    if (!order) {
+    // 🆕 Загружаем заказ из SQL таблицы orders
+    const { data: orderData, error: orderError } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', orderId)
+      .single();
+    
+    if (orderError || !orderData) {
+      console.error(`❌ Order not found in SQL: ${orderId}`, orderError);
       return c.json({ error: "Order not found" }, 404);
     }
     
-    if (order.покупательId !== currentUser.id) {
+    const order = orderData;
+    
+    if (order.user_id !== currentUser.id) {
       return c.json({ error: "Unauthorized" }, 403);
     }
     
-    if (order.статус === 'paid') {
+    if (order.status === 'paid') {
       return c.json({ error: "Order already paid" }, 400);
     }
     
     let paymentData;
     
     if (method === 'yookassa') {
-      // TODO: Implement YooKassa payment integration
       return c.json({ error: 'YooKassa not yet configured' }, 501);
     } else if (method === 'usdt') {
-      // TODO: Implement crypto payment integration
       return c.json({ error: 'Crypto payments not yet configured' }, 501);
     } else if (method === 'demo') {
       // Demo payment - auto confirm after 2 seconds
       setTimeout(async () => {
         try {
-          const confirmOrder = await kv.get(`order:${orderId}`);
-          if (confirmOrder && confirmOrder.статус !== 'paid') {
-            // Update order status
-            confirmOrder.статус = 'paid';
-            confirmOrder.paidAt = new Date().toISOString();
-            await kv.set(`order:${orderId}`, confirmOrder);
-            await kv.set(`order:user:${confirmOrder.покупательId}:${orderId}`, confirmOrder);
-            
-            // 🆕 Используем единую функцию для создания earnings
-            await createEarningsFromOrder(confirmOrder);
-            
-            // ✨ АВТОМАТИЧЕСКИЙ ПЕРЕСЧЁТ РАНГОВ после демо-оплаты
-            console.log(`🏆 [demo-payment] Auto-updating ranks for buyer and upline...`);
-            try {
-              await updateUplineRanks(confirmOrder.покупательId);
-              console.log(`✅ Ranks updated successfully after demo payment`);
-            } catch (rankError) {
-              console.error(`⚠️ Failed to update ranks after demo payment:`, rankError);
-            }
-            
-            console.log(`Demo payment auto-confirmed for ${orderId}`);
+          // 🆕 Обновляем статус заказа в SQL
+          const { error: updateError } = await supabase
+            .from('orders')
+            .update({ status: 'paid', updated_at: new Date().toISOString() })
+            .eq('id', orderId);
+          
+          if (updateError) {
+            console.error(`❌ Failed to update order status:`, updateError);
+            return;
           }
+          
+          console.log(`✅ Order ${orderId} marked as paid in SQL`);
+          
+          // Получаем обновленный заказ для earnings
+          const { data: paidOrder } = await supabase
+            .from('orders')
+            .select('*')
+            .eq('id', orderId)
+            .single();
+          
+          if (paidOrder) {
+            // Преобразуем в формат для createEarningsFromOrder
+            const orderForEarnings = {
+              id: paidOrder.id,
+              покупательId: paidOrder.user_id,
+              userId: paidOrder.user_id,
+              цена: paidOrder.total_amount,
+              items: paidOrder.items,
+              статус: 'paid'
+            };
+            
+            await createEarningsFromOrder(orderForEarnings);
+            
+            // Пересчёт рангов
+            console.log(`🏆 [demo-payment] Auto-updating ranks...`);
+            try {
+              await updateUplineRanks(paidOrder.user_id);
+              console.log(`✅ Ranks updated successfully`);
+            } catch (rankError) {
+              console.error(`⚠️ Failed to update ranks:`, rankError);
+            }
+          }
+          
+          console.log(`Demo payment auto-confirmed for ${orderId}`);
         } catch (err) {
           console.error(`Demo payment confirmation error: ${err}`);
         }
@@ -3424,7 +3936,7 @@ app.post("/make-server-05aa3c8a/payment/create", async (c) => {
         paymentId: `demo-${orderId}`,
         paymentUrl: null,
         status: 'processing',
-        message: 'Демо-оплата будет подтверждена автоматически ч��рез 2 секунды'
+        message: 'Демо-оплата будет подтверждена автоматически через 2 секунды'
       };
     } else {
       return c.json({ error: "Invalid payment method" }, 400);
@@ -3436,7 +3948,7 @@ app.post("/make-server-05aa3c8a/payment/create", async (c) => {
       orderId,
       userId: currentUser.id,
       method,
-      amount: order.цена,
+      amount: order.total_amount,
       status: paymentData.status || 'pending',
       createdAt: new Date().toISOString(),
       ...paymentData
@@ -3445,12 +3957,12 @@ app.post("/make-server-05aa3c8a/payment/create", async (c) => {
     await kv.set(`payment:${payment.id}`, payment);
     await kv.set(`payment:order:${orderId}`, payment);
     
-    console.log(`Payment created: ${payment.id} for order ${orderId} (${method})`);
+    console.log(`✅ Payment created: ${payment.id} for order ${orderId} (${method})`);
     
     return c.json({ success: true, payment });
     
   } catch (error) {
-    console.log(`Create payment error: ${error}`);
+    console.error(`❌ Create payment error:`, error);
     return c.json({ error: `Failed to create payment: ${error}` }, 500);
   }
 });
@@ -4039,6 +4551,21 @@ app.get("/make-server-05aa3c8a/admin/users/paginated", async (c) => {
     // Passive users = didn't make purchases this month
     const passiveUsersCount = partners.filter((u: any) => !activeUserBuyersIds.has(u.id)).length;
     
+    // 📊 Get ledger-based total balance from SQL (NOT profiles.balance)
+    // available = SUM(earnings) - SUM(payouts where status IN pending/approved/processing/paid/completed)
+    let ledgerTotalBalance = 0;
+    try {
+      const { data: ledgerData, error: ledgerError } = await supabase.rpc('get_admin_finance_stats');
+      if (!ledgerError && ledgerData) {
+        // partners_balance = total_earnings - payouts_locked (pending+approved+processing)
+        // This is the sum of all partners' available balances
+        ledgerTotalBalance = Number(ledgerData.partners_balance ?? 0);
+        console.log(`📊 Ledger-based total balance: ${ledgerTotalBalance}`);
+      }
+    } catch (e) {
+      console.error('Error getting ledger balance:', e);
+    }
+    
     const stats = {
       totalUsers: userArray.length,
       newToday: userArray.filter((u: any) => {
@@ -4054,7 +4581,7 @@ app.get("/make-server-05aa3c8a/admin/users/paginated", async (c) => {
       activeUsers: activeUsersCount,
       passiveUsers: passiveUsersCount,
       withTeam: userArray.filter((u: any) => (u.команда?.length || 0) > 0).length,
-      totalBalance: userArray.reduce((sum: number, u: any) => sum + (u.баланс || 0), 0),
+      totalBalance: ledgerTotalBalance, // 🔥 Ledger-based, NOT profiles.balance sum
       orphans: userArray.filter((u: any) => !u.спонсорId || u.спонсорId === '').length
     };
     
@@ -4215,33 +4742,32 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
       }, 500);
     }
     
-    // Use RPC data ONLY - NO FALLBACKS
-    const usersBalanceTotal = rpcStats?.users_liability ?? 0;
-    const pendingPayoutsSum = rpcStats?.pending_payouts ?? 0;
-    const totalRevenue = rpcStats?.total_revenue ?? 0;
-    const totalEarnings = rpcStats?.total_earnings ?? 0;
-    const totalPaidOut = rpcStats?.total_paid_out ?? 0;
-    const totalOrders = rpcStats?.total_orders ?? 0;
-    const totalUsers = rpcStats?.total_users ?? 0;
+    // Use RPC data ONLY - CORRECT MATH from SQL
+    // RPC now returns: turnover, payouts_paid, payouts_locked, payouts_locked_count, net_profit, partners_balance
+    const totalRevenue = Number(rpcStats?.turnover ?? 0);
+    const payoutsPaid = Number(rpcStats?.payouts_paid ?? 0);
+    const payoutsLocked = Number(rpcStats?.payouts_locked ?? 0);
+    const payoutsLockedCount = Number(rpcStats?.payouts_locked_count ?? 0);
+    const netProfit = Number(rpcStats?.net_profit ?? 0); // turnover - payouts_paid (STRICT)
+    const partnersBalance = Number(rpcStats?.partners_balance ?? 0); // earnings - locked payouts
+    const totalEarnings = Number(rpcStats?.total_earnings ?? 0);
     
-    console.log(`📊 Parsed RPC values: revenue=${totalRevenue}, balance=${usersBalanceTotal}, pending=${pendingPayoutsSum}, paid=${totalPaidOut}`);
+    console.log(`📊 Finance RPC: turnover=${totalRevenue}, paid=${payoutsPaid}, locked=${payoutsLocked}(${payoutsLockedCount}), netProfit=${netProfit}, partnersBalance=${partnersBalance}`);
     
-    // Net Profit - чистая прибыль компании
-    const netProfit = totalRevenue - totalEarnings;
-    
-    // Pending Payouts list (SQL) for display - NO JOIN to avoid RLS issues
-    const { data: pendingPayoutsData, error: pendingError } = await supabase
+    // Awaiting Payouts list (SQL) - includes pending, approved, processing (BLOCKING statuses)
+    const AWAITING_STATUSES = ['pending', 'approved', 'processing'];
+    const { data: awaitingPayoutsData, error: awaitingError } = await supabase
       .from('payouts')
       .select('*')
-      .eq('status', 'pending')
+      .in('status', AWAITING_STATUSES)
       .order('created_at', { ascending: false });
     
-    if (pendingError) {
-      console.error(`❌ Pending payouts query error: ${pendingError.message}`);
+    if (awaitingError) {
+      console.error(`❌ Awaiting payouts query error: ${awaitingError.message}`);
     }
-    console.log(`📋 Pending payouts from SQL: ${pendingPayoutsData?.length || 0} items`);
+    console.log(`📋 Awaiting payouts from SQL: ${awaitingPayoutsData?.length || 0} items (statuses: ${AWAITING_STATUSES.join(',')})`);
     
-    const pendingWithdrawals = pendingPayoutsData || [];
+    const pendingWithdrawals = awaitingPayoutsData || [];
     
     // All payouts for history (SQL) - NO JOIN
     const { data: allPayoutsData, error: allPayoutsError } = await supabase
@@ -4304,20 +4830,18 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
       }))
     ].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()).slice(0, 20);
     
-    console.log(`📊 Admin finance stats (RPC): revenue=${totalRevenue}, balance=${usersBalanceTotal}, pending=${pendingPayoutsSum}`);
+    console.log(`📊 Admin finance stats (RPC): turnover=${totalRevenue}, paid=${payoutsPaid}, locked=${payoutsLocked}, netProfit=${netProfit}`);
     
     return c.json({
       success: true,
       stats: {
-        totalRevenue,
-        usersBalanceTotal,
-        pendingPayoutsSum,
-        pendingPayoutsCount: pendingWithdrawals.length,
-        totalEarnings,
-        netProfit,
-        totalPaidOut,
-        totalOrders,
-        totalUsers
+        totalRevenue,                              // Оборот (turnover)
+        usersBalanceTotal: partnersBalance,        // Баланс партнёров (earnings - locked payouts)
+        pendingPayoutsSum: payoutsLocked,          // Ожидающие выплаты (pending/approved/processing)
+        pendingPayoutsCount: payoutsLockedCount,   // Количество ожидающих заявок
+        totalEarnings,                             // Всего начислено
+        netProfit,                                 // Чистая прибыль = turnover - paid
+        totalPaidOut: payoutsPaid                  // Выплачено (paid/completed)
       },
       pendingWithdrawals: pendingWithdrawals.map((p: any) => ({
         id: p.id,
@@ -4344,21 +4868,35 @@ app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
   }
 });
 
-// Get all withdrawals (SQL payouts table)
+// Get all withdrawals (SQL payouts table) - supports ?status=awaiting|paid|all
 app.get("/make-server-05aa3c8a/admin/withdrawals", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    const { data: payouts, error: selectError } = await supabase
-      .from('payouts')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const statusFilter = c.req.query('status') || 'all';
+    
+    // Status groups
+    const AWAITING_STATUSES = ['pending', 'approved', 'processing'];
+    const PAID_STATUSES = ['paid', 'completed'];
+    
+    let query = supabase.from('payouts').select('*');
+    
+    if (statusFilter === 'awaiting') {
+      query = query.in('status', AWAITING_STATUSES);
+    } else if (statusFilter === 'paid') {
+      query = query.in('status', PAID_STATUSES);
+    }
+    // 'all' - no filter
+    
+    const { data: payouts, error: selectError } = await query.order('created_at', { ascending: false });
     
     if (selectError) {
       console.log(`Supabase select error: ${selectError.message}`);
       return c.json({ success: false, error: selectError.message, withdrawals: [] }, 500);
     }
+    
+    console.log(`📋 Admin withdrawals (filter=${statusFilter}): ${payouts?.length || 0} items`);
     
     const withdrawals = (payouts || []).map((p: any) => ({
       id: p.id,
@@ -4385,75 +4923,160 @@ app.get("/make-server-05aa3c8a/admin/withdrawals", async (c) => {
   }
 });
 
-// Update withdrawal status (approve/reject) - SQL payouts table
+// Update withdrawal status - STRICT STATE MACHINE with UUID validation
+// 
+// TIMESTAMP SEMANTICS:
+// - processed_at = cashflow date (when money left the system)
+// - ONLY set when status becomes 'paid' or 'completed'
+// - All other statuses have processed_at = NULL
+//
+// MANUAL SQL CLEANUP REQUIRED (run once after deployment):
+//   UPDATE public.payouts SET processed_at = NULL WHERE status NOT IN ('paid','completed');
+//
 app.post("/make-server-05aa3c8a/admin/withdrawals/:withdrawalId/status", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    const withdrawalId = c.req.param('withdrawalId');
-    const { status, adminComment } = await c.req.json();
+    const payoutId = c.req.param('withdrawalId');
+    const { status: requestedStatus, adminComment } = await c.req.json();
     
-    if (!['pending', 'approved', 'rejected'].includes(status)) {
-      return c.json({ error: 'Неверный статус. Допустимые: pending, approved, rejected' }, 400);
+    // 1️⃣ UUID VALIDATION (Critical)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(payoutId)) {
+      console.error(`❌ Invalid UUID format: "${payoutId}"`);
+      return c.json({ success: false, error: 'Invalid payout ID format' }, 400);
     }
     
-    // Get current payout from SQL
+    // 2️⃣ VALID STATUSES
+    const VALID_STATUSES = ['pending', 'approved', 'processing', 'paid', 'completed', 'rejected', 'failed', 'canceled'];
+    if (!VALID_STATUSES.includes(requestedStatus)) {
+      return c.json({ 
+        success: false, 
+        error: `Invalid status. Valid: ${VALID_STATUSES.join(', ')}` 
+      }, 400);
+    }
+    
+    // 3️⃣ GET CURRENT STATUS FROM DB (with explicit UUID cast via RPC or raw SQL)
     const { data: payout, error: getError } = await supabase
       .from('payouts')
       .select('*')
-      .eq('id', withdrawalId)
+      .eq('id', payoutId)
       .single();
     
     if (getError || !payout) {
-      return c.json({ error: 'Заявка на вывод не найдена' }, 404);
+      console.error(`❌ Payout not found: ${payoutId}, error: ${getError?.message}`);
+      return c.json({ success: false, error: 'Payout not found' }, 404);
     }
     
-    const previousStatus = payout.status;
+    const currentStatus = payout.status;
+    console.log(`🔄 Payout ${payoutId}: ${currentStatus} -> ${requestedStatus} (requested by admin ${currentUser.id})`);
     
-    // Update payout in SQL
-    const { data: updatedPayout, error: updateError } = await supabase
-      .from('payouts')
-      .update({
-        status: status,
-        admin_comment: adminComment || payout.admin_comment,
-        processed_at: new Date().toISOString()
-      })
-      .eq('id', withdrawalId)
-      .select()
-      .single();
-    
-    if (updateError) {
-      console.log(`Supabase update error: ${updateError.message}`);
-      return c.json({ error: `Failed to update payout: ${updateError.message}` }, 500);
-    }
-    
-    // 🔄 Если отклонено — вернуть деньги на баланс пользователя (KV)
-    if (status === 'rejected' && previousStatus === 'pending') {
-      const user = await kv.get(`user:id:${payout.user_id}`);
-      if (user) {
-        user.баланс = (user.баланс || 0) + payout.amount;
-        user.доступныйБаланс = (user.доступныйБаланс || 0) + payout.amount;
-        await kv.set(`user:id:${payout.user_id}`, user);
-        if (user.telegramId) {
-          await kv.set(`user:tg:${user.telegramId}`, user);
+    // 4️⃣ STRICT STATE MACHINE
+    // Terminal states: paid, completed - no further transitions allowed
+    if (currentStatus === 'paid' || currentStatus === 'completed') {
+      console.log(`⚠️ Payout ${payoutId} already in terminal state: ${currentStatus}`);
+      return c.json({ 
+        success: false, 
+        error: 'Already processed (terminal state)',
+        payout: {
+          id: payout.id,
+          status: payout.status,
+          amount: payout.amount
         }
-        console.log(`💸 Возврат ${payout.amount}₽ на баланс пользователя ${payout.user_id}`);
+      }, 409);
+    }
+    
+    // Valid transitions:
+    // pending -> approved, rejected
+    // approved/processing -> paid, rejected
+    const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+      'pending': ['approved', 'rejected'],
+      'approved': ['paid', 'completed', 'rejected', 'failed'],
+      'processing': ['paid', 'completed', 'rejected', 'failed']
+    };
+    
+    const allowedNext = ALLOWED_TRANSITIONS[currentStatus] || [];
+    if (!allowedNext.includes(requestedStatus)) {
+      console.error(`❌ Invalid transition: ${currentStatus} -> ${requestedStatus}`);
+      return c.json({ 
+        success: false, 
+        error: `Invalid transition: ${currentStatus} -> ${requestedStatus}. Allowed: ${allowedNext.join(', ') || 'none'}` 
+      }, 400);
+    }
+    
+    // 5️⃣ ATOMIC UPDATE with processed_at semantics:
+    // - paid/completed: processed_at = now() (cashflow date)
+    // - any other status: processed_at = NULL
+    // Uses raw SQL with UUID cast for atomicity
+    const finalComment = adminComment || payout.admin_comment || null;
+    
+    const { data: updateResult, error: updateError } = await supabase.rpc('exec_sql', {
+      query: `
+        UPDATE public.payouts
+        SET status = $1,
+            admin_comment = $2,
+            processed_at = CASE WHEN $1 IN ('paid','completed') THEN now() ELSE NULL END
+        WHERE id = $3::uuid
+        RETURNING *;
+      `,
+      params: [requestedStatus, finalComment, payoutId]
+    });
+    
+    // Fallback to Supabase client if RPC doesn't exist
+    let updatedPayout: any = null;
+    if (updateError?.message?.includes('function') || updateError?.code === '42883') {
+      // RPC not available, use regular update with explicit NULL
+      const updatePayload: any = {
+        status: requestedStatus,
+        admin_comment: finalComment,
+        processed_at: ['paid', 'completed'].includes(requestedStatus) ? new Date().toISOString() : null
+      };
+      
+      const { data, error } = await supabase
+        .from('payouts')
+        .update(updatePayload)
+        .eq('id', payoutId)
+        .select()
+        .single();
+      
+      if (error) {
+        console.error(`❌ Update failed for ${payoutId}: ${error.message}`);
+        return c.json({ success: false, error: `Update failed: ${error.message}` }, 500);
       }
+      updatedPayout = data;
+    } else if (updateError) {
+      console.error(`❌ Update failed for ${payoutId}: ${updateError.message}`);
+      return c.json({ success: false, error: `Update failed: ${updateError.message}` }, 500);
+    } else {
+      updatedPayout = updateResult?.[0] || null;
     }
     
-    // ✅ Если одобрено — логируем
-    if (status === 'approved') {
-      console.log(`✅ Выплата ${payout.amount}₽ одобрена для ${payout.user_id}`);
+    // 404 if no rows updated (should not happen after SELECT check, but defensive)
+    if (!updatedPayout) {
+      console.error(`❌ Payout ${payoutId} not found during update`);
+      return c.json({ success: false, error: 'Payout not found' }, 404);
     }
     
-    console.log(`Admin ${currentUser.id} updated payout ${withdrawalId} to ${status}`);
+    console.log(`✅ Payout ${payoutId} updated: ${currentStatus} -> ${updatedPayout.status}`);
     
+    // 6️⃣ SIDE EFFECTS
+    // If rejected from pending/approved - funds are returned automatically (balance recalculated from SQL)
+    if (requestedStatus === 'rejected') {
+      console.log(`💸 Payout ${payoutId} rejected - funds released back to available balance`);
+    }
+    
+    if (requestedStatus === 'paid' || requestedStatus === 'completed') {
+      console.log(`💰 Payout ${payoutId} PAID: ${payout.amount}₽ to ${payout.user_id}`);
+    }
+    
+    // 7️⃣ RESPONSE with debug info
     return c.json({ 
-      success: true, 
-      withdrawal: {
+      success: true,
+      previous_status: currentStatus,
+      requested_status: requestedStatus,
+      payout: {
         id: updatedPayout.id,
-        oderId: updatedPayout.id,
         userId: updatedPayout.user_id,
         amount: updatedPayout.amount,
         method: updatedPayout.method,
@@ -4465,8 +5088,8 @@ app.post("/make-server-05aa3c8a/admin/withdrawals/:withdrawalId/status", async (
       }
     });
   } catch (error) {
-    console.log(`Admin update withdrawal error: ${error}`);
-    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
+    console.error(`❌ Admin update payout error:`, error);
+    return c.json({ success: false, error: `${error}` }, 500);
   }
 });
 
@@ -4985,7 +5608,6 @@ app.post("/make-server-05aa3c8a/admin/products", async (c) => {
       category: категория || 'general',
       is_archived: в_архиве === true,
       is_active: true,
-      in_stock: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -5182,16 +5804,43 @@ app.delete("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
     await requireAdmin(c, currentUser);
     
     const productId = c.req.param('productId');
+    let deleted = false;
     
-    const product = await kv.get(`product:${productId}`);
-    if (!product) {
-      return c.json({ error: 'Продукт не найден' }, 404);
+    // 1. Try to delete from SQL first
+    const { data: sqlProduct, error: sqlSelectError } = await supabase
+      .from('products')
+      .select('id, sku')
+      .eq('id', productId)
+      .single();
+    
+    if (sqlProduct) {
+      const { error: sqlDeleteError } = await supabase
+        .from('products')
+        .delete()
+        .eq('id', productId);
+      
+      if (!sqlDeleteError) {
+        console.log(`✅ Product deleted from SQL: ${productId}`);
+        deleted = true;
+      } else {
+        console.error(`❌ SQL delete error: ${sqlDeleteError.message}`);
+      }
     }
     
-    await kv.del(`product:${productId}`);
-    await kv.del(`product:sku:${product.sku}`);
+    // 2. Also try to delete from KV (legacy)
+    const kvProduct = await kv.get(`product:${productId}`);
+    if (kvProduct) {
+      await kv.del(`product:${productId}`);
+      if (kvProduct.sku) {
+        await kv.del(`product:sku:${kvProduct.sku}`);
+      }
+      console.log(`✅ Product deleted from KV: ${productId}`);
+      deleted = true;
+    }
     
-    console.log(`Product deleted: ${productId}`);
+    if (!deleted) {
+      return c.json({ error: 'Продукт не найден' }, 404);
+    }
     
     return c.json({ success: true, message: 'Товар удалён' });
   } catch (error) {
@@ -9109,6 +9758,111 @@ app.post("/make-server-05aa3c8a/admin/migrate-activity", async (c) => {
   }
 });
 
+// 🔄 Migrate KV earnings to SQL table
+app.post("/make-server-05aa3c8a/admin/migrate-earnings-to-sql", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    console.log('🔄 Starting KV→SQL earnings migration...');
+    
+    // Get all earnings from KV
+    const kvEarnings = await kv.getByPrefix('earning:');
+    const earningsArray = Array.isArray(kvEarnings) ? kvEarnings : [];
+    
+    // Filter out duplicates (some are stored with user prefix)
+    const uniqueEarnings = new Map();
+    for (const e of earningsArray) {
+      if (e.id && e.userId && e.amount) {
+        uniqueEarnings.set(e.id, e);
+      }
+    }
+    
+    console.log(`📊 Found ${uniqueEarnings.size} unique earnings in KV`);
+    
+    let migratedCount = 0;
+    let errorCount = 0;
+    
+    for (const [id, earning] of uniqueEarnings) {
+      try {
+        // Check if already exists in SQL (use maybeSingle to avoid error on no match)
+        const { data: existingRecords } = await supabase
+          .from('earnings')
+          .select('id')
+          .eq('order_id', earning.orderId || earning.id)
+          .eq('user_id', earning.userId)
+          .eq('level', earning.level || 'L0');  // Must match unique constraint
+        
+        if (existingRecords && existingRecords.length > 0) {
+          console.log(`⏭️ Skipping ${earning.userId}: already exists for order ${earning.orderId}`);
+          continue;
+        }
+        
+        // Insert into SQL
+        const { error: insertError } = await supabase
+          .from('earnings')
+          .insert({
+            user_id: earning.userId,
+            order_id: earning.orderId || earning.id,
+            amount: earning.amount || earning.сумма || 0,
+            level: earning.level || 'L0',
+            order_type: earning.isPartner ? 'partner' : 'guest',  // 🔥 Required field!
+            product_sku: earning.sku || null,
+            status: 'paid',
+            created_at: earning.createdAt || new Date().toISOString()
+          });
+        
+        if (insertError) {
+          console.error(`❌ Failed to insert earning for ${earning.userId}:`, insertError.message, JSON.stringify({
+            user_id: earning.userId,
+            order_id: earning.orderId || earning.id,
+            amount: earning.amount || earning.сумма || 0,
+            level: earning.level || 'L0',
+            order_type: earning.isPartner ? 'partner' : 'guest'
+          }));
+          errorCount++;
+        } else {
+          migratedCount++;
+          console.log(`✅ Migrated earning: ${earning.amount}₽ → ${earning.userId} (order: ${earning.orderId})`);
+        }
+      } catch (e) {
+        console.error(`❌ Error processing earning ${id}:`, e, JSON.stringify(earning));
+        errorCount++;
+      }
+    }
+    
+    console.log(`🎉 Migration complete: ${migratedCount} migrated, ${errorCount} errors`);
+    
+    // Collect first 5 samples for debugging
+    const sampleEarnings: any[] = [];
+    let i = 0;
+    for (const [id, earning] of uniqueEarnings) {
+      if (i++ < 5) {
+        sampleEarnings.push({
+          id: earning.id,
+          userId: earning.userId,
+          orderId: earning.orderId,
+          amount: earning.amount,
+          level: earning.level,
+          isPartner: earning.isPartner
+        });
+      }
+    }
+    
+    return c.json({ 
+      success: true, 
+      message: `Migration complete: ${migratedCount} earnings migrated, ${errorCount} errors`,
+      totalKvEarnings: uniqueEarnings.size,
+      migratedCount,
+      errorCount,
+      sampleEarnings
+    });
+  } catch (error) {
+    console.error('❌ Earnings migration error:', error);
+    return c.json({ error: `Migration failed: ${error}` }, 500);
+  }
+});
+
 // Recalculate all ranks (admin only)
 app.post("/make-server-05aa3c8a/admin/recalculate-ranks", async (c) => {
   try {
@@ -9221,8 +9975,14 @@ app.post("/make-server-05aa3c8a/admin/recalculate-ranks", async (c) => {
 /**
  * 🚀 Оптимизированная загрузка пользователей с кэшированными метриками
  * Используется новым компонентом UsersManagementOptimized
+ * 
+ * ВАЖНО: totalBalance берётся из SQL ledger (get_admin_finance_stats RPC)
+ * а НЕ из profiles.balance или u.баланс (legacy)
  */
 app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
+  // 🔥 Cache-Control: no-store для предотвращения устаревших данных
+  c.header('Cache-Control', 'no-store, no-cache, must-revalidate');
+  
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
@@ -9234,19 +9994,26 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
     const sortOrder = c.req.query('sortOrder') || 'desc';
     const statsFilter = c.req.query('statsFilter') || ''; // 🆕 Фильтр из виджетов
 
-    // Проверяем кэш страницы (включая statsFilter)
-    const cacheKey = `users_page:${page}:${limit}:${search}:${sortBy}:${sortOrder}:${statsFilter}`;
-    const cached = await kv.get(cacheKey);
-    
-    if (cached && cached.timestamp) {
-      const cacheAge = Date.now() - new Date(cached.timestamp).getTime();
-      if (cacheAge < 5 * 60 * 1000) { // 5 минут
-        console.log(`✅ Cache hit for page ${page}`);
-        return c.json(cached.data);
-      }
-    }
+    // 🔥 DISABLED: Page caching causes stale data for SEO users
+    // const cacheKey = `users_page:${page}:${limit}:${search}:${sortBy}:${sortOrder}:${statsFilter}`;
+    // Cache disabled - always fetch fresh data
 
     console.log(`📊 Loading optimized users page ${page} with statsFilter: ${statsFilter}...`);
+    
+    // 📊 Get ledger-based total balance from SQL (NOT profiles.balance)
+    // This is the SINGLE SOURCE OF TRUTH for partner balances
+    let ledgerTotalBalance = 0;
+    try {
+      const { data: ledgerData, error: ledgerError } = await supabase.rpc('get_admin_finance_stats');
+      if (!ledgerError && ledgerData) {
+        ledgerTotalBalance = Number(ledgerData.partners_balance ?? 0);
+        console.log(`📊 Ledger totalBalance from SQL: ${ledgerTotalBalance}₽`);
+      } else {
+        console.warn(`⚠️ Could not get ledger balance: ${ledgerError?.message}`);
+      }
+    } catch (e) {
+      console.error('Error getting ledger balance:', e);
+    }
 
     // 🎯 КРИТИЧЕСКАЯ ОПТИМИЗАЦИЯ #1: Кэш списка всех пользователей (2 минуты)
     const ALL_USERS_CACHE_KEY = 'cache:all_users_list';
@@ -9385,7 +10152,9 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
             break;
             
           case 'totalBalance':
-            // От большего баланса к меньшему
+            // 🔥 NOTE: Per-user balance sorting uses legacy u.баланс as proxy
+            // The aggregate totalBalance stat comes from SQL ledger
+            // Per-user real_balance would require N queries - too slow
             filteredUsers.sort((a: any, b: any) => (b.баланс || 0) - (a.баланс || 0));
             break;
             
@@ -9516,10 +10285,10 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
         passivePartners,
         activeUsers: users.filter((u: any) => activeUserIdsSet.has(u.id)).length,
         passiveUsers: users.filter((u: any) => !activeUserIdsSet.has(u.id)).length,
-        totalBalance: users.reduce((sum: number, u: any) => sum + (u.баланс || 0), 0),
+        totalBalance: ledgerTotalBalance, // 🔥 FROM SQL LEDGER, not legacy u.баланс
       };
       
-      console.log(`⚡ ULTRA-FAST path: ${paginatedUsers.length} users (page ${page}/${totalPages}) - NO METRICS LOADED`);
+      console.log(`⚡ ULTRA-FAST path: ${paginatedUsers.length} users, totalBalance=${ledgerTotalBalance}₽ (LEDGER)`);
       
       return c.json({
         success: true,
@@ -9605,7 +10374,7 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
       passivePartners,
       activeUsers: users.filter((u: any) => activeUserIdsSet.has(u.id)).length,
       passiveUsers: users.filter((u: any) => !activeUserIdsSet.has(u.id)).length,
-      totalBalance: users.reduce((sum: number, u: any) => sum + (u.баланс || 0), 0),
+      totalBalance: ledgerTotalBalance, // 🔥 FROM SQL LEDGER, not legacy u.баланс
     };
 
     const result = {
@@ -9615,7 +10384,7 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
       stats
     };
 
-    console.log(`✅ Loaded ${paginatedUsers.length} users (page ${page}/${totalPages})`);
+    console.log(`✅ Loaded ${paginatedUsers.length} users, totalBalance=${ledgerTotalBalance}₽ (LEDGER)`);
 
     return c.json(result);
   } catch (error) {
