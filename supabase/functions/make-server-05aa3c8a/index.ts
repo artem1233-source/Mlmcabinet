@@ -9973,370 +9973,304 @@ app.post("/make-server-05aa3c8a/admin/recalculate-ranks", async (c) => {
 // ======================
 
 /**
- * 🚀 Оптимизированная загрузка пользователей с кэшированными метриками
- * Используется новым компонентом UsersManagementOptimized
+ * 🚀 DUAL-QUERY LEDGER ARCHITECTURE for /users/optimized
  * 
- * ВАЖНО: totalBalance берётся из SQL ledger (get_admin_finance_stats RPC)
- * а НЕ из profiles.balance или u.баланс (legacy)
+ * KEY FEATURES:
+ * - Two SQL queries: one for rows (paginated), one for stats (totals)
+ * - Real balance calculated from earnings - locked_payouts - paid_payouts
+ * - No legacy profiles.balance or u.баланс - SQL ledger is the SINGLE SOURCE OF TRUTH
+ * - Proper auth, params validation, UUID detection
+ * - Dynamic SQL with STRICT SCOPING (no pr.* inside CTEs)
  */
+
+// SQL CTEs for ledger calculation - REUSABLE between rows and stats queries
+const LEDGER_COMMON_CTES = `
+  WITH e AS (
+    SELECT user_id, COALESCE(SUM(amount),0) as s FROM public.earnings GROUP BY user_id
+  ),
+  p AS (
+    SELECT user_id, 
+      COALESCE(SUM(amount) FILTER (WHERE status IN ('pending','approved','processing')),0) as l, 
+      COALESCE(SUM(amount) FILTER (WHERE status IN ('paid','completed')),0) as pd 
+    FROM public.payouts GROUP BY user_id
+  ),
+  ledger AS (
+    SELECT 
+      pr.id, pr.email, pr.first_name, pr.last_name, pr.created_at, pr.role, pr.supabase_id,
+      ROUND((COALESCE(e.s,0) - COALESCE(p.l,0) - COALESCE(p.pd,0))::numeric, 2)::float8 as real_balance
+    FROM public.profiles pr
+    LEFT JOIN e ON e.user_id = pr.id
+    LEFT JOIN p ON p.user_id = pr.id
+    WHERE pr.role NOT IN ('admin', 'ceo', 'manager', 'service_account')
+  )
+`;
+
+function getLedgerRowsSql(whereClause: string, orderClause: string, paginationClause: string): string {
+  return `
+    ${LEDGER_COMMON_CTES},
+    filtered_ledger AS (
+      SELECT * FROM ledger
+      ${whereClause}
+    )
+    SELECT * FROM filtered_ledger
+    ${orderClause}
+    ${paginationClause}
+  `;
+}
+
+function getLedgerStatsSql(whereClause: string): string {
+  return `
+    ${LEDGER_COMMON_CTES},
+    filtered_ledger AS (
+      SELECT * FROM ledger
+      ${whereClause}
+    ),
+    global_s AS ( SELECT COALESCE(SUM(real_balance),0) as total_balance_all, COUNT(*)::bigint as total_users FROM ledger ),
+    filtered_s AS ( SELECT COALESCE(SUM(real_balance),0) as total_balance_filtered, COUNT(*)::bigint as total_count FROM filtered_ledger )
+    SELECT gs.total_balance_all, gs.total_users, fs.total_balance_filtered, fs.total_count
+    FROM global_s gs CROSS JOIN filtered_s fs
+  `;
+}
+
 app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
   // 🔥 Cache-Control: no-store для предотвращения устаревших данных
   c.header('Cache-Control', 'no-store, no-cache, must-revalidate');
   
   try {
+    // === STEP 1: AUTH & PARAMS ===
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
-
-    const page = parseInt(c.req.query('page') || '1');
-    const limit = parseInt(c.req.query('limit') || '50');
-    const search = c.req.query('search') || '';
+    
+    // Params & Detection
+    const q = (c.req.query('search') ?? '').trim();
+    const qLower = q.toLowerCase();
+    
+    // Pagination Clamping
+    const limitParam = c.req.query('limit');
+    const pageParam = c.req.query('page');
+    const limit = Math.min(Math.max(Number(limitParam) || 50, 1), 200);
+    const page = Math.max(Number(pageParam) || 1, 1);
+    const offset = (page - 1) * limit;
+    
     const sortBy = c.req.query('sortBy') || 'created';
     const sortOrder = c.req.query('sortOrder') || 'desc';
-    const statsFilter = c.req.query('statsFilter') || ''; // 🆕 Фильтр из виджетов
-
-    // 🔥 DISABLED: Page caching causes stale data for SEO users
-    // const cacheKey = `users_page:${page}:${limit}:${search}:${sortBy}:${sortOrder}:${statsFilter}`;
-    // Cache disabled - always fetch fresh data
-
-    console.log(`📊 Loading optimized users page ${page} with statsFilter: ${statsFilter}...`);
+    const statsFilter = c.req.query('statsFilter') || '';
     
-    // 📊 Get ledger-based total balance from SQL (NOT profiles.balance)
-    // This is the SINGLE SOURCE OF TRUTH for partner balances
-    let ledgerTotalBalance = 0;
-    try {
+    // Detect UUID (Exact Match Mode)
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const isUuid = UUID_RE.test(qLower);
+    
+    console.log(`📊 DUAL-QUERY LEDGER: page=${page}, limit=${limit}, search="${q}", isUuid=${isUuid}, statsFilter=${statsFilter}`);
+    
+    // === STEP 2: BUILD WHERE CLAUSE ===
+    // CRITICAL: Inside filtered_ledger, refer to columns (email, first_name), NOT pr.email
+    let whereClause = '';
+    if (q) {
+      if (isUuid) {
+        // Exact UUID match
+        whereClause = `WHERE supabase_id = '${q}'`;
+      } else {
+        // Fuzzy search on name, email, id
+        const escaped = q.replace(/'/g, "''");
+        whereClause = `WHERE (
+          LOWER(email) LIKE '%${escaped.toLowerCase()}%' OR
+          LOWER(first_name) LIKE '%${escaped.toLowerCase()}%' OR
+          LOWER(last_name) LIKE '%${escaped.toLowerCase()}%' OR
+          LOWER(id) LIKE '%${escaped.toLowerCase()}%'
+        )`;
+      }
+    }
+    
+    // === STEP 3: BUILD ORDER CLAUSE ===
+    let orderColumn = 'created_at';
+    let orderDir = sortOrder === 'asc' ? 'ASC' : 'DESC';
+    
+    switch (sortBy) {
+      case 'name':
+        orderColumn = 'first_name';
+        break;
+      case 'balance':
+        orderColumn = 'real_balance';
+        break;
+      case 'created':
+      default:
+        orderColumn = 'created_at';
+    }
+    
+    const orderClause = `ORDER BY ${orderColumn} ${orderDir} NULLS LAST`;
+    const paginationClause = `LIMIT ${limit} OFFSET ${offset}`;
+    
+    // === STEP 4: EXECUTE DUAL QUERIES IN PARALLEL ===
+    const rowsSql = getLedgerRowsSql(whereClause, orderClause, paginationClause);
+    const statsSql = getLedgerStatsSql(whereClause);
+    
+    console.log(`📊 Executing dual queries...`);
+    
+    const [rowsResult, statsResult] = await Promise.all([
+      supabase.rpc('exec_sql', { sql_query: rowsSql }),
+      supabase.rpc('exec_sql', { sql_query: statsSql })
+    ]);
+    
+    // Fallback: if RPC doesn't exist, use raw query approach
+    let users: any[] = [];
+    let statsData: any = { total_balance_all: 0, total_users: 0, total_balance_filtered: 0, total_count: 0 };
+    
+    if (rowsResult.error?.message?.includes('function') || statsResult.error?.message?.includes('function')) {
+      // RPC doesn't exist - fall back to direct SQL via supabase-js
+      console.log(`⚠️ exec_sql RPC not found, falling back to profiles + manual calculation`);
+      
+      // Get ledger stats from existing RPC
       const { data: ledgerData, error: ledgerError } = await supabase.rpc('get_admin_finance_stats');
       if (!ledgerError && ledgerData) {
-        ledgerTotalBalance = Number(ledgerData.partners_balance ?? 0);
-        console.log(`📊 Ledger totalBalance from SQL: ${ledgerTotalBalance}₽`);
-      } else {
-        console.warn(`⚠️ Could not get ledger balance: ${ledgerError?.message}`);
-      }
-    } catch (e) {
-      console.error('Error getting ledger balance:', e);
-    }
-
-    // 🎯 КРИТИЧЕСКАЯ ОПТИМИЗАЦИЯ #1: Кэш списка всех пользователей (2 минуты)
-    const ALL_USERS_CACHE_KEY = 'cache:all_users_list';
-    const ALL_USERS_CACHE_TTL = 2 * 60 * 1000;
-    
-    let allUsersCache = await kv.get(ALL_USERS_CACHE_KEY);
-    let users: any[];
-    
-    if (allUsersCache && allUsersCache.timestamp) {
-      const cacheAge = Date.now() - new Date(allUsersCache.timestamp).getTime();
-      if (cacheAge < ALL_USERS_CACHE_TTL) {
-        console.log(`✅ Using cached all users (age: ${Math.round(cacheAge/1000)}s)`);
-        users = allUsersCache.users;
-      } else {
-        const allUsers = await kv.getByPrefix('user:id:');
-        users = allUsers.filter((u: any) => !isUserAdmin(u));
-        await kv.set(ALL_USERS_CACHE_KEY, { users, timestamp: new Date().toISOString() });
-      }
-    } else {
-      const allUsers = await kv.getByPrefix('user:id:');
-      users = allUsers.filter((u: any) => !isUserAdmin(u));
-      await kv.set(ALL_USERS_CACHE_KEY, { users, timestamp: new Date().toISOString() });
-    }
-
-    // Применяем поиск
-    let filteredUsers = users;
-    if (search) {
-      const searchLower = search.toLowerCase();
-      filteredUsers = users.filter((u: any) => 
-        u.имя?.toLowerCase().includes(searchLower) ||
-        u.фамилия?.toLowerCase().includes(searchLower) ||
-        u.email?.toLowerCase().includes(searchLower) ||
-        u.телефон?.includes(search) ||
-        u.id?.includes(search)
-      );
-    }
-
-    // 🎯 Применяем фильтр из виджетов статистики
-    if (statsFilter && statsFilter !== 'all') {
-      const now = new Date();
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      
-      // Для фильтров по заказам загружаем их один раз
-      let allOrders: any[] = [];
-      if (statsFilter === 'activeUsers' || statsFilter === 'passiveUsers') {
-        allOrders = await kv.getByPrefix('order:');
+        statsData.total_balance_all = Number(ledgerData.partners_balance ?? 0);
       }
       
-      switch (statsFilter) {
-        case 'newToday':
-          filteredUsers = filteredUsers.filter((u: any) => {
-            const regDate = new Date(u.зарегистрирован || u.createdAt || 0);
-            return regDate >= todayStart;
-          });
-          break;
-          
-        case 'newThisMonth':
-          filteredUsers = filteredUsers.filter((u: any) => {
-            const regDate = new Date(u.зарегистрирован || u.createdAt || 0);
-            return regDate >= monthStart;
-          });
-          break;
-          
-        case 'activePartners':
-          // Те, кто подключил хотя бы 1 реферала в текущем месяце
-          filteredUsers = filteredUsers.filter((u: any) => {
-            if (!u.команда || u.команда.length === 0) return false;
-            // Считаем рефералов, зарегистрированных в текущем месяце
-            const newRefsThisMonth = u.команда.filter((refId: string) => {
-              const ref = users.find((usr: any) => usr.id === refId);
-              if (!ref) return false;
-              const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
-              return refDate >= monthStart;
-            });
-            return newRefsThisMonth.length > 0;
-          });
-          break;
-          
-        case 'passivePartners':
-          // Те, кто НЕ подключил ни одного реферала в текущем месяце
-          filteredUsers = filteredUsers.filter((u: any) => {
-            if (!u.команда || u.команда.length === 0) return true;
-            // Считаем рефералов, зарегистрированных в текущем месяце
-            const newRefsThisMonth = u.команда.filter((refId: string) => {
-              const ref = users.find((usr: any) => usr.id === refId);
-              if (!ref) return false;
-              const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
-              return refDate >= monthStart;
-            });
-            return newRefsThisMonth.length === 0;
-          });
-          break;
-          
-        case 'activeUsers':
-          // Сделали хотя бы 1 заказ в текущем месяце
-          const ordersThisMonth = allOrders.filter((o: any) => {
-            const orderDate = new Date(o.датаЗаказа || o.дата || o.createdAt || 0);
-            return orderDate >= monthStart;
-          });
-          const activeUserIds = new Set(ordersThisMonth.map((o: any) => o.продавецId).filter(Boolean));
-          filteredUsers = filteredUsers.filter((u: any) => activeUserIds.has(u.id));
-          break;
-          
-        case 'passiveUsers':
-          // НЕ сделали ни одного заказа в текущем месяце
-          const ordersThisMonth2 = allOrders.filter((o: any) => {
-            const orderDate = new Date(o.датаЗаказа || o.дата || o.createdAt || 0);
-            return orderDate >= monthStart;
-          });
-          const activeUserIds2 = new Set(ordersThisMonth2.map((o: any) => o.продавецId).filter(Boolean));
-          filteredUsers = filteredUsers.filter((u: any) => !activeUserIds2.has(u.id));
-          break;
-          
-        case 'totalBalance':
-          // Для totalBalance просто сортируем по балансу, не фильтруем
-          break;
-      }
-    }
-
-    // 🎯 ОПТИМИЗАЦИЯ #2: Если сортировка не требует метрик - пагинируем СНАЧАЛА
-    if (sortBy === 'name' || sortBy === 'balance' || sortBy === 'created') {
-      // 🎯 Применяем специальную сортировку для фильтров виджетов
-      if (statsFilter && statsFilter !== 'all') {
-        const now = new Date();
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        
-        switch (statsFilter) {
-          case 'newThisMonth':
-            // От новых к старым (позже зарегистрированных к началу месяца)
-            filteredUsers.sort((a: any, b: any) => {
-              const dateA = new Date(a.зарегистрирован || a.createdAt || 0).getTime();
-              const dateB = new Date(b.зарегистрирован || b.createdAt || 0).getTime();
-              return dateB - dateA; // DESC (новые первые)
-            });
-            break;
-            
-          case 'totalBalance':
-            // 🔥 NOTE: Per-user balance sorting uses legacy u.баланс as proxy
-            // The aggregate totalBalance stat comes from SQL ledger
-            // Per-user real_balance would require N queries - too slow
-            filteredUsers.sort((a: any, b: any) => (b.баланс || 0) - (a.баланс || 0));
-            break;
-            
-          case 'activePartners':
-            // От большего количества новых рефералов к меньшему
-            filteredUsers.sort((a: any, b: any) => {
-              const countA = (a.команда || []).filter((refId: string) => {
-                const ref = users.find((u: any) => u.id === refId);
-                if (!ref) return false;
-                const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
-                return refDate >= monthStart;
-              }).length;
-              const countB = (b.команда || []).filter((refId: string) => {
-                const ref = users.find((u: any) => u.id === refId);
-                if (!ref) return false;
-                const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
-                return refDate >= monthStart;
-              }).length;
-              return countB - countA;
-            });
-            break;
-            
-          case 'activeUsers':
-            // От большего количества покупок к меньшему
-            {
-              const allOrders = await kv.getByPrefix('order:');
-              const ordersThisMonth = allOrders.filter((o: any) => {
-                const orderDate = new Date(o.датаЗаказа || o.дата || o.createdAt || 0);
-                return orderDate >= monthStart;
-              });
-              
-              filteredUsers.sort((a: any, b: any) => {
-                const ordersA = ordersThisMonth.filter((o: any) => o.продавецId === a.id).length;
-                const ordersB = ordersThisMonth.filter((o: any) => o.продавецId === b.id).length;
-                return ordersB - ordersA;
-              });
-            }
-            break;
-            
-          default:
-            // Для остальных фильтров - обычная сортировка
-            filteredUsers.sort((a: any, b: any) => {
-              let comparison = 0;
-              switch (sortBy) {
-                case 'name':
-                  comparison = (a.имя || '').localeCompare(b.имя || '');
-                  break;
-                case 'balance':
-                  comparison = (b.баланс || 0) - (a.баланс || 0);
-                  break;
-                case 'created':
-                default:
-                  comparison = new Date(b.зарегистрирован || 0).getTime() - new Date(a.зарегистрирован || 0).getTime();
-              }
-              return sortOrder === 'asc' ? -comparison : comparison;
-            });
+      // Get users from profiles with real_balance calculation
+      let query = supabase
+        .from('profiles')
+        .select('id, email, first_name, last_name, created_at, role, supabase_id')
+        .not('role', 'in', '("admin","ceo","manager","service_account")');
+      
+      if (q) {
+        if (isUuid) {
+          query = query.eq('supabase_id', q);
+        } else {
+          query = query.or(`email.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%,id.ilike.%${q}%`);
         }
-      } else {
-        // Обычная сортировка без фильтра
-        filteredUsers.sort((a: any, b: any) => {
-          let comparison = 0;
-          switch (sortBy) {
-            case 'name':
-              comparison = (a.имя || '').localeCompare(b.имя || '');
-              break;
-            case 'balance':
-              comparison = (b.баланс || 0) - (a.баланс || 0);
-              break;
-            case 'created':
-            default:
-              comparison = new Date(b.зарегистрирован || 0).getTime() - new Date(a.зарегистрирован || 0).getTime();
-          }
-          return sortOrder === 'asc' ? -comparison : comparison;
-        });
       }
       
-      // Пагинируем ДО загрузки метрик
-      const total = filteredUsers.length;
-      const totalPages = Math.ceil(total / limit);
-      const start = (page - 1) * limit;
-      const end = start + limit;
-      const paginatedUsers = filteredUsers.slice(start, end);
+      // Apply sorting
+      const ascending = sortOrder === 'asc';
+      switch (sortBy) {
+        case 'name':
+          query = query.order('first_name', { ascending });
+          break;
+        case 'created':
+        default:
+          query = query.order('created_at', { ascending });
+      }
       
-      // ⚡ КРИТИЧЕСКОЕ УСКОРЕНИЕ: НЕ загружаем метрики на быстром пути
-      // Клиент сам догрузит ранги через getUserRank API
-      // Это экономит ~500-1000ms на страницу
+      // Get total count
+      const countQuery = supabase
+        .from('profiles')
+        .select('id', { count: 'exact', head: true })
+        .not('role', 'in', '("admin","ceo","manager","service_account")');
       
-      // 📊 Рассчитываем статистику
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      if (q) {
+        if (isUuid) {
+          countQuery.eq('supabase_id', q);
+        } else {
+          countQuery.or(`email.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%,id.ilike.%${q}%`);
+        }
+      }
       
-      // Для активных/пассивных по покупкам
-      const allOrders = await kv.getByPrefix('order:');
-      const ordersThisMonth = allOrders.filter((o: any) => {
-        const orderDate = new Date(o.датаЗаказа || o.дата || o.createdAt || 0);
-        return orderDate >= thisMonth;
-      });
-      const activeUserIdsSet = new Set(ordersThisMonth.map((o: any) => o.продавецId).filter(Boolean));
+      const [{ data: profilesData, error: profilesError }, { count: totalCount }] = await Promise.all([
+        query.range(offset, offset + limit - 1),
+        countQuery
+      ]);
       
-      // Активные партнёры - кто подключил хотя бы 1 реферала в текущем месяце
-      const activePartners = users.filter((u: any) => {
-        if (!u.команда || u.команда.length === 0) return false;
-        return u.команда.some((refId: string) => {
-          const ref = users.find((usr: any) => usr.id === refId);
-          if (!ref) return false;
-          const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
-          return refDate >= thisMonth;
+      if (profilesError) {
+        console.error('Profiles query error:', profilesError);
+        throw new Error(`Profiles query failed: ${profilesError.message}`);
+      }
+      
+      // Calculate real_balance for each user
+      if (profilesData && profilesData.length > 0) {
+        const userIds = profilesData.map((p: any) => p.id);
+        
+        // Get earnings and payouts for these users
+        const [{ data: earningsData }, { data: payoutsData }] = await Promise.all([
+          supabase.from('earnings').select('user_id, amount').in('user_id', userIds),
+          supabase.from('payouts').select('user_id, amount, status').in('user_id', userIds)
+        ]);
+        
+        // Calculate balances
+        const earningsByUser = new Map<string, number>();
+        const lockedByUser = new Map<string, number>();
+        const paidByUser = new Map<string, number>();
+        
+        (earningsData || []).forEach((e: any) => {
+          earningsByUser.set(e.user_id, (earningsByUser.get(e.user_id) || 0) + Number(e.amount));
         });
-      }).length;
-      
-      // Пассивные партнёры - кто не подключил ни одного реферала в текущем месяце
-      const passivePartners = users.filter((u: any) => {
-        if (!u.команда || u.команда.length === 0) return true;
-        return !u.команда.some((refId: string) => {
-          const ref = users.find((usr: any) => usr.id === refId);
-          if (!ref) return false;
-          const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
-          return refDate >= thisMonth;
+        
+        (payoutsData || []).forEach((p: any) => {
+          const status = p.status;
+          if (['pending', 'approved', 'processing'].includes(status)) {
+            lockedByUser.set(p.user_id, (lockedByUser.get(p.user_id) || 0) + Number(p.amount));
+          } else if (['paid', 'completed'].includes(status)) {
+            paidByUser.set(p.user_id, (paidByUser.get(p.user_id) || 0) + Number(p.amount));
+          }
         });
-      }).length;
+        
+        users = profilesData.map((p: any) => ({
+          ...p,
+          real_balance: Math.round(((earningsByUser.get(p.id) || 0) - (lockedByUser.get(p.id) || 0) - (paidByUser.get(p.id) || 0)) * 100) / 100,
+          // Map to frontend expected format
+          имя: p.first_name,
+          фамилия: p.last_name,
+          зарегистрирован: p.created_at,
+          баланс: Math.round(((earningsByUser.get(p.id) || 0) - (lockedByUser.get(p.id) || 0) - (paidByUser.get(p.id) || 0)) * 100) / 100
+        }));
+        
+        // Sort by balance if needed (post-calculation)
+        if (sortBy === 'balance') {
+          users.sort((a, b) => sortOrder === 'asc' ? a.real_balance - b.real_balance : b.real_balance - a.real_balance);
+        }
+      }
       
-      const stats = {
-        totalUsers: users.length,
-        newToday: users.filter((u: any) => new Date(u.зарегистрирован || u.createdAt) >= today).length,
-        newThisMonth: users.filter((u: any) => new Date(u.зарегистрирован || u.createdAt) >= thisMonth).length,
-        activePartners,
-        passivePartners,
-        activeUsers: users.filter((u: any) => activeUserIdsSet.has(u.id)).length,
-        passiveUsers: users.filter((u: any) => !activeUserIdsSet.has(u.id)).length,
-        totalBalance: ledgerTotalBalance, // 🔥 FROM SQL LEDGER, not legacy u.баланс
-      };
+      statsData.total_count = totalCount || 0;
+      statsData.total_users = totalCount || 0;
+      statsData.total_balance_filtered = users.reduce((sum: number, u: any) => sum + (u.real_balance || 0), 0);
       
-      console.log(`⚡ ULTRA-FAST path: ${paginatedUsers.length} users, totalBalance=${ledgerTotalBalance}₽ (LEDGER)`);
+    } else {
+      // RPC worked - use results directly
+      users = rowsResult.data || [];
+      statsData = (statsResult.data && statsResult.data[0]) || statsData;
       
-      return c.json({
-        success: true,
-        users: paginatedUsers, // Возвращаем без метрик для максимальной скорости
-        pagination: { page, limit, total, totalPages, hasMore: page < totalPages },
-        stats
-      });
+      // Map to frontend expected format
+      users = users.map((u: any) => ({
+        ...u,
+        имя: u.first_name,
+        фамилия: u.last_name,
+        зарегистрирован: u.created_at,
+        баланс: u.real_balance
+      }));
     }
     
-    // Медленный путь: сортировка по метрикам
-    console.log(`⚠️ Loading metrics for ${filteredUsers.length} users (sorting by ${sortBy})`);
-    
-    const usersWithMetrics = await Promise.all(
-      filteredUsers.map(async (user: any) => {
-        const metrics = await metricsCache.getUserMetrics(user.id);
-        return { ...user, _metrics: metrics };
-      })
-    );
-
-    // Сортировка по метрикам
-    usersWithMetrics.sort((a: any, b: any) => {
-      let comparison = 0;
-      switch (sortBy) {
-        case 'rank':
-          comparison = (b._metrics?.rank || 0) - (a._metrics?.rank || 0);
-          break;
-        case 'teamSize':
-          comparison = (b._metrics?.totalTeamSize || 0) - (a._metrics?.totalTeamSize || 0);
-          break;
-        default:
-          comparison = 0;
-      }
-      return sortOrder === 'asc' ? -comparison : comparison;
-    });
-
-    // Пагинация
-    const total = usersWithMetrics.length;
+    // === STEP 5: BUILD RESPONSE ===
+    const total = Number(statsData.total_count) || users.length;
     const totalPages = Math.ceil(total / limit);
-    const start = (page - 1) * limit;
-    const end = start + limit;
-    const paginatedUsers = usersWithMetrics.slice(start, end);
-
-    // 📊 Рассчитываем статистику
+    
+    // Get additional stats from KV for activePartners, passivePartners, etc.
+    // These require team data which is in KV store
+    const kvUsers = await kv.getByPrefix('user:id:');
+    const allKvUsers = kvUsers.filter((u: any) => !isUserAdmin(u));
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     
-    // Для активных/пассивных по покупкам
+    // Active/passive partners (based on referral team)
+    const activePartners = allKvUsers.filter((u: any) => {
+      if (!u.команда || u.команда.length === 0) return false;
+      return u.команда.some((refId: string) => {
+        const ref = allKvUsers.find((usr: any) => usr.id === refId);
+        if (!ref) return false;
+        const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
+        return refDate >= thisMonth;
+      });
+    }).length;
+    
+    const passivePartners = allKvUsers.filter((u: any) => {
+      if (!u.команда || u.команда.length === 0) return true;
+      return !u.команда.some((refId: string) => {
+        const ref = allKvUsers.find((usr: any) => usr.id === refId);
+        if (!ref) return false;
+        const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
+        return refDate >= thisMonth;
+      });
+    }).length;
+    
+    // Active/passive users (based on orders)
     const allOrders = await kv.getByPrefix('order:');
     const ordersThisMonth = allOrders.filter((o: any) => {
       const orderDate = new Date(o.датаЗаказа || o.дата || o.createdAt || 0);
@@ -10344,51 +10278,28 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
     });
     const activeUserIdsSet = new Set(ordersThisMonth.map((o: any) => o.продавецId).filter(Boolean));
     
-    // Активные партнёры - кто подключил хотя бы 1 реферала в текущем месяце
-    const activePartners = users.filter((u: any) => {
-      if (!u.команда || u.команда.length === 0) return false;
-      return u.команда.some((refId: string) => {
-        const ref = users.find((usr: any) => usr.id === refId);
-        if (!ref) return false;
-        const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
-        return refDate >= thisMonth;
-      });
-    }).length;
-    
-    // Пассивные партнёры - кто не подключил ни одного реферала в текущем месяце
-    const passivePartners = users.filter((u: any) => {
-      if (!u.команда || u.команда.length === 0) return true;
-      return !u.команда.some((refId: string) => {
-        const ref = users.find((usr: any) => usr.id === refId);
-        if (!ref) return false;
-        const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
-        return refDate >= thisMonth;
-      });
-    }).length;
-    
     const stats = {
-      totalUsers: users.length,
-      newToday: users.filter((u: any) => new Date(u.зарегистрирован || u.createdAt) >= today).length,
-      newThisMonth: users.filter((u: any) => new Date(u.зарегистрирован || u.createdAt) >= thisMonth).length,
+      totalUsers: Number(statsData.total_users) || allKvUsers.length,
+      newToday: allKvUsers.filter((u: any) => new Date(u.зарегистрирован || u.createdAt) >= today).length,
+      newThisMonth: allKvUsers.filter((u: any) => new Date(u.зарегистрирован || u.createdAt) >= thisMonth).length,
       activePartners,
       passivePartners,
-      activeUsers: users.filter((u: any) => activeUserIdsSet.has(u.id)).length,
-      passiveUsers: users.filter((u: any) => !activeUserIdsSet.has(u.id)).length,
-      totalBalance: ledgerTotalBalance, // 🔥 FROM SQL LEDGER, not legacy u.баланс
+      activeUsers: allKvUsers.filter((u: any) => activeUserIdsSet.has(u.id)).length,
+      passiveUsers: allKvUsers.filter((u: any) => !activeUserIdsSet.has(u.id)).length,
+      totalBalance: Number(statsData.total_balance_all) || 0, // 🔥 FROM SQL LEDGER
     };
-
-    const result = {
+    
+    console.log(`✅ DUAL-QUERY LEDGER: ${users.length} users, totalBalance=${stats.totalBalance}₽ (SQL LEDGER)`);
+    
+    return c.json({
       success: true,
-      users: paginatedUsers,
+      users,
       pagination: { page, limit, total, totalPages, hasMore: page < totalPages },
       stats
-    };
-
-    console.log(`✅ Loaded ${paginatedUsers.length} users, totalBalance=${ledgerTotalBalance}₽ (LEDGER)`);
-
-    return c.json(result);
+    });
+    
   } catch (error) {
-    console.error('❌ Optimized users load error:', error);
+    console.error('❌ DUAL-QUERY LEDGER error:', error);
     return c.json({ error: `${error}` }, 500);
   }
 });
