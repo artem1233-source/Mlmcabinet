@@ -4186,20 +4186,61 @@ app.get("/make-server-05aa3c8a/admin/users", async (c) => {
 });
 
 // 🌳 Alias для древовидного режима - возвращает ВСЕ пользователей (включая админов для полной структуры)
+// 🔥 HOTFIX: Add ledger balances from SQL
 app.get("/make-server-05aa3c8a/admin/users/all", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    console.log('🌳 Getting ALL users for tree view...');
+    console.log('🌳 Getting ALL users for tree view with ledger balances...');
     
     // Get ALL users including admins for complete tree structure
     const users = await kv.getByPrefix('user:id:');
     const userArray = Array.isArray(users) ? users : [];
     
-    console.log(`🌳 Found ${userArray.length} total users for tree`);
+    // 🔥 GET LEDGER BALANCES FROM SQL
+    const userIds = userArray.map((u: any) => u.id).filter(Boolean);
     
-    return c.json({ success: true, users: userArray });
+    const [{ data: earningsData }, { data: payoutsData }] = await Promise.all([
+      supabase.from('earnings').select('user_id, amount').in('user_id', userIds),
+      supabase.from('payouts').select('user_id, amount, status').in('user_id', userIds)
+    ]);
+    
+    // Calculate ledger balances: earnings - locked - paid
+    const earningsByUser = new Map<string, number>();
+    const lockedByUser = new Map<string, number>();
+    const paidByUser = new Map<string, number>();
+    
+    (earningsData || []).forEach((e: any) => {
+      earningsByUser.set(e.user_id, (earningsByUser.get(e.user_id) || 0) + Number(e.amount));
+    });
+    
+    (payoutsData || []).forEach((p: any) => {
+      const status = p.status;
+      if (['pending', 'approved', 'processing'].includes(status)) {
+        lockedByUser.set(p.user_id, (lockedByUser.get(p.user_id) || 0) + Number(p.amount));
+      } else if (['paid', 'completed'].includes(status)) {
+        paidByUser.set(p.user_id, (paidByUser.get(p.user_id) || 0) + Number(p.amount));
+      }
+    });
+    
+    // Augment users with ledger balance
+    const usersWithBalance = userArray.map((u: any) => {
+      const rb = Math.round(((earningsByUser.get(u.id) || 0) - (lockedByUser.get(u.id) || 0) - (paidByUser.get(u.id) || 0)) * 100) / 100;
+      return {
+        ...u,
+        real_balance: rb,
+        balance: rb,
+        available_balance: rb,
+        balance_source: "ledger",
+        баланс: rb,
+        доступныйБаланс: rb
+      };
+    });
+    
+    console.log(`🌳 Found ${userArray.length} total users for tree with ledger balances`);
+    
+    return c.json({ success: true, users: usersWithBalance });
   } catch (error) {
     console.log(`Admin get all users error: ${error}`);
     return c.json({ 
