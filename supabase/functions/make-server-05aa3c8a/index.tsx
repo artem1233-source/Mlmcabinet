@@ -10248,7 +10248,15 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
     } else {
       // RPC worked - use results directly
       const rows = rowsResult.data || [];
-      statsData = (statsResult.data && statsResult.data[0]) || statsData;
+      
+      // Extract stats from stats query result
+      const st = (statsResult.data && statsResult.data[0]) || {};
+      statsData = {
+        total_balance_all: Number(st.total_balance_all ?? 0),
+        total_balance_filtered: Number(st.total_balance_filtered ?? 0),
+        total_count: Number(st.total_count ?? 0),
+        total_users: Number(st.total_users ?? 0)
+      };
       
       // Map to frontend expected format with ledger balances
       users = rows.map((r: any) => {
