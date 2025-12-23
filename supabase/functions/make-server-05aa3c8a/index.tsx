@@ -9985,6 +9985,7 @@ app.post("/make-server-05aa3c8a/admin/recalculate-ranks", async (c) => {
  */
 
 // SQL CTEs for ledger calculation - REUSABLE between rows and stats queries
+// HOTFIX: Include to_jsonb(pr) as profile to restore UI fields (avatar, socials, etc.)
 const LEDGER_CTE = `
   WITH e AS (
     SELECT user_id, COALESCE(SUM(amount),0) as s FROM public.earnings GROUP BY user_id
@@ -9997,12 +9998,12 @@ const LEDGER_CTE = `
   ),
   ledger AS (
     SELECT 
-      pr.id, pr.email, pr.first_name, pr.last_name, pr.created_at, pr.role, pr.supabase_id,
+      pr.id, pr.supabase_id, pr.email, pr.first_name, pr.last_name, pr.created_at, pr.role,
+      to_jsonb(pr) as profile,
       ROUND((COALESCE(e.s,0) - COALESCE(p.l,0) - COALESCE(p.pd,0))::numeric, 2)::float8 as real_balance
     FROM public.profiles pr
     LEFT JOIN e ON e.user_id = pr.id
     LEFT JOIN p ON p.user_id = pr.id
-    WHERE pr.role NOT IN ('admin', 'ceo', 'manager', 'service_account')
   )
 `;
 
@@ -10211,20 +10212,22 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
           }
         });
         
+        // Map to frontend expected format - spread profile first, then overwrite with ledger balances
         users = profilesData.map((p: any) => {
           const rb = Math.round(((earningsByUser.get(p.id) || 0) - (lockedByUser.get(p.id) || 0) - (paidByUser.get(p.id) || 0)) * 100) / 100;
           return {
-            id: p.id,
+            ...p,                     // Spread full profile (avatar_url, socials, phone, etc.)
+            id: p.id,                 // Guarantee id
+            supabase_id: p.supabase_id,
             email: p.email,
             first_name: p.first_name,
             last_name: p.last_name,
             role: p.role,
             created_at: p.created_at,
-            supabase_id: p.supabase_id,
-            // Ledger Balances (single source of truth)
+            // Ledger Balances (single source of truth) - OVERWRITE legacy
             real_balance: rb,
-            balance: rb,           // Overwrite legacy
-            available_balance: rb, // Overwrite legacy
+            balance: rb,
+            available_balance: rb,
             balance_source: "ledger",
             // Russian frontend fields
             имя: p.first_name,
@@ -10258,26 +10261,29 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
         total_users: Number(st.total_users ?? 0)
       };
       
-      // Map to frontend expected format with ledger balances
+      // Map to frontend expected format - spread profile first, then overwrite with ledger balances
       users = rows.map((r: any) => {
         const rb = Number(r.real_balance ?? 0);
+        const profile = r.profile || {};
+        
         return {
-          id: r.id,
-          email: r.email,
-          first_name: r.first_name,
-          last_name: r.last_name,
-          role: r.role,
-          created_at: r.created_at,
-          supabase_id: r.supabase_id,
-          // Ledger Balances (single source of truth)
+          ...profile,               // Restore avatar_url, socials, display_name, phone, etc.
+          id: r.id,                 // Guarantee id from CTE
+          supabase_id: r.supabase_id ?? profile.supabase_id,
+          email: r.email ?? profile.email,
+          first_name: r.first_name ?? profile.first_name,
+          last_name: r.last_name ?? profile.last_name,
+          role: r.role ?? profile.role,
+          created_at: r.created_at ?? profile.created_at,
+          // Ledger Balances (single source of truth) - OVERWRITE legacy
           real_balance: rb,
-          balance: rb,           // Overwrite legacy
-          available_balance: rb, // Overwrite legacy
+          balance: rb,
+          available_balance: rb,
           balance_source: "ledger",
           // Russian frontend fields
-          имя: r.first_name,
-          фамилия: r.last_name,
-          зарегистрирован: r.created_at,
+          имя: r.first_name ?? profile.first_name,
+          фамилия: r.last_name ?? profile.last_name,
+          зарегистрирован: r.created_at ?? profile.created_at,
           баланс: rb,
           доступныйБаланс: rb
         };

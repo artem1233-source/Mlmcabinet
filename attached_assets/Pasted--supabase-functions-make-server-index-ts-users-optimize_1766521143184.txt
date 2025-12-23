@@ -1,0 +1,110 @@
+@supabase/functions/make-server/index.ts
+
+ЗАДАЧА: СРОЧНЫЙ ХОТФИКС /users/optimized — вернуть поля профиля для UI (аватарки/соцсети/имена), НЕ ломая леджерные балансы.
+
+ПРОБЛЕМА:
+- После перехода на "жёсткий whitelist" пропали avatar/соцсети/часть отображаемых данных.
+- Один пользователь (Дмитрий Кумейко) вообще не отображается — вероятен лишний фильтр role/status.
+- Дерево показывает неверные балансы, потому что использует другой эндпоинт (пофиксим отдельно). Сейчас цель — восстановить Список.
+
+РЕШЕНИЕ:
+- В SQL вернуть весь профиль как JSON: to_jsonb(pr) AS profile.
+- Оставить отдельные поля email/first_name/last_name в CTE, чтобы фильтр WHERE работал по индексам.
+- В маппинге вернуть ...profile и затем ПЕРЕЗАТЕРЕТЬ balance/available_balance леджерным значением.
+
+ШАГ 1 — УБРАТЬ СЛУЧАЙНЫЕ ФИЛЬТРЫ (временно)
+Найти в файле любые условия вида:
+  WHERE pr.role NOT IN (...)
+  WHERE pr.status = ...
+и ВРЕМЕННО убрать/закомментировать.
+Пока мы не уверены, что такие же фильтры применяются во всех местах одинаково.
+
+ШАГ 2 — ЗАМЕНИТЬ COMMON_CTES НА ВЕРСИЮ С profile JSON
+
+Заменить COMMON_CTES на:
+
+const COMMON_CTES = `
+  WITH e AS (
+    SELECT user_id, COALESCE(SUM(amount),0) as s
+    FROM public.earnings
+    GROUP BY user_id
+  ),
+  p AS (
+    SELECT user_id,
+      COALESCE(SUM(amount) FILTER (WHERE status IN ('pending','approved','processing')),0) as l,
+      COALESCE(SUM(amount) FILTER (WHERE status IN ('paid','completed')),0) as pd
+    FROM public.payouts
+    GROUP BY user_id
+  ),
+  ledger AS (
+    SELECT
+      pr.id,
+      pr.supabase_id,
+      pr.email,
+      pr.first_name,
+      pr.last_name,
+      pr.created_at,
+      pr.role,
+
+      -- ВАЖНО: вернуть весь профиль для фронта
+      to_jsonb(pr) as profile,
+
+      ROUND((COALESCE(e.s,0) - COALESCE(p.l,0) - COALESCE(p.pd,0))::numeric, 2)::float8 as real_balance
+    FROM public.profiles pr
+    LEFT JOIN e ON e.user_id = pr.id
+    LEFT JOIN p ON p.user_id = pr.id
+
+    -- НЕ добавлять role/status фильтр на хотфиксе
+  )
+`;
+
+Функции getRowsSql / getStatsSql оставить как есть (они должны фильтровать по колонкам CTE, а не по pr.*).
+
+ШАГ 3 — WHERE УСЛОВИЯ (строго по колонкам CTE)
+
+UUID режим:
+const whereUuid = `WHERE (id = $1::uuid OR lower(supabase_id::text) = $1::text)`;
+
+Текстовый режим:
+const whereText = `
+  WHERE (
+    $1::text IS NULL
+    OR lower(email)      LIKE $1
+    OR lower(first_name) LIKE $1
+    OR lower(last_name)  LIKE $1
+  )
+`;
+
+ШАГ 4 — МАППИНГ (ВОССТАНОВИТЬ UI ПОЛЯ)
+Заменить формирование users на:
+
+const users = (rowsRes.rows || []).map((r) => {
+  const rb = Number(r.real_balance ?? 0);
+  const profile = r.profile || {};
+
+  return {
+    ...profile,               // вернёт avatar_url, соцсети, display_name, phone и т.д.
+    id: r.id,                 // гарантируем id из CTE
+    supabase_id: r.supabase_id ?? profile.supabase_id,
+
+    email: r.email ?? profile.email,
+    first_name: r.first_name ?? profile.first_name,
+    last_name: r.last_name ?? profile.last_name,
+    role: r.role ?? profile.role,
+    created_at: r.created_at ?? profile.created_at,
+
+    // Леджер поверх легаси
+    real_balance: rb,
+    balance: rb,
+    available_balance: rb,
+    balance_source: "ledger"
+  };
+});
+
+ШАГ 5 — ПРОВЕРКА
+1) Открыть Network → /users/optimized → убедиться, что в каждом user снова есть avatar/metadata/соцсети как раньше.
+2) Убедиться, что Дмитрий снова появился (если нет — значит фильтр всё ещё где-то есть).
+3) Балансы в списке должны быть леджерные (rb).
+
+ПРИМЕЧАНИЕ:
+Дерево будет чиниться отдельным патчем: оно почти всегда использует другой эндпоинт/запрос.
