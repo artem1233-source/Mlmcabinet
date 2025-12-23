@@ -1,0 +1,74 @@
+@supabase/functions/make-server/index.ts
+
+TASK: Fix /users/optimized endpoint using DUAL-QUERY LEDGER ARCHITECTURE with BRANCHING STRATEGY, DYNAMIC SQL, STRICT SCOPING, and TYPE SAFETY.
+
+KEY RULE:
+Inside filtered_ledger (SELECT * FROM ledger ...), DO NOT reference table aliases like pr.*. You MUST use the columns exposed by the CTE (email, first_name, ...).
+
+=== STEP 1: AUTH & PARAMS ===
+1.  **Auth:** Verify role is `['admin', 'seo', 'manager']`. Use `service_role` client.
+2.  **Params & Detection:**
+    ```javascript
+    const q = (searchParam ?? "").trim();
+    const qLower = q.toLowerCase();
+    
+    // Pagination Clamping
+    const limit  = Math.min(Math.max(Number(limitParam) || 20, 1), 200);
+    const offset = Math.max(Number(offsetParam) || 0, 0);
+
+    // Detect UUID (Exact Match Mode)
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const isUuid = UUID_RE.test(qLower);
+    ```
+
+=== STEP 2: SQL GENERATORS (Reusable CTEs) ===
+Define the complex Ledger logic ONCE to ensure consistency between Rows and Stats.
+
+```javascript
+const COMMON_CTES = `
+  WITH e AS (
+    SELECT user_id, COALESCE(SUM(amount),0) as s FROM public.earnings GROUP BY user_id
+  ),
+  p AS (
+    SELECT user_id, 
+      COALESCE(SUM(amount) FILTER (WHERE status IN ('pending','approved','processing')),0) as l, 
+      COALESCE(SUM(amount) FILTER (WHERE status IN ('paid','completed')),0) as pd 
+    FROM public.payouts GROUP BY user_id
+  ),
+  ledger AS (
+    SELECT 
+      pr.id, pr.email, pr.first_name, pr.last_name, pr.created_at, pr.role, pr.supabase_id,
+      ROUND((COALESCE(e.s,0) - COALESCE(p.l,0) - COALESCE(p.pd,0))::numeric, 2)::float8 as real_balance
+    FROM public.profiles pr
+    LEFT JOIN e ON e.user_id = pr.id
+    LEFT JOIN p ON p.user_id = pr.id
+    -- OPTIONAL ROLE FILTER (MUST MATCH IN BOTH QUERIES):
+    -- WHERE pr.role NOT IN ('service_account')
+  )
+`;
+
+function getRowsSql(whereClause, paginationClause) {
+  return `
+    ${COMMON_CTES},
+    filtered_ledger AS (
+      SELECT * FROM ledger
+      ${whereClause} -- CRITICAL: Refer to columns (email), not aliases (pr.email)
+    )
+    SELECT * FROM filtered_ledger
+    ${paginationClause}
+  `;
+}
+
+function getStatsSql(whereClause) {
+  return `
+    ${COMMON_CTES},
+    filtered_ledger AS (
+      SELECT * FROM ledger
+      ${whereClause}
+    ),
+    global_s AS ( SELECT COALESCE(SUM(real_balance),0) as total_balance_all FROM ledger ),
+    filtered_s AS ( SELECT COALESCE(SUM(real_balance),0) as total_balance_filtered, COUNT(*)::bigint as total_count FROM filtered_ledger )
+    SELECT gs.total_balance_all, fs.total_balance_filtered, fs.total_count
+    FROM global_s gs CROSS JOIN filtered_s fs
+  `;
+}
