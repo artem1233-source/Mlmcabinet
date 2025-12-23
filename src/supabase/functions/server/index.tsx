@@ -10211,14 +10211,29 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
           }
         });
         
-        users = profilesData.map((p: any) => ({
-          ...p,
-          real_balance: Math.round(((earningsByUser.get(p.id) || 0) - (lockedByUser.get(p.id) || 0) - (paidByUser.get(p.id) || 0)) * 100) / 100,
-          имя: p.first_name,
-          фамилия: p.last_name,
-          зарегистрирован: p.created_at,
-          баланс: Math.round(((earningsByUser.get(p.id) || 0) - (lockedByUser.get(p.id) || 0) - (paidByUser.get(p.id) || 0)) * 100) / 100
-        }));
+        users = profilesData.map((p: any) => {
+          const rb = Math.round(((earningsByUser.get(p.id) || 0) - (lockedByUser.get(p.id) || 0) - (paidByUser.get(p.id) || 0)) * 100) / 100;
+          return {
+            id: p.id,
+            email: p.email,
+            first_name: p.first_name,
+            last_name: p.last_name,
+            role: p.role,
+            created_at: p.created_at,
+            supabase_id: p.supabase_id,
+            // Ledger Balances (single source of truth)
+            real_balance: rb,
+            balance: rb,           // Overwrite legacy
+            available_balance: rb, // Overwrite legacy
+            balance_source: "ledger",
+            // Russian frontend fields
+            имя: p.first_name,
+            фамилия: p.last_name,
+            зарегистрирован: p.created_at,
+            баланс: rb,
+            доступныйБаланс: rb
+          };
+        });
         
         // Sort by balance if needed (post-calculation)
         if (sortBy === 'balance') {
@@ -10232,17 +10247,33 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
       
     } else {
       // RPC worked - use results directly
-      users = rowsResult.data || [];
+      const rows = rowsResult.data || [];
       statsData = (statsResult.data && statsResult.data[0]) || statsData;
       
-      // Map to frontend expected format
-      users = users.map((u: any) => ({
-        ...u,
-        имя: u.first_name,
-        фамилия: u.last_name,
-        зарегистрирован: u.created_at,
-        баланс: u.real_balance
-      }));
+      // Map to frontend expected format with ledger balances
+      users = rows.map((r: any) => {
+        const rb = Number(r.real_balance ?? 0);
+        return {
+          id: r.id,
+          email: r.email,
+          first_name: r.first_name,
+          last_name: r.last_name,
+          role: r.role,
+          created_at: r.created_at,
+          supabase_id: r.supabase_id,
+          // Ledger Balances (single source of truth)
+          real_balance: rb,
+          balance: rb,           // Overwrite legacy
+          available_balance: rb, // Overwrite legacy
+          balance_source: "ledger",
+          // Russian frontend fields
+          имя: r.first_name,
+          фамилия: r.last_name,
+          зарегистрирован: r.created_at,
+          баланс: rb,
+          доступныйБаланс: rb
+        };
+      });
     }
     
     // === STEP 5: BUILD RESPONSE ===
