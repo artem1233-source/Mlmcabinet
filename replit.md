@@ -176,11 +176,18 @@ WITH e AS (SELECT user_id, COALESCE(SUM(amount),0) as s FROM earnings GROUP BY u
 - StatsWidgets → stats.totalBalance
 
 **Key Implementation (December 23):**
-- UUID detection for exact match vs fuzzy search
+- UUID detection for exact match vs fuzzy search (B-Tree index optimization)
+- Text mode: Hybrid prefix/substring - short queries (<3 chars) use 'term%' (text_pattern_ops), longer use '%term%' (GIN Trigram)
+- Parameterized queries ($1, $2, $3) for security and index optimization
 - Pagination clamping (limit 1-200, offset >= 0)
 - Dynamic SQL with STRICT SCOPING (no pr.* inside CTEs)
-- Fallback to manual calculation if `exec_sql` RPC unavailable
+- Fallback to supabase-js + manual calculation if `exec_sql_params` RPC unavailable
 - Cache-Control: no-store headers
+
+**Index Strategy:**
+- B-Tree: Fast UUID exact match on id/supabase_id columns
+- text_pattern_ops: Prefix search for short queries (<3 chars)
+- GIN Trigram: Substring search for longer queries (>=3 chars)
 
 ## Deployment Notes (December 6, 2025)
 

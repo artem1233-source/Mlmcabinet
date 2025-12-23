@@ -9979,12 +9979,13 @@ app.post("/make-server-05aa3c8a/admin/recalculate-ranks", async (c) => {
  * - Two SQL queries: one for rows (paginated), one for stats (totals)
  * - Real balance calculated from earnings - locked_payouts - paid_payouts
  * - No legacy profiles.balance or u.баланс - SQL ledger is the SINGLE SOURCE OF TRUTH
- * - Proper auth, params validation, UUID detection
- * - Dynamic SQL with STRICT SCOPING (no pr.* inside CTEs)
+ * - UUID MODE: Fast exact match using B-Tree indexes
+ * - TEXT MODE: Hybrid prefix/substring - short queries (<3 chars) use 'term%', longer use '%term%'
+ * - Parameterized queries for security and index optimization
  */
 
 // SQL CTEs for ledger calculation - REUSABLE between rows and stats queries
-const LEDGER_COMMON_CTES = `
+const LEDGER_CTE = `
   WITH e AS (
     SELECT user_id, COALESCE(SUM(amount),0) as s FROM public.earnings GROUP BY user_id
   ),
@@ -10005,22 +10006,21 @@ const LEDGER_COMMON_CTES = `
   )
 `;
 
-function getLedgerRowsSql(whereClause: string, orderClause: string, paginationClause: string): string {
+function getRowsSql(whereClause: string, orderPaginationClause: string): string {
   return `
-    ${LEDGER_COMMON_CTES},
+    ${LEDGER_CTE},
     filtered_ledger AS (
       SELECT * FROM ledger
       ${whereClause}
     )
     SELECT * FROM filtered_ledger
-    ${orderClause}
-    ${paginationClause}
+    ${orderPaginationClause}
   `;
 }
 
-function getLedgerStatsSql(whereClause: string): string {
+function getStatsSql(whereClause: string): string {
   return `
-    ${LEDGER_COMMON_CTES},
+    ${LEDGER_CTE},
     filtered_ledger AS (
       SELECT * FROM ledger
       ${whereClause}
@@ -10033,7 +10033,6 @@ function getLedgerStatsSql(whereClause: string): string {
 }
 
 app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
-  // 🔥 Cache-Control: no-store для предотвращения устаревших данных
   c.header('Cache-Control', 'no-store, no-cache, must-revalidate');
   
   try {
@@ -10062,62 +10061,70 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
     
     console.log(`📊 DUAL-QUERY LEDGER: page=${page}, limit=${limit}, search="${q}", isUuid=${isUuid}, statsFilter=${statsFilter}`);
     
-    // === STEP 2: BUILD WHERE CLAUSE ===
-    // CRITICAL: Inside filtered_ledger, refer to columns (email, first_name), NOT pr.email
-    let whereClause = '';
-    if (q) {
-      if (isUuid) {
-        // Exact UUID match
-        whereClause = `WHERE supabase_id = '${q}'`;
-      } else {
-        // Fuzzy search on name, email, id
-        const escaped = q.replace(/'/g, "''");
-        whereClause = `WHERE (
-          LOWER(email) LIKE '%${escaped.toLowerCase()}%' OR
-          LOWER(first_name) LIKE '%${escaped.toLowerCase()}%' OR
-          LOWER(last_name) LIKE '%${escaped.toLowerCase()}%' OR
-          LOWER(id) LIKE '%${escaped.toLowerCase()}%'
-        )`;
-      }
-    }
-    
-    // === STEP 3: BUILD ORDER CLAUSE ===
+    // === STEP 2: BUILD ORDER CLAUSE ===
     let orderColumn = 'created_at';
-    let orderDir = sortOrder === 'asc' ? 'ASC' : 'DESC';
+    const orderDir = sortOrder === 'asc' ? 'ASC' : 'DESC';
     
     switch (sortBy) {
-      case 'name':
-        orderColumn = 'first_name';
-        break;
-      case 'balance':
-        orderColumn = 'real_balance';
-        break;
-      case 'created':
-      default:
-        orderColumn = 'created_at';
+      case 'name': orderColumn = 'first_name'; break;
+      case 'balance': orderColumn = 'real_balance'; break;
+      case 'created': default: orderColumn = 'created_at';
     }
     
-    const orderClause = `ORDER BY ${orderColumn} ${orderDir} NULLS LAST`;
-    const paginationClause = `LIMIT ${limit} OFFSET ${offset}`;
+    // === STEP 3: BUILD SQL WITH PARAMETERIZED QUERIES ===
+    let rowsSql: string, statsSql: string;
+    let rowsParams: any[], statsParams: any[];
+    
+    if (isUuid) {
+      // --- UUID MODE (Fast Exact Match) ---
+      // 1. optimization: Avoid lower() on ID columns to hit B-Tree indexes directly.
+      // 2. safety: Cast to text to avoid "operator does not exist: text = uuid".
+      // 3. robustness: Use lower() on supabase_id::text for case-insensitive match.
+      const whereUuid = `WHERE (id = $1 OR lower(supabase_id::text) = $1)`;
+      
+      rowsSql   = getRowsSql(whereUuid, `ORDER BY ${orderColumn} ${orderDir} NULLS LAST, id ASC LIMIT $2 OFFSET $3`);
+      statsSql  = getStatsSql(whereUuid);
+      
+      rowsParams  = [qLower, limit, offset]; // $1=uuid, $2=limit, $3=offset
+      statsParams = [qLower];                // $1=uuid
+    } else {
+      // --- TEXT MODE (Hybrid Prefix/Substring) ---
+      const isShort = qLower.length > 0 && qLower.length < 3;
+      // Prefix ('term%') hits text_pattern_ops index; Substring ('%term%') hits GIN Trigram index.
+      const searchLike = qLower.length === 0 ? null : (isShort ? `${qLower}%` : `%${qLower}%`);
+      
+      const whereText = `
+        WHERE (
+          $1::text IS NULL 
+          OR lower(email)      LIKE $1 
+          OR lower(first_name) LIKE $1 
+          OR lower(last_name)  LIKE $1
+          OR lower(id)         LIKE $1
+        )
+      `;
+
+      rowsSql   = getRowsSql(whereText, `ORDER BY ${orderColumn} ${orderDir} NULLS LAST, id ASC LIMIT $2 OFFSET $3`);
+      statsSql  = getStatsSql(whereText);
+      
+      rowsParams  = [searchLike, limit, offset]; // $1=like, $2=limit, $3=offset
+      statsParams = [searchLike];                // $1=like
+    }
+    
+    console.log(`📊 Executing dual queries with params...`);
     
     // === STEP 4: EXECUTE DUAL QUERIES IN PARALLEL ===
-    const rowsSql = getLedgerRowsSql(whereClause, orderClause, paginationClause);
-    const statsSql = getLedgerStatsSql(whereClause);
-    
-    console.log(`📊 Executing dual queries...`);
-    
+    // Use parameterized RPC if available, otherwise fallback to supabase-js
     const [rowsResult, statsResult] = await Promise.all([
-      supabase.rpc('exec_sql', { sql_query: rowsSql }),
-      supabase.rpc('exec_sql', { sql_query: statsSql })
+      supabase.rpc('exec_sql_params', { sql_query: rowsSql, params: rowsParams }),
+      supabase.rpc('exec_sql_params', { sql_query: statsSql, params: statsParams })
     ]);
     
-    // Fallback: if RPC doesn't exist, use raw query approach
+    // Fallback: if RPC doesn't exist, use supabase-js approach
     let users: any[] = [];
     let statsData: any = { total_balance_all: 0, total_users: 0, total_balance_filtered: 0, total_count: 0 };
     
     if (rowsResult.error?.message?.includes('function') || statsResult.error?.message?.includes('function')) {
-      // RPC doesn't exist - fall back to direct SQL via supabase-js
-      console.log(`⚠️ exec_sql RPC not found, falling back to profiles + manual calculation`);
+      console.log(`⚠️ exec_sql_params RPC not found, falling back to supabase-js + manual calculation`);
       
       // Get ledger stats from existing RPC
       const { data: ledgerData, error: ledgerError } = await supabase.rpc('get_admin_finance_stats');
@@ -10131,36 +10138,38 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
         .select('id, email, first_name, last_name, created_at, role, supabase_id')
         .not('role', 'in', '("admin","ceo","manager","service_account")');
       
-      if (q) {
+      if (qLower.length > 0) {
         if (isUuid) {
-          query = query.eq('supabase_id', q);
+          // UUID exact match
+          query = query.or(`id.eq.${qLower},supabase_id.eq.${qLower}`);
         } else {
-          query = query.or(`email.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%,id.ilike.%${q}%`);
+          // Hybrid prefix/substring search
+          const isShort = qLower.length < 3;
+          const pattern = isShort ? `${qLower}%` : `%${qLower}%`;
+          query = query.or(`email.ilike.${pattern},first_name.ilike.${pattern},last_name.ilike.${pattern},id.ilike.${pattern}`);
         }
       }
       
       // Apply sorting
       const ascending = sortOrder === 'asc';
       switch (sortBy) {
-        case 'name':
-          query = query.order('first_name', { ascending });
-          break;
-        case 'created':
-        default:
-          query = query.order('created_at', { ascending });
+        case 'name': query = query.order('first_name', { ascending }); break;
+        case 'created': default: query = query.order('created_at', { ascending });
       }
       
       // Get total count
-      const countQuery = supabase
+      let countQuery = supabase
         .from('profiles')
         .select('id', { count: 'exact', head: true })
         .not('role', 'in', '("admin","ceo","manager","service_account")');
       
-      if (q) {
+      if (qLower.length > 0) {
         if (isUuid) {
-          countQuery.eq('supabase_id', q);
+          countQuery = countQuery.or(`id.eq.${qLower},supabase_id.eq.${qLower}`);
         } else {
-          countQuery.or(`email.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%,id.ilike.%${q}%`);
+          const isShort = qLower.length < 3;
+          const pattern = isShort ? `${qLower}%` : `%${qLower}%`;
+          countQuery = countQuery.or(`email.ilike.${pattern},first_name.ilike.${pattern},last_name.ilike.${pattern},id.ilike.${pattern}`);
         }
       }
       
@@ -10205,7 +10214,6 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
         users = profilesData.map((p: any) => ({
           ...p,
           real_balance: Math.round(((earningsByUser.get(p.id) || 0) - (lockedByUser.get(p.id) || 0) - (paidByUser.get(p.id) || 0)) * 100) / 100,
-          // Map to frontend expected format
           имя: p.first_name,
           фамилия: p.last_name,
           зарегистрирован: p.created_at,
