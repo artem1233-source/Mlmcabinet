@@ -140,29 +140,47 @@ Compact, non-intrusive shopping experience:
 - API endpoints: `/admin/withdrawals`, `/admin/withdrawals/:id/status`
 - Status can be: pending, approved, rejected
 
-## Balance System (December 22, 2025)
+## Balance System (December 22-23, 2025)
 
-### Ledger-Based Balance (Single Source of Truth)
+### DUAL-QUERY LEDGER ARCHITECTURE (Single Source of Truth)
 
-Partner balances are calculated from SQL ledger tables, NOT from legacy `profiles.balance` or `u.баланс`:
+Partner balances are calculated from SQL ledger using CTEs, NOT from legacy `profiles.balance` or `u.баланс`:
 
-**Data source:**
-- `get_admin_finance_stats` RPC → `partners_balance` = SUM(earnings) - locked_payouts
-- This is the single source of truth for all balance displays
+**Formula:**
+```
+real_balance = SUM(earnings) - SUM(locked_payouts) - SUM(paid_payouts)
+```
+
+Where:
+- `locked_payouts` = payouts with status IN ('pending', 'approved', 'processing')
+- `paid_payouts` = payouts with status IN ('paid', 'completed')
+
+**SQL CTEs Architecture:**
+```sql
+WITH e AS (SELECT user_id, COALESCE(SUM(amount),0) as s FROM earnings GROUP BY user_id),
+     p AS (SELECT user_id, 
+           COALESCE(SUM(amount) FILTER (WHERE status IN ('pending','approved','processing')),0) as l,
+           COALESCE(SUM(amount) FILTER (WHERE status IN ('paid','completed')),0) as pd
+           FROM payouts GROUP BY user_id),
+     ledger AS (SELECT pr.*, ROUND((COALESCE(e.s,0)-COALESCE(p.l,0)-COALESCE(p.pd,0))::numeric,2)::float8 as real_balance
+                FROM profiles pr LEFT JOIN e ON e.user_id=pr.id LEFT JOIN p ON p.user_id=pr.id)
+```
+
+**Dual Query Pattern:**
+1. **Rows Query**: Returns paginated users with real_balance
+2. **Stats Query**: Returns total_balance_all, total_count (global + filtered)
 
 **Where used:**
-- Admin Users tab (`/users/optimized`) → stats.totalBalance
-- Admin Finance tab → same RPC
-- StatsWidgets → displays stats.totalBalance
+- `/users/optimized` endpoint → users with real_balance, stats.totalBalance
+- Admin Finance tab → `get_admin_finance_stats` RPC
+- StatsWidgets → stats.totalBalance
 
-**Key changes (December 22):**
-- Disabled page caching in `/users/optimized` to prevent stale data
-- Added `Cache-Control: no-store` headers
-- totalBalance now comes from SQL ledger RPC, not legacy sum
-
-**Per-user sorting:**
-- Uses legacy `u.баланс` as proxy (N queries for real_balance too slow)
-- The aggregate totalBalance stat is correct from ledger
+**Key Implementation (December 23):**
+- UUID detection for exact match vs fuzzy search
+- Pagination clamping (limit 1-200, offset >= 0)
+- Dynamic SQL with STRICT SCOPING (no pr.* inside CTEs)
+- Fallback to manual calculation if `exec_sql` RPC unavailable
+- Cache-Control: no-store headers
 
 ## Deployment Notes (December 6, 2025)
 
