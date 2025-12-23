@@ -9984,55 +9984,14 @@ app.post("/make-server-05aa3c8a/admin/recalculate-ranks", async (c) => {
  * - Parameterized queries for security and index optimization
  */
 
-// SQL CTEs for ledger calculation - REUSABLE between rows and stats queries
-// HOTFIX: Include to_jsonb(pr) as profile to restore UI fields (avatar, socials, etc.)
-const LEDGER_CTE = `
-  WITH e AS (
-    SELECT user_id, COALESCE(SUM(amount),0) as s FROM public.earnings GROUP BY user_id
-  ),
-  p AS (
-    SELECT user_id, 
-      COALESCE(SUM(amount) FILTER (WHERE status IN ('pending','approved','processing')),0) as l, 
-      COALESCE(SUM(amount) FILTER (WHERE status IN ('paid','completed')),0) as pd 
-    FROM public.payouts GROUP BY user_id
-  ),
-  ledger AS (
-    SELECT 
-      pr.id, pr.supabase_id, pr.email, pr.first_name, pr.last_name, pr.created_at, pr.role,
-      to_jsonb(pr) as profile,
-      ROUND((COALESCE(e.s,0) - COALESCE(p.l,0) - COALESCE(p.pd,0))::numeric, 2)::float8 as real_balance
-    FROM public.profiles pr
-    LEFT JOIN e ON e.user_id = pr.id
-    LEFT JOIN p ON p.user_id = pr.id
-  )
-`;
-
-function getRowsSql(whereClause: string, orderPaginationClause: string): string {
-  return `
-    ${LEDGER_CTE},
-    filtered_ledger AS (
-      SELECT * FROM ledger
-      ${whereClause}
-    )
-    SELECT * FROM filtered_ledger
-    ${orderPaginationClause}
-  `;
-}
-
-function getStatsSql(whereClause: string): string {
-  return `
-    ${LEDGER_CTE},
-    filtered_ledger AS (
-      SELECT * FROM ledger
-      ${whereClause}
-    ),
-    global_s AS ( SELECT COALESCE(SUM(real_balance),0) as total_balance_all, COUNT(*)::bigint as total_users FROM ledger ),
-    filtered_s AS ( SELECT COALESCE(SUM(real_balance),0) as total_balance_filtered, COUNT(*)::bigint as total_count FROM filtered_ledger )
-    SELECT gs.total_balance_all, gs.total_users, fs.total_balance_filtered, fs.total_count
-    FROM global_s gs CROSS JOIN filtered_s fs
-  `;
-}
-
+/**
+ * 🚀 USERS/OPTIMIZED - KV Store + SQL Ledger Balance
+ * 
+ * ARCHITECTURE:
+ * - User profiles from KV store (user:id:*) - the source of truth for user data
+ * - Ledger balances from SQL (earnings - locked_payouts - paid_payouts)
+ * - Combines both to return users with accurate ledger-based balances
+ */
 app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
   c.header('Cache-Control', 'no-store, no-cache, must-revalidate');
   
@@ -10041,11 +10000,8 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    // Params & Detection
-    const q = (c.req.query('search') ?? '').trim();
-    const qLower = q.toLowerCase();
-    
-    // Pagination Clamping
+    // Params
+    const q = (c.req.query('search') ?? '').trim().toLowerCase();
     const limitParam = c.req.query('limit');
     const pageParam = c.req.query('page');
     const limit = Math.min(Math.max(Number(limitParam) || 50, 1), 200);
@@ -10056,274 +10012,142 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
     const sortOrder = c.req.query('sortOrder') || 'desc';
     const statsFilter = c.req.query('statsFilter') || '';
     
-    // Detect UUID (Exact Match Mode)
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    const isUuid = UUID_RE.test(qLower);
+    console.log(`📊 KV+LEDGER: page=${page}, limit=${limit}, search="${q}", sortBy=${sortBy}, statsFilter=${statsFilter}`);
     
-    console.log(`📊 DUAL-QUERY LEDGER: page=${page}, limit=${limit}, search="${q}", isUuid=${isUuid}, statsFilter=${statsFilter}`);
+    // === STEP 2: GET USERS FROM KV STORE ===
+    const kvUsers = await kv.getByPrefix('user:id:');
+    const userArray = Array.isArray(kvUsers) ? kvUsers : [];
     
-    // === STEP 2: BUILD ORDER CLAUSE ===
-    let orderColumn = 'created_at';
-    const orderDir = sortOrder === 'asc' ? 'ASC' : 'DESC';
+    // Filter out admins
+    let allUsers = userArray.filter((u: any) => !isUserAdmin(u));
     
-    switch (sortBy) {
-      case 'name': orderColumn = 'first_name'; break;
-      case 'balance': orderColumn = 'real_balance'; break;
-      case 'created': default: orderColumn = 'created_at';
-    }
+    console.log(`📊 Found ${allUsers.length} non-admin users in KV store`);
     
-    // === STEP 3: BUILD SQL WITH PARAMETERIZED QUERIES ===
-    let rowsSql: string, statsSql: string;
-    let rowsParams: any[], statsParams: any[];
+    // === STEP 3: GET LEDGER BALANCES FROM SQL ===
+    const userIds = allUsers.map((u: any) => u.id).filter(Boolean);
     
-    if (isUuid) {
-      // --- UUID MODE (Fast Exact Match) ---
-      // 1. optimization: Avoid lower() on ID columns to hit B-Tree indexes directly.
-      // 2. safety: Cast to text to avoid "operator does not exist: text = uuid".
-      // 3. robustness: Use lower() on supabase_id::text for case-insensitive match.
-      const whereUuid = `WHERE (id = $1 OR lower(supabase_id::text) = $1)`;
-      
-      rowsSql   = getRowsSql(whereUuid, `ORDER BY ${orderColumn} ${orderDir} NULLS LAST, id ASC LIMIT $2 OFFSET $3`);
-      statsSql  = getStatsSql(whereUuid);
-      
-      rowsParams  = [qLower, limit, offset]; // $1=uuid, $2=limit, $3=offset
-      statsParams = [qLower];                // $1=uuid
-    } else {
-      // --- TEXT MODE (Hybrid Prefix/Substring) ---
-      const isShort = qLower.length > 0 && qLower.length < 3;
-      // Prefix ('term%') hits text_pattern_ops index; Substring ('%term%') hits GIN Trigram index.
-      const searchLike = qLower.length === 0 ? null : (isShort ? `${qLower}%` : `%${qLower}%`);
-      
-      const whereText = `
-        WHERE (
-          $1::text IS NULL 
-          OR lower(email)      LIKE $1 
-          OR lower(first_name) LIKE $1 
-          OR lower(last_name)  LIKE $1
-          OR lower(id)         LIKE $1
-        )
-      `;
-
-      rowsSql   = getRowsSql(whereText, `ORDER BY ${orderColumn} ${orderDir} NULLS LAST, id ASC LIMIT $2 OFFSET $3`);
-      statsSql  = getStatsSql(whereText);
-      
-      rowsParams  = [searchLike, limit, offset]; // $1=like, $2=limit, $3=offset
-      statsParams = [searchLike];                // $1=like
-    }
-    
-    console.log(`📊 Executing dual queries with params...`);
-    
-    // === STEP 4: EXECUTE DUAL QUERIES IN PARALLEL ===
-    // Use parameterized RPC if available, otherwise fallback to supabase-js
-    const [rowsResult, statsResult] = await Promise.all([
-      supabase.rpc('exec_sql_params', { sql_query: rowsSql, params: rowsParams }),
-      supabase.rpc('exec_sql_params', { sql_query: statsSql, params: statsParams })
+    // Fetch earnings and payouts for all users
+    const [{ data: earningsData }, { data: payoutsData }] = await Promise.all([
+      supabase.from('earnings').select('user_id, amount').in('user_id', userIds),
+      supabase.from('payouts').select('user_id, amount, status').in('user_id', userIds)
     ]);
     
-    // Fallback: if RPC doesn't exist, use supabase-js approach
-    let users: any[] = [];
-    let statsData: any = { total_balance_all: 0, total_users: 0, total_balance_filtered: 0, total_count: 0 };
+    // Calculate ledger balances: earnings - locked - paid
+    const earningsByUser = new Map<string, number>();
+    const lockedByUser = new Map<string, number>();
+    const paidByUser = new Map<string, number>();
     
-    if (rowsResult.error?.message?.includes('function') || statsResult.error?.message?.includes('function')) {
-      console.log(`⚠️ exec_sql_params RPC not found, falling back to supabase-js + manual calculation`);
-      
-      // Get ledger stats from existing RPC
-      const { data: ledgerData, error: ledgerError } = await supabase.rpc('get_admin_finance_stats');
-      if (!ledgerError && ledgerData) {
-        statsData.total_balance_all = Number(ledgerData.partners_balance ?? 0);
+    (earningsData || []).forEach((e: any) => {
+      earningsByUser.set(e.user_id, (earningsByUser.get(e.user_id) || 0) + Number(e.amount));
+    });
+    
+    (payoutsData || []).forEach((p: any) => {
+      const status = p.status;
+      if (['pending', 'approved', 'processing'].includes(status)) {
+        lockedByUser.set(p.user_id, (lockedByUser.get(p.user_id) || 0) + Number(p.amount));
+      } else if (['paid', 'completed'].includes(status)) {
+        paidByUser.set(p.user_id, (paidByUser.get(p.user_id) || 0) + Number(p.amount));
       }
-      
-      // Get users from profiles with real_balance calculation
-      let query = supabase
-        .from('profiles')
-        .select('id, email, first_name, last_name, created_at, role, supabase_id')
-        .not('role', 'in', '("admin","ceo","manager","service_account")');
-      
-      if (qLower.length > 0) {
-        if (isUuid) {
-          // UUID exact match
-          query = query.or(`id.eq.${qLower},supabase_id.eq.${qLower}`);
-        } else {
-          // Hybrid prefix/substring search
-          const isShort = qLower.length < 3;
-          const pattern = isShort ? `${qLower}%` : `%${qLower}%`;
-          query = query.or(`email.ilike.${pattern},first_name.ilike.${pattern},last_name.ilike.${pattern},id.ilike.${pattern}`);
-        }
-      }
-      
-      // Apply sorting
-      const ascending = sortOrder === 'asc';
-      switch (sortBy) {
-        case 'name': query = query.order('first_name', { ascending }); break;
-        case 'created': default: query = query.order('created_at', { ascending });
-      }
-      
-      // Get total count
-      let countQuery = supabase
-        .from('profiles')
-        .select('id', { count: 'exact', head: true })
-        .not('role', 'in', '("admin","ceo","manager","service_account")');
-      
-      if (qLower.length > 0) {
-        if (isUuid) {
-          countQuery = countQuery.or(`id.eq.${qLower},supabase_id.eq.${qLower}`);
-        } else {
-          const isShort = qLower.length < 3;
-          const pattern = isShort ? `${qLower}%` : `%${qLower}%`;
-          countQuery = countQuery.or(`email.ilike.${pattern},first_name.ilike.${pattern},last_name.ilike.${pattern},id.ilike.${pattern}`);
-        }
-      }
-      
-      const [{ data: profilesData, error: profilesError }, { count: totalCount }] = await Promise.all([
-        query.range(offset, offset + limit - 1),
-        countQuery
-      ]);
-      
-      if (profilesError) {
-        console.error('Profiles query error:', profilesError);
-        throw new Error(`Profiles query failed: ${profilesError.message}`);
-      }
-      
-      // Calculate real_balance for each user
-      if (profilesData && profilesData.length > 0) {
-        const userIds = profilesData.map((p: any) => p.id);
-        
-        // Get earnings and payouts for these users
-        const [{ data: earningsData }, { data: payoutsData }] = await Promise.all([
-          supabase.from('earnings').select('user_id, amount').in('user_id', userIds),
-          supabase.from('payouts').select('user_id, amount, status').in('user_id', userIds)
-        ]);
-        
-        // Calculate balances
-        const earningsByUser = new Map<string, number>();
-        const lockedByUser = new Map<string, number>();
-        const paidByUser = new Map<string, number>();
-        
-        (earningsData || []).forEach((e: any) => {
-          earningsByUser.set(e.user_id, (earningsByUser.get(e.user_id) || 0) + Number(e.amount));
-        });
-        
-        (payoutsData || []).forEach((p: any) => {
-          const status = p.status;
-          if (['pending', 'approved', 'processing'].includes(status)) {
-            lockedByUser.set(p.user_id, (lockedByUser.get(p.user_id) || 0) + Number(p.amount));
-          } else if (['paid', 'completed'].includes(status)) {
-            paidByUser.set(p.user_id, (paidByUser.get(p.user_id) || 0) + Number(p.amount));
-          }
-        });
-        
-        // Map to frontend expected format - spread profile first, then overwrite with ledger balances
-        users = profilesData.map((p: any) => {
-          const rb = Math.round(((earningsByUser.get(p.id) || 0) - (lockedByUser.get(p.id) || 0) - (paidByUser.get(p.id) || 0)) * 100) / 100;
-          return {
-            ...p,                     // Spread full profile (avatar_url, socials, phone, etc.)
-            id: p.id,                 // Guarantee id
-            supabase_id: p.supabase_id,
-            email: p.email,
-            first_name: p.first_name,
-            last_name: p.last_name,
-            role: p.role,
-            created_at: p.created_at,
-            // Ledger Balances (single source of truth) - OVERWRITE legacy
-            real_balance: rb,
-            balance: rb,
-            available_balance: rb,
-            balance_source: "ledger",
-            // Russian frontend fields
-            имя: p.first_name,
-            фамилия: p.last_name,
-            зарегистрирован: p.created_at,
-            баланс: rb,
-            доступныйБаланс: rb
-          };
-        });
-        
-        // Sort by balance if needed (post-calculation)
-        if (sortBy === 'balance') {
-          users.sort((a, b) => sortOrder === 'asc' ? a.real_balance - b.real_balance : b.real_balance - a.real_balance);
-        }
-      }
-      
-      statsData.total_count = totalCount || 0;
-      statsData.total_users = totalCount || 0;
-      statsData.total_balance_filtered = users.reduce((sum: number, u: any) => sum + (u.real_balance || 0), 0);
-      
-    } else {
-      // RPC worked - use results directly
-      const rows = rowsResult.data || [];
-      
-      // Extract stats from stats query result
-      const st = (statsResult.data && statsResult.data[0]) || {};
-      statsData = {
-        total_balance_all: Number(st.total_balance_all ?? 0),
-        total_balance_filtered: Number(st.total_balance_filtered ?? 0),
-        total_count: Number(st.total_count ?? 0),
-        total_users: Number(st.total_users ?? 0)
+    });
+    
+    // === STEP 4: AUGMENT USERS WITH LEDGER BALANCE ===
+    let users = allUsers.map((u: any) => {
+      const rb = Math.round(((earningsByUser.get(u.id) || 0) - (lockedByUser.get(u.id) || 0) - (paidByUser.get(u.id) || 0)) * 100) / 100;
+      return {
+        ...u,
+        // Ledger Balances (single source of truth) - OVERWRITE legacy
+        real_balance: rb,
+        balance: rb,
+        available_balance: rb,
+        balance_source: "ledger",
+        баланс: rb,
+        доступныйБаланс: rb
       };
-      
-      // Map to frontend expected format - spread profile first, then overwrite with ledger balances
-      users = rows.map((r: any) => {
-        const rb = Number(r.real_balance ?? 0);
-        const profile = r.profile || {};
+    });
+    
+    // === STEP 5: APPLY SEARCH FILTER ===
+    if (q.length > 0) {
+      users = users.filter((u: any) => {
+        const id = (u.id || '').toLowerCase();
+        const email = (u.email || u.почта || '').toLowerCase();
+        const firstName = (u.first_name || u.имя || '').toLowerCase();
+        const lastName = (u.last_name || u.фамилия || '').toLowerCase();
+        const phone = (u.phone || u.телефон || '').toLowerCase();
         
-        return {
-          ...profile,               // Restore avatar_url, socials, display_name, phone, etc.
-          id: r.id,                 // Guarantee id from CTE
-          supabase_id: r.supabase_id ?? profile.supabase_id,
-          email: r.email ?? profile.email,
-          first_name: r.first_name ?? profile.first_name,
-          last_name: r.last_name ?? profile.last_name,
-          role: r.role ?? profile.role,
-          created_at: r.created_at ?? profile.created_at,
-          // Ledger Balances (single source of truth) - OVERWRITE legacy
-          real_balance: rb,
-          balance: rb,
-          available_balance: rb,
-          balance_source: "ledger",
-          // Russian frontend fields
-          имя: r.first_name ?? profile.first_name,
-          фамилия: r.last_name ?? profile.last_name,
-          зарегистрирован: r.created_at ?? profile.created_at,
-          баланс: rb,
-          доступныйБаланс: rb
-        };
+        return id.includes(q) || email.includes(q) || firstName.includes(q) || lastName.includes(q) || phone.includes(q);
       });
     }
     
-    // === STEP 5: BUILD RESPONSE ===
-    const total = Number(statsData.total_count) || users.length;
-    const totalPages = Math.ceil(total / limit);
-    
-    // Get additional stats from KV for activePartners, passivePartners, etc.
-    // These require team data which is in KV store
-    const kvUsers = await kv.getByPrefix('user:id:');
-    const allKvUsers = kvUsers.filter((u: any) => !isUserAdmin(u));
+    // === STEP 6: APPLY STATS FILTER ===
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     
-    // Active/passive partners (based on referral team)
-    const activePartners = allKvUsers.filter((u: any) => {
-      if (!u.команда || u.команда.length === 0) return false;
-      return u.команда.some((refId: string) => {
-        const ref = allKvUsers.find((usr: any) => usr.id === refId);
-        if (!ref) return false;
-        const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
-        return refDate >= thisMonth;
-      });
-    }).length;
+    if (statsFilter) {
+      switch (statsFilter) {
+        case 'newToday':
+          users = users.filter((u: any) => new Date(u.зарегистрирован || u.createdAt || u.created_at) >= today);
+          break;
+        case 'newThisMonth':
+          users = users.filter((u: any) => new Date(u.зарегистрирован || u.createdAt || u.created_at) >= thisMonth);
+          break;
+        case 'activePartners':
+          users = users.filter((u: any) => {
+            if (!u.команда || u.команда.length === 0) return false;
+            return u.команда.some((refId: string) => {
+              const ref = allUsers.find((usr: any) => usr.id === refId);
+              if (!ref) return false;
+              const refDate = new Date(ref.зарегистрирован || ref.createdAt || ref.created_at || 0);
+              return refDate >= thisMonth;
+            });
+          });
+          break;
+        case 'passivePartners':
+          users = users.filter((u: any) => {
+            if (!u.команда || u.команда.length === 0) return true;
+            return !u.команда.some((refId: string) => {
+              const ref = allUsers.find((usr: any) => usr.id === refId);
+              if (!ref) return false;
+              const refDate = new Date(ref.зарегистрирован || ref.createdAt || ref.created_at || 0);
+              return refDate >= thisMonth;
+            });
+          });
+          break;
+      }
+    }
     
-    const passivePartners = allKvUsers.filter((u: any) => {
-      if (!u.команда || u.команда.length === 0) return true;
-      return !u.команда.some((refId: string) => {
-        const ref = allKvUsers.find((usr: any) => usr.id === refId);
-        if (!ref) return false;
-        const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
-        return refDate >= thisMonth;
-      });
-    }).length;
+    // === STEP 7: APPLY SORTING ===
+    const ascending = sortOrder === 'asc';
+    switch (sortBy) {
+      case 'name':
+        users.sort((a, b) => {
+          const nameA = (a.first_name || a.имя || '').toLowerCase();
+          const nameB = (b.first_name || b.имя || '').toLowerCase();
+          return ascending ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
+        });
+        break;
+      case 'balance':
+        users.sort((a, b) => ascending ? a.real_balance - b.real_balance : b.real_balance - a.real_balance);
+        break;
+      case 'created':
+      default:
+        users.sort((a, b) => {
+          const dateA = new Date(a.зарегистрирован || a.createdAt || a.created_at || 0).getTime();
+          const dateB = new Date(b.зарегистрирован || b.createdAt || b.created_at || 0).getTime();
+          return ascending ? dateA - dateB : dateB - dateA;
+        });
+        break;
+    }
     
-    // Active/passive users (based on orders)
+    // === STEP 8: CALCULATE STATS ===
+    const totalBalance = users.reduce((sum: number, u: any) => sum + (u.real_balance || 0), 0);
+    const totalFiltered = users.length;
+    
+    // === STEP 9: APPLY PAGINATION ===
+    const paginatedUsers = users.slice(offset, offset + limit);
+    const totalPages = Math.ceil(totalFiltered / limit);
+    
+    // === STEP 10: CALCULATE ADDITIONAL STATS ===
     const allOrders = await kv.getByPrefix('order:');
     const ordersThisMonth = allOrders.filter((o: any) => {
       const orderDate = new Date(o.датаЗаказа || o.дата || o.createdAt || 0);
@@ -10331,28 +10155,48 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
     });
     const activeUserIdsSet = new Set(ordersThisMonth.map((o: any) => o.продавецId).filter(Boolean));
     
+    const activePartners = allUsers.filter((u: any) => {
+      if (!u.команда || u.команда.length === 0) return false;
+      return u.команда.some((refId: string) => {
+        const ref = allUsers.find((usr: any) => usr.id === refId);
+        if (!ref) return false;
+        const refDate = new Date(ref.зарегистрирован || ref.createdAt || ref.created_at || 0);
+        return refDate >= thisMonth;
+      });
+    }).length;
+    
+    const passivePartners = allUsers.filter((u: any) => {
+      if (!u.команда || u.команда.length === 0) return true;
+      return !u.команда.some((refId: string) => {
+        const ref = allUsers.find((usr: any) => usr.id === refId);
+        if (!ref) return false;
+        const refDate = new Date(ref.зарегистрирован || ref.createdAt || ref.created_at || 0);
+        return refDate >= thisMonth;
+      });
+    }).length;
+    
     const stats = {
-      totalUsers: Number(statsData.total_users) || allKvUsers.length,
-      newToday: allKvUsers.filter((u: any) => new Date(u.зарегистрирован || u.createdAt) >= today).length,
-      newThisMonth: allKvUsers.filter((u: any) => new Date(u.зарегистрирован || u.createdAt) >= thisMonth).length,
+      totalUsers: allUsers.length,
+      newToday: allUsers.filter((u: any) => new Date(u.зарегистрирован || u.createdAt || u.created_at) >= today).length,
+      newThisMonth: allUsers.filter((u: any) => new Date(u.зарегистрирован || u.createdAt || u.created_at) >= thisMonth).length,
       activePartners,
       passivePartners,
-      activeUsers: allKvUsers.filter((u: any) => activeUserIdsSet.has(u.id)).length,
-      passiveUsers: allKvUsers.filter((u: any) => !activeUserIdsSet.has(u.id)).length,
-      totalBalance: Number(statsData.total_balance_all) || 0, // 🔥 FROM SQL LEDGER
+      activeUsers: allUsers.filter((u: any) => activeUserIdsSet.has(u.id)).length,
+      passiveUsers: allUsers.filter((u: any) => !activeUserIdsSet.has(u.id)).length,
+      totalBalance: Math.round(totalBalance * 100) / 100, // 🔥 FROM SQL LEDGER
     };
     
-    console.log(`✅ DUAL-QUERY LEDGER: ${users.length} users, totalBalance=${stats.totalBalance}₽ (SQL LEDGER)`);
+    console.log(`✅ KV+LEDGER: ${paginatedUsers.length}/${totalFiltered} users, totalBalance=${stats.totalBalance}₽`);
     
     return c.json({
       success: true,
-      users,
-      pagination: { page, limit, total, totalPages, hasMore: page < totalPages },
+      users: paginatedUsers,
+      pagination: { page, limit, total: totalFiltered, totalPages, hasMore: page < totalPages },
       stats
     });
     
   } catch (error) {
-    console.error('❌ DUAL-QUERY LEDGER error:', error);
+    console.error('❌ KV+LEDGER error:', error);
     return c.json({ error: `${error}` }, 500);
   }
 });
