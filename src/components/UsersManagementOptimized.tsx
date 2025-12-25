@@ -437,6 +437,12 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
   const handleStatsFilterClick = (filter: string) => {
     setActiveStatsFilter(filter);
     setPage(1); // Reset to first page
+    
+    // 💰 Клик на "Общий баланс" - сортировка по балансу по убыванию
+    if (filter === 'totalBalance') {
+      setSortBy('balance');
+      setSortOrder('desc');
+    }
   };
 
 
