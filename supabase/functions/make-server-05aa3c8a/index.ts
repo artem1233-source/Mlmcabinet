@@ -10171,10 +10171,22 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
         users.sort((a, b) => ascending ? a.real_balance - b.real_balance : b.real_balance - a.real_balance);
         break;
       case 'teamSize':
+        // Сортировка по количеству приглашённых в ЭТОМ МЕСЯЦЕ
         users.sort((a, b) => {
-          const teamA = Array.isArray(a.команда) ? a.команда.length : 0;
-          const teamB = Array.isArray(b.команда) ? b.команда.length : 0;
-          return ascending ? teamA - teamB : teamB - teamA;
+          const thisMonthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+          const countThisMonthA = Array.isArray(a.команда) ? a.команда.filter((refId: string) => {
+            const ref = allUsers.find((usr: any) => usr.id === refId);
+            if (!ref) return false;
+            const refDate = new Date(ref.зарегистрирован || ref.createdAt || ref.created_at || 0);
+            return refDate >= thisMonthStart;
+          }).length : 0;
+          const countThisMonthB = Array.isArray(b.команда) ? b.команда.filter((refId: string) => {
+            const ref = allUsers.find((usr: any) => usr.id === refId);
+            if (!ref) return false;
+            const refDate = new Date(ref.зарегистрирован || ref.createdAt || ref.created_at || 0);
+            return refDate >= thisMonthStart;
+          }).length : 0;
+          return ascending ? countThisMonthA - countThisMonthB : countThisMonthB - countThisMonthA;
         });
         break;
       case 'rank':
