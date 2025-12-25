@@ -443,6 +443,16 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       setSortBy('balance');
       setSortOrder('desc');
     }
+    // 👥 Клик на "Активные партнёры" - сортировка по размеру команды по убыванию
+    else if (filter === 'activePartners') {
+      setSortBy('teamSize');
+      setSortOrder('desc');
+    }
+    // 😴 Клик на "Пассивные партнёры" - сортировка по дате регистрации
+    else if (filter === 'passivePartners') {
+      setSortBy('created');
+      setSortOrder('desc');
+    }
   };
 
 
