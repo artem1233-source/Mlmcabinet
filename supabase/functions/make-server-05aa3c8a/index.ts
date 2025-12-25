@@ -10170,6 +10170,20 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
       case 'balance':
         users.sort((a, b) => ascending ? a.real_balance - b.real_balance : b.real_balance - a.real_balance);
         break;
+      case 'teamSize':
+        users.sort((a, b) => {
+          const teamA = Array.isArray(a.команда) ? a.команда.length : 0;
+          const teamB = Array.isArray(b.команда) ? b.команда.length : 0;
+          return ascending ? teamA - teamB : teamB - teamA;
+        });
+        break;
+      case 'rank':
+        users.sort((a, b) => {
+          const rankA = a.rank || a.ранг || 0;
+          const rankB = b.rank || b.ранг || 0;
+          return ascending ? rankA - rankB : rankB - rankA;
+        });
+        break;
       case 'created':
       default:
         users.sort((a, b) => {
