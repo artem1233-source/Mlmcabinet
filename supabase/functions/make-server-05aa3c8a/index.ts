@@ -10067,22 +10067,33 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
     // === STEP 3: GET LEDGER BALANCES FROM SQL ===
     const userIds = allUsers.map((u: any) => u.id).filter(Boolean);
     
-    // Fetch earnings and payouts for all users
-    const [{ data: earningsData }, { data: payoutsData }] = await Promise.all([
-      supabase.from('earnings').select('user_id, amount').in('user_id', userIds),
-      supabase.from('payouts').select('user_id, amount, status').in('user_id', userIds)
-    ]);
+    // Fetch earnings and payouts for all users (with error handling)
+    let earningsData: any[] = [];
+    let payoutsData: any[] = [];
+    
+    try {
+      const [earningsRes, payoutsRes] = await Promise.all([
+        supabase.from('earnings').select('user_id, amount').in('user_id', userIds),
+        supabase.from('payouts').select('user_id, amount, status').in('user_id', userIds)
+      ]);
+      earningsData = earningsRes.data || [];
+      payoutsData = payoutsRes.data || [];
+      console.log(`📊 SQL LEDGER: ${earningsData.length} earnings, ${payoutsData.length} payouts`);
+    } catch (sqlErr) {
+      console.error('❌ SQL LEDGER ERROR:', sqlErr);
+      // Continue with empty arrays - balances will be 0
+    }
     
     // Calculate ledger balances: earnings - locked - paid
     const earningsByUser = new Map<string, number>();
     const lockedByUser = new Map<string, number>();
     const paidByUser = new Map<string, number>();
     
-    (earningsData || []).forEach((e: any) => {
+    earningsData.forEach((e: any) => {
       earningsByUser.set(e.user_id, (earningsByUser.get(e.user_id) || 0) + Number(e.amount));
     });
     
-    (payoutsData || []).forEach((p: any) => {
+    payoutsData.forEach((p: any) => {
       const status = p.status;
       if (['pending', 'approved', 'processing'].includes(status)) {
         lockedByUser.set(p.user_id, (lockedByUser.get(p.user_id) || 0) + Number(p.amount));
@@ -10090,6 +10101,8 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
         paidByUser.set(p.user_id, (paidByUser.get(p.user_id) || 0) + Number(p.amount));
       }
     });
+    
+    console.log(`📊 LEDGER MAPS: ${earningsByUser.size} users with earnings, ${lockedByUser.size} locked, ${paidByUser.size} paid`);
     
     // === STEP 4: AUGMENT USERS WITH LEDGER BALANCE ===
     let users = allUsers.map((u: any) => {
