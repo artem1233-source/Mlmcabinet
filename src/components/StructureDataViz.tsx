@@ -227,6 +227,7 @@ const GrowthTimeline = ({ team }: { team: any[] }) => {
 export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataVizProps) {
   const [team, setTeam] = useState<any[]>([]);
   const [sponsor, setSponsor] = useState<any>(null);
+  const [uplineSponsors, setUplineSponsors] = useState<any[]>([]); // 3 уровня вверх
   const [loading, setLoading] = useState(true);
   const [copiedLink, setCopiedLink] = useState(false);
   const [viewMode, setViewMode] = useState<'cards' | 'list' | 'tree' | 'top'>('cards');
@@ -270,6 +271,7 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
   useEffect(() => {
     loadTeam();
     loadSponsor();
+    loadUplineSponsors();
   }, [refreshTrigger, effectiveUserId]);
 
   const loadTeam = async () => {
@@ -311,6 +313,40 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
     } catch (error) {
       console.error('Failed to load sponsor:', error);
     }
+  };
+
+  // Загрузка 3 уровней вышестоящих спонсоров
+  const loadUplineSponsors = async () => {
+    if (!currentUser?.спонсорId) {
+      setUplineSponsors([]);
+      return;
+    }
+    
+    const sponsors: any[] = [];
+    let currentSponsorId = currentUser.спонсорId;
+    
+    for (let level = 1; level <= 3; level++) {
+      if (!currentSponsorId) break;
+      
+      try {
+        const response = await api.getUser(currentSponsorId);
+        if (response.success && response.user) {
+          sponsors.push({
+            ...response.user,
+            uplineLevel: level // 1 = прямой спонсор, 2 = спонсор спонсора, 3 = ещё выше
+          });
+          currentSponsorId = response.user.спонсорId;
+        } else {
+          break;
+        }
+      } catch (error) {
+        console.error(`Failed to load upline sponsor level ${level}:`, error);
+        break;
+      }
+    }
+    
+    console.log('📊 Upline sponsors loaded:', sponsors.map(s => ({ id: s.id, имя: s.имя, level: s.uplineLevel })));
+    setUplineSponsors(sponsors);
   };
 
   const getActivityStatus = (lastActive: string | null) => {
@@ -987,6 +1023,98 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
         </h1>
         <p className="text-[#666] text-sm md:text-base">Визуализация роста и активности вашей структуры</p>
       </motion.div>
+
+      {/* Upline Sponsors - 3 уровня вверх */}
+      {uplineSponsors.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="mb-6 md:mb-8"
+        >
+          <Card className="border-[#E6E9EE] rounded-2xl md:rounded-3xl shadow-lg bg-gradient-to-br from-white to-purple-50">
+            <CardContent className="p-4 md:p-6">
+              <div className="flex items-center gap-2 md:gap-3 mb-4">
+                <Crown className="w-5 h-5 md:w-6 md:h-6 text-purple-500" />
+                <h2 className="text-lg md:text-xl font-bold text-gray-800">Ваши наставники</h2>
+                <Badge variant="outline" className="ml-auto text-purple-600 border-purple-200 bg-purple-50">
+                  {uplineSponsors.length} {uplineSponsors.length === 1 ? 'уровень' : uplineSponsors.length < 5 ? 'уровня' : 'уровней'}
+                </Badge>
+              </div>
+              
+              {/* Upline Chain - визуальная цепочка */}
+              <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 md:gap-4">
+                {/* Reversed order: show from top (level 3) to bottom (level 1) */}
+                {[...uplineSponsors].reverse().map((sponsor, index) => {
+                  const actualLevel = sponsor.uplineLevel;
+                  const levelColors = {
+                    1: { bg: 'from-blue-100 to-blue-200', text: 'text-blue-700', border: 'border-blue-300', label: 'Ваш спонсор' },
+                    2: { bg: 'from-purple-100 to-purple-200', text: 'text-purple-700', border: 'border-purple-300', label: 'Спонсор 2-й линии' },
+                    3: { bg: 'from-amber-100 to-amber-200', text: 'text-amber-700', border: 'border-amber-300', label: 'Спонсор 3-й линии' }
+                  };
+                  const colors = levelColors[actualLevel as keyof typeof levelColors] || levelColors[1];
+                  
+                  return (
+                    <div key={sponsor.id} className="flex items-center gap-3 md:gap-4">
+                      {/* Sponsor Card */}
+                      <div 
+                        className={`flex-1 md:flex-none flex items-center gap-3 p-3 md:p-4 rounded-xl border-2 ${colors.border} bg-gradient-to-br ${colors.bg} cursor-pointer hover:shadow-md transition-all`}
+                        onClick={() => setSelectedUserId(sponsor.id)}
+                      >
+                        <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center ${colors.text} font-bold text-lg bg-white shadow-sm`}>
+                          {sponsor.имя?.charAt(0)?.toUpperCase() || '?'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className={`font-semibold ${colors.text} truncate text-sm md:text-base`}>
+                            {sponsor.имя} {sponsor.фамилия}
+                          </div>
+                          <div className="text-xs text-gray-500">{colors.label}</div>
+                          <div className="text-xs text-gray-400 mt-0.5">ID: {sponsor.id}</div>
+                        </div>
+                        <Eye size={16} className={`${colors.text} opacity-60`} />
+                      </div>
+                      
+                      {/* Arrow connector (not for last item) */}
+                      {index < uplineSponsors.length - 1 && (
+                        <div className="hidden md:flex items-center">
+                          <ChevronRight className="w-5 h-5 text-gray-400" />
+                        </div>
+                      )}
+                      {index < uplineSponsors.length - 1 && (
+                        <div className="md:hidden flex justify-center py-1">
+                          <ChevronDown className="w-5 h-5 text-gray-400" />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                
+                {/* Current User - конечная точка */}
+                <div className="flex items-center gap-3 md:gap-4">
+                  <div className="hidden md:flex items-center">
+                    <ChevronRight className="w-5 h-5 text-gray-400" />
+                  </div>
+                  <div className="md:hidden flex justify-center py-1">
+                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                  </div>
+                  <div className="flex-1 md:flex-none flex items-center gap-3 p-3 md:p-4 rounded-xl border-2 border-[#39B7FF] bg-gradient-to-br from-[#39B7FF]/10 to-[#12C9B6]/10">
+                    <div className="w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center text-white font-bold text-lg bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] shadow-md">
+                      {currentUser?.имя?.charAt(0)?.toUpperCase() || '?'}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-[#39B7FF] truncate text-sm md:text-base">
+                        {currentUser?.имя} {currentUser?.фамилия}
+                      </div>
+                      <div className="text-xs text-gray-500">Это вы</div>
+                    </div>
+                    <Star size={16} className="text-[#39B7FF]" />
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
 
       {/* Activity Rings - Hero Section */}
       <motion.div
