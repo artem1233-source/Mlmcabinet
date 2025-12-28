@@ -1,0 +1,67 @@
+IMPORTANT: DO NOT TOUCH existing endpoints and logic:
+- /users/optimized
+- users tree endpoints (tree view)
+- ledger calculation endpoints
+- finance tab logic
+If you need data for dashboard, create NEW endpoints or reuse existing safely.
+
+TASK:
+Implement Unified Dashboard page with role-based modes, Russian UI labels, and strict data contract.
+Goal: functional dashboards + states. Design can be simple; we will apply Figma later.
+
+WHERE TO IMPLEMENT:
+- Add route: /dashboard (or existing "DashboardRu" page if it exists)
+- New folder: /components/dashboard/*
+- Do not refactor unrelated files.
+
+ROLES:
+ceo: sees all modes
+admin/manager: sees Администрирование + Финансы (+ Склад if role includes warehouse)
+seo: sees SEO / Маркетинг only
+support: sees Поддержка only
+warehouse: sees Склад only
+
+MODES (Russian labels):
+1) Центр управления (CEO)
+2) Администрирование
+3) Финансы
+4) Склад
+5) SEO / Маркетинг
+6) Поддержка
+
+REQUIRED UI FEATURES (functional):
+- Tabs switcher (only allowed modes)
+- Period selector: 1 / 7 / 30 / 90 / 365 days
+- Global states per mode: loading, empty, error, success
+- The mode must never crash on API errors; show error state.
+
+STRICT DATA CONTRACT (must be used by all modes):
+type DashboardPayload = {
+  kpis: Array<{ id: string; title: string; value: number|string; delta?: number; trend?: "up"|"down"|"flat" }>;
+  charts: Array<{ id: string; title: string; series: any[] }>;
+  table?: { columns: Array<{ key: string; title: string }>; rows: any[] };
+  alerts?: Array<{ id: string; level: "critical"|"warning"|"info"; title: string; description?: string; actionLabel?: string; actionHref?: string }>;
+}
+
+DATA SOURCES:
+Use real endpoints ONLY if they exist; otherwise use mock data from /mock/dashboardMock.ts
+- CEO: try /admin/finance-stats + /admin/users
+- Admin Ops: try /admin/users
+- Finance: try existing finance endpoints you can find
+- Warehouse/SEO/Support: mock for now
+If endpoint returns 404 or fails -> fallback to mock BUT still show a small label "Демо-данные".
+
+COMPONENTS REQUIRED:
+- DashboardLayout.tsx (tabs + period selector)
+- KPICard.tsx
+- ChartContainer.tsx
+- AlertsList.tsx
+- DataTable.tsx
+- UnifiedDashboard.tsx (the page)
+
+ACCEPTANCE TESTS:
+1) Login as CEO -> can switch between 6 modes without errors.
+2) Login as seo -> sees only "SEO / Маркетинг".
+3) If API is down -> dashboard shows error/empty but does not crash.
+4) Period selector changes internal filter state and re-renders (even with mock).
+5) No changes to /users/optimized, tree, ledger, and finance tab existing logic.
