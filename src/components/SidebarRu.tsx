@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, ShoppingBag, Wallet, Package, GraduationCap, UserCircle, Settings, Droplet, TrendingUp, Bell, Shield, Trophy, Sparkles } from 'lucide-react';
+import { LayoutDashboard, Users, ShoppingBag, Wallet, Package, GraduationCap, UserCircle, Settings, Droplet, TrendingUp, Bell, Shield, Trophy, Sparkles, Crown } from 'lucide-react';
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from './ui/sheet';
 
 interface SidebarProps {
@@ -13,8 +13,14 @@ export function SidebarRu({ текущаяВкладка, изменитьВкл
   const isAdmin = currentUser?.isAdmin || false;
   const isCEO = currentUser?.type === 'admin' && currentUser?.role === 'ceo';
   
+  // Роли для унифицированного дашборда
+  const userRole = currentUser?.role || currentUser?.id || '';
+  const showUnifiedDashboard = isAdmin || isCEO || userRole === 'seo' || userRole === 'support' || userRole === 'warehouse';
+
   const navItems = [
     { id: 'дашборд', label: 'Дашборд', icon: LayoutDashboard },
+    // 🆕 Панель управления (для CEO, админов и специальных ролей)
+    ...(showUnifiedDashboard ? [{ id: 'панель', label: 'Панель управления', icon: Crown }] : []),
     // 🆕 Админ видит "Пользователи", обычные партнёры - "Структура"
     ...(isAdmin 
       ? [{ id: 'пользователи', label: 'Пользователи', icon: Users }] 

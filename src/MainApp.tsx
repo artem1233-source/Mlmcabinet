@@ -4,6 +4,7 @@ import { RegistrationRu } from './components/RegistrationRu';
 import { SidebarRu } from './components/SidebarRu';
 import { DashboardRu } from './components/DashboardRu';
 import { DashboardRuOptimized } from './components/DashboardRuOptimized';
+import { UnifiedDashboard } from './components/dashboard';
 import { OrdersRu } from './components/OrdersRu';
 import { BalanceRu } from './components/BalanceRu';
 import { CatalogRu } from './components/CatalogRu';
@@ -400,6 +401,9 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
       case 'финансы':
       case 'finance':
         return <AdminFinanceRu currentUser={currentUser} />;
+      case 'панель':
+      case 'control-panel':
+        return <UnifiedDashboard currentUser={currentUser} />;
       case 'выплаты':
       case 'payouts':
         return <PayoutsAdminRu currentUser={currentUser} />;
