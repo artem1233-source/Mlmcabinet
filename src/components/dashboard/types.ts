@@ -86,3 +86,10 @@ export const PERIOD_OPTIONS: { value: PeriodOption; label: string }[] = [
 ];
 
 export type DashboardState = 'loading' | 'empty' | 'error' | 'success';
+
+export interface DashboardData {
+  kpis: KPI[];
+  charts: ChartData[];
+  tables: TableData[];
+  alerts: Alert[];
+}
