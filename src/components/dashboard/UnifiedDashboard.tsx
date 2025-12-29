@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { DashboardLayout } from './DashboardLayout';
+import { CEOMissionControl } from './CEOMissionControl';
 import { KPICard } from './KPICard';
 import { ChartContainer } from './ChartContainer';
 import { AlertsList } from './AlertsList';
 import { DataTable } from './DataTable';
-import { DashboardMode, PeriodOption, DashboardState, DashboardPayload, DASHBOARD_MODES } from './types';
+import { DashboardMode, PeriodOption, DashboardState, DashboardPayload, DashboardData, DASHBOARD_MODES } from './types';
 import { getMockDashboardData } from '../../mock/dashboardMock';
 import * as api from '../../utils/api';
 
@@ -169,6 +170,49 @@ export function UnifiedDashboard({ currentUser }: UnifiedDashboardProps) {
     setPeriod(newPeriod);
   };
 
+  const toDashboardData = (payload: DashboardPayload): DashboardData => ({
+    kpis: payload.kpis,
+    charts: payload.charts,
+    tables: payload.table ? [payload.table] : [],
+    alerts: payload.alerts || [],
+  });
+
+  const renderModeContent = () => {
+    if (!data) return null;
+
+    if (currentMode === 'ceo') {
+      return <CEOMissionControl data={toDashboardData(data)} period={period} />;
+    }
+
+    return (
+      <div className="space-y-6">
+        {data.kpis.length > 0 && (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+            {data.kpis.map(kpi => (
+              <KPICard key={kpi.id} kpi={kpi} />
+            ))}
+          </div>
+        )}
+
+        {data.alerts && data.alerts.length > 0 && (
+          <AlertsList alerts={data.alerts} />
+        )}
+
+        {data.charts.length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {data.charts.map(chart => (
+              <ChartContainer key={chart.id} chart={chart} />
+            ))}
+          </div>
+        )}
+
+        {data.table && (
+          <DataTable title="Последние записи" data={data.table} />
+        )}
+      </div>
+    );
+  };
+
   return (
     <DashboardLayout
       currentMode={currentMode}
@@ -179,33 +223,7 @@ export function UnifiedDashboard({ currentUser }: UnifiedDashboardProps) {
       state={state}
       isDemo={isDemo}
     >
-      {data && (
-        <div className="space-y-6">
-          {data.kpis.length > 0 && (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-              {data.kpis.map(kpi => (
-                <KPICard key={kpi.id} kpi={kpi} />
-              ))}
-            </div>
-          )}
-
-          {data.alerts && data.alerts.length > 0 && (
-            <AlertsList alerts={data.alerts} />
-          )}
-
-          {data.charts.length > 0 && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {data.charts.map(chart => (
-                <ChartContainer key={chart.id} chart={chart} />
-              ))}
-            </div>
-          )}
-
-          {data.table && (
-            <DataTable title="Последние записи" data={data.table} />
-          )}
-        </div>
-      )}
+      {data && renderModeContent()}
     </DashboardLayout>
   );
 }
