@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { DashboardLayout } from './DashboardLayout';
 import { CEOMissionControl } from './CEOMissionControl';
+import { AdminOpsDashboard } from './AdminOpsDashboard';
 import { KPICard } from './KPICard';
 import { ChartContainer } from './ChartContainer';
 import { AlertsList } from './AlertsList';
@@ -112,36 +113,60 @@ export function UnifiedDashboard({ currentUser }: UnifiedDashboardProps) {
               const today = new Date();
               today.setHours(0, 0, 0, 0);
               const thisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+              const last30Days = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
               
               const newToday = users.filter((u: any) => {
                 const regDate = new Date(u.зарегистрирован || u.createdAt || 0);
                 return regDate >= today;
               }).length;
               
-              const newThisMonth = users.filter((u: any) => {
+              const newLast30 = users.filter((u: any) => {
                 const regDate = new Date(u.зарегистрирован || u.createdAt || 0);
-                return regDate >= thisMonth;
+                return regDate >= last30Days;
               }).length;
+
+              const activeUsers = users.filter((u: any) => u.isActive || u.активен).length;
+              const admins = users.filter((u: any) => u.isAdmin || u.роль === 'admin' || u.role === 'admin').length;
+
+              const registrationsByDay: { date: string; value: number }[] = [];
+              for (let i = 29; i >= 0; i--) {
+                const d = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
+                const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+                const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+                const count = users.filter((u: any) => {
+                  const regDate = new Date(u.зарегистрирован || u.createdAt || 0);
+                  return regDate >= dayStart && regDate < dayEnd;
+                }).length;
+                registrationsByDay.push({
+                  date: `${d.getDate()} ${['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'][d.getMonth()]}.`,
+                  value: count
+                });
+              }
 
               payload = {
                 kpis: [
                   { id: 'total_users', title: 'Всего пользователей', value: users.length },
-                  { id: 'new_today', title: 'Новых сегодня', value: newToday },
-                  { id: 'active_month', title: 'Новых за месяц', value: newThisMonth },
+                  { id: 'active_users', title: 'Активные', value: activeUsers },
+                  { id: 'new_users_30d', title: 'Новые за 30 дней', value: newLast30 },
+                  { id: 'admins', title: 'Админы', value: admins },
                 ],
-                charts: [],
-                table: users.length > 0 ? {
+                charts: [
+                  { id: 'registrations', title: 'Регистрации по дням', type: 'area', data: registrationsByDay }
+                ],
+                table: {
                   columns: [
                     { key: 'id', title: 'ID' },
-                    { key: 'имя', title: 'Имя' },
+                    { key: 'name', title: 'Имя' },
                     { key: 'email', title: 'Email' },
                   ],
-                  rows: users.slice(0, 5).map((u: any) => ({
+                  rows: users.slice(0, 10).map((u: any) => ({
                     id: u.id,
+                    partnerId: u.id,
+                    name: `${u.имя || ''} ${u.фамилия || ''}`.trim() || 'Без имени',
                     имя: `${u.имя || ''} ${u.фамилия || ''}`.trim() || 'Без имени',
                     email: u.email || u.почта || '-'
                   }))
-                } : undefined
+                }
               };
             }
           } catch (e) {
@@ -213,6 +238,10 @@ export function UnifiedDashboard({ currentUser }: UnifiedDashboardProps) {
 
     if (currentMode === 'ceo') {
       return <CEOMissionControl data={toDashboardData(data)} period={period} />;
+    }
+
+    if (currentMode === 'admin') {
+      return <AdminOpsDashboard data={toDashboardData(data)} period={period} />;
     }
 
     return (
