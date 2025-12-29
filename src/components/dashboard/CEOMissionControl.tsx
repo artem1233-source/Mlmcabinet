@@ -318,18 +318,27 @@ export function CEOMissionControl({ data, period: _period }: CEOMissionControlPr
   ];
 
   const kpis = data.kpis.length >= 4 ? data.kpis : defaultKPIs;
-  const revenueChartData = data.charts.find(c => c.id === 'revenue_chart')?.series?.[0]?.data?.map(d => ({
-    date: d.x,
-    revenue: d.y,
+  
+  const revenueChartData = (data.dailySales || []).map((d: any) => ({
+    date: d.date?.slice(5) || '',
+    revenue: d.revenue || 0,
     payouts: 0,
     liability: 0,
-  })) || [];
+  }));
 
   const funnelData = data.charts.find(c => c.id === 'funnel')?.series?.[0]?.data?.map(d => ({
     name: String(d.x),
     value: d.y,
     color: '#10B981',
   })) || [];
+
+  const topPartners = (data.topPartners || []).map((p, idx) => ({
+    rank: idx + 1,
+    name: p.name || 'Партнёр',
+    id: p.id,
+    revenue: p.revenue || 0,
+    color: p.color || '#39B7FF',
+  }));
 
   return (
     <div className="space-y-6">
@@ -346,7 +355,7 @@ export function CEOMissionControl({ data, period: _period }: CEOMissionControlPr
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ActionCenter alerts={data.alerts || []} />
-        <TopPartnersLeaderboard partners={[]} />
+        <TopPartnersLeaderboard partners={topPartners} />
       </div>
     </div>
   );

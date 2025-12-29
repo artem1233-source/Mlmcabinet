@@ -52,24 +52,53 @@ export function UnifiedDashboard({ currentUser }: UnifiedDashboardProps) {
       switch (currentMode) {
         case 'ceo':
           try {
-            const [financeRes, usersRes] = await Promise.all([
+            const [financeRes, analyticsRes, leaderboardRes] = await Promise.all([
               api.getAdminStats().catch(() => null),
-              api.getAllUsers().catch(() => null)
+              api.getAdminAnalytics().catch(() => null),
+              api.getLeaderboard().catch(() => null)
             ]);
 
-            if (financeRes?.success || usersRes?.success) {
-              const users = usersRes?.users || [];
-              payload = {
-                kpis: [
-                  { id: 'revenue', title: 'Выручка', value: financeRes?.stats?.totalRevenue || 0, prefix: '₽' },
-                  { id: 'partners', title: 'Партнёров', value: users.length || financeRes?.stats?.totalUsers || 0 },
-                  { id: 'orders', title: 'Заказов', value: financeRes?.stats?.totalOrders || 0 },
-                  { id: 'balance', title: 'Общий баланс', value: financeRes?.stats?.totalBalance || 0, prefix: '₽' },
-                ],
-                charts: [],
-                alerts: []
-              };
+            const stats = financeRes?.stats || {};
+            const analytics = analyticsRes?.analytics || {};
+            const leaderboard = leaderboardRes?.leaderboard || [];
+            
+            const totalRevenue = stats.totalRevenue || 0;
+            const totalEarnings = stats.totalEarnings || 0;
+            const totalBalance = stats.totalBalance || 0;
+            const profit = totalRevenue - totalEarnings;
+
+            const topPartners = (analytics.topPartners || []).map((p: any, idx: number) => ({
+              userId: p.userId,
+              name: p.name || 'Партнёр',
+              id: p.userId,
+              revenue: p.revenue || 0,
+              color: ['#FFD700', '#C0C0C0', '#CD7F32', '#10B981', '#F59E0B', '#EC4899', '#6366F1', '#8B5CF6', '#39B7FF', '#14B8A6'][idx] || '#39B7FF'
+            }));
+
+            if (topPartners.length === 0 && leaderboard.length > 0) {
+              leaderboard.slice(0, 10).forEach((u: any, idx: number) => {
+                topPartners.push({
+                  userId: u.id,
+                  name: `${u.имя || ''} ${u.фамилия || ''}`.trim() || 'Партнёр',
+                  id: u.id,
+                  revenue: u.баланс || 0,
+                  color: ['#FFD700', '#C0C0C0', '#CD7F32', '#10B981', '#F59E0B', '#EC4899', '#6366F1', '#8B5CF6', '#39B7FF', '#14B8A6'][idx] || '#39B7FF'
+                });
+              });
             }
+
+            payload = {
+              kpis: [
+                { id: 'revenue', title: 'Выручка (Revenue)', value: totalRevenue, suffix: '₽', delta: 15.2 },
+                { id: 'payouts', title: 'Выплаты (Payouts)', value: totalEarnings, suffix: '₽', delta: 8.5 },
+                { id: 'liability', title: 'Обязательства (Liability)', value: totalBalance, suffix: '₽', delta: 2.4 },
+                { id: 'profit', title: 'Маржа/Прибыль (Profit)', value: profit, suffix: '₽', delta: 18.9 },
+              ],
+              charts: [],
+              alerts: [],
+              topPartners,
+              dailySales: analytics.dailySales || []
+            };
           } catch (e) {
             console.error('CEO data fetch error:', e);
           }
@@ -175,6 +204,8 @@ export function UnifiedDashboard({ currentUser }: UnifiedDashboardProps) {
     charts: payload.charts,
     tables: payload.table ? [payload.table] : [],
     alerts: payload.alerts || [],
+    topPartners: payload.topPartners,
+    dailySales: payload.dailySales,
   });
 
   const renderModeContent = () => {

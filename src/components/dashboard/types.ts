@@ -44,11 +44,21 @@ export interface Alert {
   actionHref?: string;
 }
 
+export interface TopPartner {
+  userId: string;
+  name: string;
+  id: string;
+  revenue: number;
+  color?: string;
+}
+
 export interface DashboardPayload {
   kpis: KPI[];
   charts: ChartData[];
   table?: TableData;
   alerts?: Alert[];
+  topPartners?: TopPartner[];
+  dailySales?: Array<{ date: string; revenue: number; orders: number }>;
 }
 
 export type DashboardMode = 
@@ -92,4 +102,6 @@ export interface DashboardData {
   charts: ChartData[];
   tables: TableData[];
   alerts: Alert[];
+  topPartners?: TopPartner[];
+  dailySales?: Array<{ date: string; revenue: number; orders: number }>;
 }
