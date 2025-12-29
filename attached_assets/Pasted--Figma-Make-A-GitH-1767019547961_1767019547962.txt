@@ -1,0 +1,129 @@
+ДА! Подготовь структуру папок для интеграции с Figma Make.
+
+КОНТЕКСТ:
+Мы используем Вариант A: "GitHub как мост"
+- Figma Make будет отправлять ТОЛЬКО UI компоненты в GitHub
+- Replit импортирует эти UI и добавляет логику
+- Деплой идёт с Replit на Vercel
+
+ТРЕБОВАНИЯ К СТРУКТУРЕ:
+
+1. СОЗДАЙ НОВУЮ ПАПКУ /src/figma-ui/
+   Это папка для UI компонентов из Figma Make
+   
+   /src/figma-ui/
+   ├── components/           # Основные UI компоненты из Figma Make
+   │   ├── dashboard/       # Dashboard UI (без логики!)
+   │   ├── admin/           # Admin UI
+   │   └── shared/          # Общие UI компоненты
+   ├── ui/                  # shadcn/ui компоненты из Figma Make
+   └── README.md            # Инструкция "Эта папка синхронизируется с GitHub"
+
+2. СОЗДАЙ ПАПКУ /src/containers/
+   Это папка для логики (Container компоненты)
+   
+   /src/containers/
+   ├── dashboard/           # Логика для дашбордов
+   │   ├── CEOMissionControlContainer.tsx
+   │   ├── AdminOpsDashboardContainer.tsx
+   │   └── FinanceDashboardContainer.tsx
+   ├── admin/               # Логика админки
+   └── README.md            # Объяснение паттерна Container
+
+3. СОХРАНИ ТЕКУЩУЮ СТРУКТУРУ
+   НЕ удаляй существующие компоненты! Они понадобятся для миграции.
+   
+   /src/components/         # ОСТАВИТЬ как есть (старые компоненты)
+   /src/hooks/              # ОСТАВИТЬ
+   /src/utils/              # ОСТАВИТЬ
+
+4. ОБНОВИ /src/components/dashboard/index.ts
+   Добавь экспорты для будущих Container компонентов
+
+5. СОЗДАЙ ФАЙЛ /INTEGRATION_GUIDE.md
+   С инструкцией:
+   - Как импортировать UI из /figma-ui
+   - Как создавать Container компоненты
+   - Пример миграции одного компонента
+
+ИТОГОВАЯ СТРУКТУРА:
+
+/
+├── src/
+│   ├── figma-ui/              # 🆕 UI из Figma Make (будет синхронизироваться с GitHub)
+│   │   ├── components/
+│   │   └── ui/
+│   │
+│   ├── containers/            # 🆕 Логика (Container pattern)
+│   │   ├── dashboard/
+│   │   └── admin/
+│   │
+│   ├── components/            # ✅ Существующие компоненты (пока оставляем)
+│   │   ├── dashboard/
+│   │   └── ...
+│   │
+│   ├── hooks/                 # ✅ Хуки (оставляем)
+│   ├── utils/                 # ✅ API, утилиты (оставляем)
+│   └── MainApp.tsx
+│
+├── supabase/                  # ✅ Backend
+├── INTEGRATION_GUIDE.md       # 🆕 Инструкция по интеграции
+└── package.json
+
+ДЕЙСТВИЯ:
+
+1. Создай все новые папки и файлы
+2. В каждой новой папке создай README.md с объяснением
+3. Создай пример Container компонента в /src/containers/dashboard/ExampleContainer.tsx
+4. Создай /INTEGRATION_GUIDE.md с подробной инструкцией
+5. НЕ удаляй существующий код
+6. Покажи мне итоговую структуру дерева папок (tree -L 3 -d)
+
+ПРИМЕР CONTAINER КОМПОНЕНТА (создай ExampleContainer.tsx):
+
+```typescript
+/**
+ * 📦 CONTAINER PATTERN
+ * 
+ * Container компонент содержит:
+ * - Логику (useState, useEffect, API вызовы)
+ * - Бизнес-логику (расчёты, форматирование)
+ * - Supabase запросы
+ * 
+ * И импортирует UI компонент из /figma-ui
+ */
+
+import { useState, useEffect } from 'react';
+import { CEOMissionControlView } from '../../figma-ui/components/dashboard/CEOMissionControlView';
+import { useDashboardData } from '../../hooks/useDashboardData';
+import * as api from '../../utils/api';
+
+export function CEOMissionControlContainer({ currentUser }: { currentUser: any }) {
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState(null);
+  
+  // ВСЯ ЛОГИКА ЗДЕСЬ
+  useEffect(() => {
+    loadData();
+  }, []);
+  
+  const loadData = async () => {
+    try {
+      const response = await api.getAdminStats();
+      setStats(response.stats);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // ПРОСТО ПЕРЕДАЁМ ПРОПСЫ В UI
+  return (
+    <CEOMissionControlView 
+      loading={loading}
+      stats={stats}
+      onRefresh={loadData}
+    />
+  );
+}
