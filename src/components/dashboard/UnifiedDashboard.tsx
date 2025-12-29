@@ -4,7 +4,7 @@ import { KPICard } from './KPICard';
 import { ChartContainer } from './ChartContainer';
 import { AlertsList } from './AlertsList';
 import { DataTable } from './DataTable';
-import { DashboardMode, DashboardModeConfig, PeriodOption, DashboardState, DashboardPayload, DASHBOARD_MODES } from './types';
+import { DashboardMode, PeriodOption, DashboardState, DashboardPayload, DASHBOARD_MODES } from './types';
 import { getMockDashboardData } from '../../mock/dashboardMock';
 import * as api from '../../utils/api';
 

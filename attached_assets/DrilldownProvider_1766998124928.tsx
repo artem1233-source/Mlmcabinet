@@ -1,4 +1,9 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState } from 'react';
+
+/**
+ * DrilldownProvider - контекст для управления drilldown навигацией
+ * Позволяет переходить из Dashboard в детальные страницы с фильтрами
+ */
 
 export interface DrilldownFilter {
   type: 'users' | 'orders' | 'payouts' | 'tickets' | 'inventory';
@@ -28,18 +33,21 @@ export function DrilldownProvider({ children }: { children: React.ReactNode }) {
 
   const setDrilldown = (filter: DrilldownFilter) => {
     setActiveDrilldown(filter);
-    console.log('Drilldown activated:', filter);
+    console.log('🔍 Drilldown activated:', filter);
   };
 
   const clearDrilldown = () => {
     setActiveDrilldown(null);
-    console.log('Drilldown cleared');
+    console.log('🔍 Drilldown cleared');
   };
 
   const navigateToPage = (page: string, filter: DrilldownFilter) => {
     setDrilldown(filter);
+    
+    // Сохраняем фильтр в localStorage для восстановления после перехода
     localStorage.setItem('drilldown_filter', JSON.stringify(filter));
     
+    // Генерируем URL с параметрами
     const params = new URLSearchParams();
     if (filter.filters) {
       Object.entries(filter.filters).forEach(([key, value]) => {
@@ -50,7 +58,13 @@ export function DrilldownProvider({ children }: { children: React.ReactNode }) {
     }
     
     const url = params.toString() ? `${page}?${params.toString()}` : page;
-    console.log('Navigate to:', url, 'with filters:', filter);
+    console.log('🔍 Navigate to:', url);
+    
+    // В реальном приложении здесь будет React Router navigate
+    // navigate(url);
+    
+    // Пока что просто логируем
+    console.log('📍 Would navigate to:', url, 'with filters:', filter);
   };
 
   return (
@@ -68,16 +82,19 @@ export function useDrilldown() {
   return context;
 }
 
+/**
+ * Hook для восстановления drilldown фильтра после навигации
+ */
 export function useRestoreDrilldown() {
   const { setDrilldown } = useDrilldown();
 
-  useEffect(() => {
+  React.useEffect(() => {
     const savedFilter = localStorage.getItem('drilldown_filter');
     if (savedFilter) {
       try {
         const filter = JSON.parse(savedFilter);
         setDrilldown(filter);
-        console.log('Restored drilldown filter:', filter);
+        console.log('🔍 Restored drilldown filter:', filter);
       } catch (e) {
         console.error('Failed to restore drilldown filter:', e);
       }
@@ -85,6 +102,9 @@ export function useRestoreDrilldown() {
   }, [setDrilldown]);
 }
 
+/**
+ * Хелпер для создания drilldown для разных типов
+ */
 export const createDrilldown = {
   users: (filters?: any, title?: string): DrilldownFilter => ({
     type: 'users',

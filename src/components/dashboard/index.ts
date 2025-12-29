@@ -12,4 +12,5 @@ export { WarehouseDashboard } from './WarehouseDashboard';
 export { SEODashboard } from './SEODashboard';
 export { SupportDashboard } from './SupportDashboard';
 export { StatusLight } from './StatusLight';
-export { DrilldownProvider, useDrilldown } from './DrilldownProvider';
+export { ActionItem } from './ActionItem';
+export { DrilldownProvider, useDrilldown, createDrilldown, useRestoreDrilldown } from './DrilldownProvider';
