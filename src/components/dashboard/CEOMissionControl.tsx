@@ -424,26 +424,26 @@ export function CEOMissionControl({ data, period: _period }: CEOMissionControlPr
   const profit = totalRevenue - totalPayouts;
 
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         {kpis.slice(0, 4).map((kpi, index) => (
           <CEOKPICard key={kpi.id || index} kpi={kpi} iconKey={kpiKeys[index] || 'revenue'} />
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <DailyRevenueChart data={revenueChartData} />
         <DistributionPieChart data={[]} />
       </div>
 
       <RecentTransactionsTable />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ActionCenter alerts={data.alerts || []} />
         <TopPartnersLeaderboard partners={topPartners} />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <SmallStatCard
           title="Ожидает выплат"
           value={totalPayouts.toLocaleString('ru-RU')}

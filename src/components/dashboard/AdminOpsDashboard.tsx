@@ -325,8 +325,8 @@ export function AdminOpsDashboard({ data, period: _period }: AdminOpsDashboardPr
   const registrationData = data.charts?.[0]?.data || [];
 
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         <AdminKPICard
           title="Всего пользователей"
           value={totalNum}
@@ -361,14 +361,14 @@ export function AdminOpsDashboard({ data, period: _period }: AdminOpsDashboardPr
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <RegistrationChart data={registrationData} />
         <LevelDistributionChart />
       </div>
 
       <RecentRegistrationsTable users={recentUsers} />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <SmallStatCard
           title="Неактивные"
           value={inactiveNum}
