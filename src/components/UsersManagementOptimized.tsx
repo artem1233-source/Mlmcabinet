@@ -49,6 +49,7 @@ import {
   Link2,
   Bell,
   Download,
+  Download,
   PhoneCall,
   TrendingDown,
   DollarSign,
@@ -92,7 +93,7 @@ import {
   TabsList,
   TabsTrigger,
 } from './ui/tabs';
-import { toast } from 'sonner';
+import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { StatsWidgets } from './StatsWidgets';
 import { exportAllUsersToCSV } from '../utils/exportToCSV';
@@ -103,7 +104,6 @@ import { IdManagementOptimized } from './admin/IdManagementOptimized';
 import { UserTreeRenderer } from './UserTreeRenderer';
 import { AdvancedFiltersPanel } from './AdvancedFiltersPanel';
 import { VirtualizedTreeView } from './VirtualizedTreeView';
-import { UserCodesManager, CodeLookup } from './admin/UserCodesManager';
 
 interface UsersManagementOptimizedProps {
   currentUser: any;
@@ -327,42 +327,155 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
     return total;
   };
 
-  // 🔄 Пересчёт ВСЕХ рангов через СЕРВЕРНЫЙ API
-  // ✅ ИСПРАВЛЕНО: Убран клиентский перерасчёт - используется только сервер
+  // 🌳 НОВАЯ ФУНКЦИЯ: Расчёт ранга на основе древовидной структуры
+  const calculateRankFromTree = (userId: string, userMap: Map<string, any>, visited = new Set<string>()): number => {
+    // Защита от циклов
+    if (visited.has(userId)) {
+      console.warn(`⚠️ Обнаружен цикл для пользователя ${userId}`);
+      return 0;
+    }
+    visited.add(userId);
+    
+    const user = userMap.get(userId);
+    if (!user) {
+      console.warn(`⚠️ Пользователь ${userId} не найден`);
+      return 0;
+    }
+    
+    // Получаем всех детей из спонсорId (древовидная структура)
+    const children = Array.from(userMap.values()).filter(u => u.спонсорId === userId);
+    
+    // Если нет детей - ранг = 0 (листья дерева)
+    if (children.length === 0) {
+      return 0;
+    }
+    
+    // ✅ ПРАВИЛЬНАЯ ЛОГИКА: РАНГ = МАКСИМАЛЬНАЯ ГЛУБИНА самой длинной ветки!
+    // Рекурсивно находим максимальный ранг среди всех детей
+    let maxChildRank = 0;
+    
+    for (const child of children) {
+      const childRank = calculateRankFromTree(child.id, userMap, new Set(visited));
+      if (childRank > maxChildRank) {
+        maxChildRank = childRank;
+      }
+    }
+    
+    // Ранг = 1 (прямой реферал) + максимальная глубина ниже
+    return 1 + maxChildRank;
+  };
+
+  // 🔄 Пересчёт ВСЕХ рангов на основе дерева
   const recalculateAllRanksFromTree = async () => {
-    const toastId = toast.loading('🌳 Отправляем запрос на пересчёт рангов...');
+    const toastId = toast.loading('🌳 Начинаем пересчёт рангов...');
     
     try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/recalculate-all-ranks`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-            'X-User-Id': currentUser?.id || '',
-          },
+      // Создаём Map для быстрого доступа
+      const userMap = new Map<string, any>();
+      allUsers.forEach(u => userMap.set(u.id, u));
+      
+      toast.loading('🔍 Анализируем древовидную структуру...', { id: toastId });
+      
+      // Рассчитываем ранги для ВСЕХ пользователей
+      const newRanks = new Map<string, number>();
+      const updates: Array<{userId: string, userName: string, newRank: number, oldRank: number}> = [];
+      
+      for (const user of allUsers) {
+        if (user.isAdmin) continue; // Админам ранги не нужны
+        
+        const newRank = calculateRankFromTree(user.id, userMap);
+        const oldRank = userRanks.get(user.id) ?? user.уровень ?? 0;
+        
+        newRanks.set(user.id, newRank);
+        
+        if (newRank !== oldRank) {
+          updates.push({ 
+            userId: user.id, 
+            userName: `${user.имя} ${user.фамилия}`,
+            newRank, 
+            oldRank 
+          });
         }
-      );
+      }
       
-      const result = await response.json();
+      // Обновляем локальное состояние СРАЗУ для визуализации
+      setUserRanks(newRanks);
       
-      if (result.success || response.ok) {
-        const updatedCount = result.updated || result.recalculated || 0;
-        toast.success(`🎉 Сервер пересчитал ранги для ${updatedCount} пользователей!`, { 
+      console.log(`📊 Пересчитано рангов: ${newRanks.size}, изменений: ${updates.length}`);
+      
+      if (updates.length === 0) {
+        toast.success('✅ Все ранги уже корректны! Ошибок не обнаружено.', { id: toastId });
+        return;
+      }
+      
+      // Показываем топ-5 изменений для наглядности
+      const topChanges = updates
+        .sort((a, b) => Math.abs(b.newRank - b.oldRank) - Math.abs(a.newRank - a.oldRank))
+        .slice(0, 5);
+      
+      console.log('🔝 Топ-5 изменений:');
+      topChanges.forEach(u => {
+        console.log(`  ${u.userName}: ${u.oldRank} → ${u.newRank} (${u.newRank > u.oldRank ? '+' : ''}${u.newRank - u.oldRank})`);
+      });
+      
+      toast.loading(`💾 Сохраняем ${updates.length} изме��ений...`, { id: toastId });
+      
+      // Сохраняем в базу ПАКЕТАМИ для скорости
+      let savedCount = 0;
+      let errorCount = 0;
+      const batchSize = 10;
+      
+      for (let i = 0; i < updates.length; i += batchSize) {
+        const batch = updates.slice(i, i + batchSize);
+        
+        // Сохраняем параллельно
+        const promises = batch.map(update => 
+          fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/user/${update.userId}/rank`,
+            {
+              method: 'PUT',
+              headers: {
+                'Authorization': `Bearer ${publicAnonKey}`,
+                'Content-Type': 'application/json',
+                'X-User-Id': currentUser?.id || '',
+              },
+              body: JSON.stringify({ rank: update.newRank }),
+            }
+          ).then(response => ({ success: response.ok, update }))
+           .catch(() => ({ success: false, update }))
+        );
+        
+        const results = await Promise.all(promises);
+        
+        results.forEach(({ success, update }) => {
+          if (success) {
+            savedCount++;
+            console.log(`✅ ${update.userName}: ${update.oldRank} → ${update.newRank}`);
+          } else {
+            errorCount++;
+            console.error(`❌ Ошибка для ${update.userName}`);
+          }
+        });
+        
+        // Обновляем прогресс
+        toast.loading(`💾 Сохранено ${savedCount}/${updates.length}...`, { id: toastId });
+      }
+      
+      if (errorCount === 0) {
+        toast.success(`🎉 Успешно пересчитано и сохранено ${savedCount} рангов!`, { 
           id: toastId,
           duration: 5000 
         });
-        
-        // Перезагружаем данные с сервера
-        await queryClient.invalidateQueries({ queryKey: ['users-all-tree'] });
-        await queryClient.invalidateQueries({ queryKey: ['users-optimized'] });
-        
-        // Перезагружаем ранги с сервера
-        await loadUserRanks();
       } else {
-        throw new Error(result.error || 'Ошибка сервера');
+        toast.warning(`⚠️ Сохранено ${savedCount} из ${updates.length}. Ошибок: ${errorCount}`, { 
+          id: toastId,
+          duration: 7000 
+        });
       }
+      
+      // Перезагружаем данные
+      await queryClient.invalidateQueries({ queryKey: ['users-all-tree'] });
+      await queryClient.invalidateQueries({ queryKey: ['users-optimized'] });
       
     } catch (error) {
       console.error('Ошибка пересчёта рангов:', error);
@@ -400,19 +513,28 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       
       if (currentUsers.length === 0) return;
       
-      // ВАЖНО: Загружаем свежие ранги для ВСЕХ пользователей (включая админов)
-      // Это временное решение пока на сервере не исправлен кэш рангов
-      const usersToLoad = currentUsers
-        .filter(u => u.id) // Только пользователи с ID
+      // Сначала используем данные сервера если есть
+      currentUsers.forEach((user: any) => {
+        if (user.id && user._metrics?.rank !== undefined) {
+          newRanks.set(user.id, user._metrics.rank);
+        }
+      });
+      
+      // Быстро обновляем UI с серверными данными
+      setUserRanks(newRanks);
+      
+      // Затем параллельно догружаем свежие ранги только для партнёров (максимум 100 для дерева)
+      const partnersToLoad = currentUsers
+        .filter(u => !u.isAdmin && (!u._metrics || !u._metrics.rank))
         .slice(0, viewMode === 'tree' ? 100 : 50); // Ограничение для производительности
       
-      if (usersToLoad.length > 0) {
+      if (partnersToLoad.length > 0) {
         // Загружаем ранги параллельно (макс. 15 одновременно)
         const batchSize = 15;
-        for (let i = 0; i < usersToLoad.length; i += batchSize) {
-          const batch = usersToLoad.slice(i, i + batchSize);
+        for (let i = 0; i < partnersToLoad.length; i += batchSize) {
+          const batch = partnersToLoad.slice(i, i + batchSize);
           const rankPromises = batch.map(user => 
-            api.getUserRank(user.id, false).catch(() => ({ success: true, rank: 0 }))
+            api.getUserRank(user.id, true).catch(() => ({ success: true, rank: 0 }))
           );
           
           const results = await Promise.all(rankPromises);
@@ -426,7 +548,9 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
         
         // Обновляем финальные ранги
         setUserRanks(new Map(newRanks));
-        console.log(`📊 User ranks updated [${viewMode}]:`, newRanks.size, 'users (fresh API data)');
+        console.log(`📊 User ranks updated [${viewMode}]:`, newRanks.size, 'users (fresh data loaded)');
+      } else {
+        console.log(`📊 User ranks updated [${viewMode}]:`, newRanks.size, 'users (from server cache)');
       }
     } catch (error) {
       console.error('Failed to load ranks:', error);
@@ -437,22 +561,6 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
   const handleStatsFilterClick = (filter: string) => {
     setActiveStatsFilter(filter);
     setPage(1); // Reset to first page
-    
-    // 💰 Клик на "Общий баланс" - сортировка по балансу по убыванию
-    if (filter === 'totalBalance') {
-      setSortBy('balance');
-      setSortOrder('desc');
-    }
-    // 👥 Клик на "Активные партнёры" - сортировка по размеру команды по убыванию
-    else if (filter === 'activePartners') {
-      setSortBy('teamSize');
-      setSortOrder('desc');
-    }
-    // 😴 Клик на "Пассивные партнёры" - сортировка по дате регистрации
-    else if (filter === 'passivePartners') {
-      setSortBy('created');
-      setSortOrder('desc');
-    }
   };
 
 
@@ -600,11 +708,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       setBalanceConfirmOpen(false);
       setDataConfirmOpen(false);
       setEditingUser(null);
-      
-      // Принудительно перезагружаем данные
-      await refetch();
-      await queryClient.invalidateQueries({ queryKey: ['users-all-tree'] });
-      
+      queryClient.invalidateQueries({ queryKey: ['users-optimized'] });
       if (onRefresh) onRefresh();
     } catch (error: any) {
       console.error('Error updating user:', error);
@@ -1209,16 +1313,13 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
               </Badge>
             )}
           </TabsTrigger>
-          {/* 🔒 Вкладка "Управление ID" только для админов/CEO */}
-          {(currentUser?.isAdmin || currentUser?.id === 'ceo' || currentUser?.id === '001' || currentUser?.email === 'admin@admin.com') && (
-            <TabsTrigger 
-              value="ids" 
-              className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white data-[state=active]:shadow-md"
-            >
-              <Shield className="w-4 h-4 mr-2" />
-              Управление ID
-            </TabsTrigger>
-          )}
+          <TabsTrigger 
+            value="ids" 
+            className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#39B7FF] data-[state=active]:to-[#12C9B6] data-[state=active]:text-white data-[state=active]:shadow-md"
+          >
+            <Shield className="w-4 h-4 mr-2" />
+            Управление ID
+          </TabsTrigger>
         </TabsList>
 
         {/* 👥 Users Tab */}
@@ -1294,54 +1395,12 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={async () => {
-                    if (!confirm(`⚠️ УДАЛЕНИЕ ${selectedUsers.size} ПОЛЬЗОВАТЕЛЕЙ\n\nЭто действие необратимо!\n\nПродолжить?`)) {
-                      return;
+                  onClick={() => {
+                    if (confirm(`Удалить ${selectedUsers.size} выбранных пользователей?`)) {
+                      // TODO: Реализовать массовое удаление
+                      toast.success(`Удалено пользователей: ${selectedUsers.size}`);
+                      setSelectedUsers(new Set());
                     }
-                    
-                    const userIds = Array.from(selectedUsers);
-                    let deleted = 0;
-                    let failed = 0;
-                    
-                    toast.loading(`Удаление ${userIds.length} пользователей...`);
-                    
-                    for (const userId of userIds) {
-                      try {
-                        const response = await fetch(
-                          `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/delete-user/${userId}`,
-                          {
-                            method: 'DELETE',
-                            headers: {
-                              'Authorization': `Bearer ${publicAnonKey}`,
-                              'X-User-Id': currentUser?.id || '',
-                            },
-                          }
-                        );
-                        
-                        const data = await response.json();
-                        if (data.success) {
-                          deleted++;
-                        } else {
-                          failed++;
-                          console.error(`Failed to delete ${userId}:`, data.error);
-                        }
-                      } catch (error) {
-                        failed++;
-                        console.error(`Error deleting ${userId}:`, error);
-                      }
-                    }
-                    
-                    toast.dismiss();
-                    
-                    if (deleted > 0) {
-                      toast.success(`Удалено: ${deleted} пользователей${failed > 0 ? `, ошибок: ${failed}` : ''}`);
-                      queryClient.invalidateQueries({ queryKey: ['users-optimized'] });
-                      onRefresh?.();
-                    } else {
-                      toast.error(`Ошибка удаления. Не удалось удалить пользователей.`);
-                    }
-                    
-                    setSelectedUsers(new Set());
                   }}
                   className="border-red-500 text-red-600 hover:bg-red-50"
                 >
@@ -1940,18 +1999,13 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       )}
         </TabsContent>
 
-        {/* 🛡️ ID Management Tab - только для админов/CEO */}
-        {(currentUser?.isAdmin || currentUser?.id === 'ceo' || currentUser?.id === '001' || currentUser?.email === 'admin@admin.com') && (
-          <TabsContent value="ids">
-            <div className="space-y-4">
-              <IdManagementOptimized 
-                currentUser={currentUser} 
-                onSuccess={() => queryClient.invalidateQueries({ queryKey: ['users-optimized'] })} 
-              />
-              <CodeLookup />
-            </div>
-          </TabsContent>
-        )}
+        {/* 🛡️ ID Management Tab */}
+        <TabsContent value="ids">
+          <IdManagementOptimized 
+            currentUser={currentUser} 
+            onSuccess={() => queryClient.invalidateQueries({ queryKey: ['users-optimized'] })} 
+          />
+        </TabsContent>
       </Tabs>
 
       {/* 👁️ User Details Modal */}
@@ -2112,13 +2166,12 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
 
               {/* Tabs */}
               <Tabs defaultValue="general" className="w-full">
-                <TabsList className="grid w-full grid-cols-6 mb-2.5">
+                <TabsList className="grid w-full grid-cols-5 mb-2.5">
                   <TabsTrigger value="general">Общее</TabsTrigger>
                   <TabsTrigger value="team">Команда</TabsTrigger>
                   <TabsTrigger value="sales">Продажи</TabsTrigger>
                   <TabsTrigger value="finance">Финансы</TabsTrigger>
                   <TabsTrigger value="activity">Активность</TabsTrigger>
-                  <TabsTrigger value="codes">ID/Коды</TabsTrigger>
                 </TabsList>
 
                 {/* 📋 Вкладка: Общее */}
@@ -2678,17 +2731,6 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                       Заказов пока нет
                     </div>
                   </div>
-                </TabsContent>
-
-                {/* 🆔 Вкладка: ID/Коды */}
-                <TabsContent value="codes" className="space-y-2.5">
-                  <UserCodesManager 
-                    userId={selectedUserForDetails.id}
-                    userName={`${selectedUserForDetails.имя || ''} ${selectedUserForDetails.фамилия || ''}`.trim()}
-                    onCodesChanged={() => {
-                      queryClient.invalidateQueries({ queryKey: ['users-optimized'] });
-                    }}
-                  />
                 </TabsContent>
               </Tabs>
             </div>

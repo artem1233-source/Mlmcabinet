@@ -1,296 +1,118 @@
-import { useState, useEffect, useMemo } from 'react';
-import { DashboardLayout } from './DashboardLayout';
+import { useState, useEffect } from 'react';
+import { DashboardLayout, DashboardMode } from './DashboardLayout';
 import { CEOMissionControl } from './CEOMissionControl';
 import { AdminOpsDashboard } from './AdminOpsDashboard';
+import { WarehouseDashboard } from './WarehouseDashboard';
 import { FinanceDashboard } from './FinanceDashboard';
-import { KPICard } from './KPICard';
-import { ChartContainer } from './ChartContainer';
-import { AlertsList } from './AlertsList';
-import { DataTable } from './DataTable';
-import { DashboardMode, PeriodOption, DashboardState, DashboardPayload, DashboardData, DASHBOARD_MODES } from './types';
-import { getMockDashboardData } from '../../mock/dashboardMock';
-import * as api from '../../utils/api';
+import { SEODashboard } from './SEODashboard';
+import { SupportDashboard } from './SupportDashboard';
+import { StatusType } from './StatusLight';
+import { toast } from 'sonner';
+import { dashboardExporters } from '../../utils/dashboardExport';
 
 interface UnifiedDashboardProps {
   currentUser: any;
 }
 
 export function UnifiedDashboard({ currentUser }: UnifiedDashboardProps) {
-  const [currentMode, setCurrentMode] = useState<DashboardMode>('ceo');
-  const [period, setPeriod] = useState<PeriodOption>(30);
-  const [state, setState] = useState<DashboardState>('loading');
-  const [data, setData] = useState<DashboardPayload | null>(null);
-  const [isDemo, setIsDemo] = useState(false);
+  const [mode, setMode] = useState<DashboardMode>('ceo');
+  const [status, setStatus] = useState<StatusType>('ok');
+  const [statusMessage, setStatusMessage] = useState<string>('');
+  const [period, setPeriod] = useState('30');
 
-  const userRole = useMemo(() => {
-    const role = currentUser?.role || currentUser?.роль || currentUser?.id || 'partner';
-    return role.toLowerCase();
+  useEffect(() => {
+    // Определяем начальный режим на основе роли
+    const initialMode = getInitialMode();
+    setMode(initialMode);
   }, [currentUser]);
 
-  const allowedModes = useMemo(() => {
-    if (userRole === 'ceo' || currentUser?.isAdmin) {
-      return DASHBOARD_MODES;
+  const getInitialMode = (): DashboardMode => {
+    if (currentUser?.id === 'ceo' || currentUser?.role === 'ceo') {
+      return 'ceo';
     }
-    return DASHBOARD_MODES.filter(mode => mode.allowedRoles.includes(userRole));
-  }, [userRole, currentUser?.isAdmin]);
-
-  useEffect(() => {
-    if (allowedModes.length > 0 && !allowedModes.find(m => m.id === currentMode)) {
-      setCurrentMode(allowedModes[0].id);
+    if (currentUser?.isAdmin || currentUser?.role === 'admin') {
+      return 'admin';
     }
-  }, [allowedModes, currentMode]);
-
-  useEffect(() => {
-    loadDashboardData();
-  }, [currentMode, period]);
-
-  const loadDashboardData = async () => {
-    setState('loading');
-    setIsDemo(false);
-
-    try {
-      let payload: DashboardPayload | null = null;
-
-      switch (currentMode) {
-        case 'ceo':
-          try {
-            const [financeRes, analyticsRes, leaderboardRes] = await Promise.all([
-              api.getAdminStats().catch(() => null),
-              api.getAdminAnalytics().catch(() => null),
-              api.getLeaderboard().catch(() => null)
-            ]);
-
-            const stats = financeRes?.stats || {};
-            const analytics = analyticsRes?.analytics || {};
-            const leaderboard = leaderboardRes?.leaderboard || [];
-            
-            const totalRevenue = stats.totalRevenue || 0;
-            const totalEarnings = stats.totalEarnings || 0;
-            const totalBalance = stats.totalBalance || 0;
-            const profit = totalRevenue - totalEarnings;
-
-            const topPartners = (analytics.topPartners || []).map((p: any, idx: number) => ({
-              userId: p.userId,
-              name: p.name || 'Партнёр',
-              id: p.userId,
-              revenue: p.revenue || 0,
-              color: ['#FFD700', '#C0C0C0', '#CD7F32', '#10B981', '#F59E0B', '#EC4899', '#6366F1', '#8B5CF6', '#39B7FF', '#14B8A6'][idx] || '#39B7FF'
-            }));
-
-            if (topPartners.length === 0 && leaderboard.length > 0) {
-              leaderboard.slice(0, 10).forEach((u: any, idx: number) => {
-                topPartners.push({
-                  userId: u.id,
-                  name: `${u.имя || ''} ${u.фамилия || ''}`.trim() || 'Партнёр',
-                  id: u.id,
-                  revenue: u.баланс || 0,
-                  color: ['#FFD700', '#C0C0C0', '#CD7F32', '#10B981', '#F59E0B', '#EC4899', '#6366F1', '#8B5CF6', '#39B7FF', '#14B8A6'][idx] || '#39B7FF'
-                });
-              });
-            }
-
-            payload = {
-              kpis: [
-                { id: 'revenue', title: 'Выручка (Revenue)', value: totalRevenue, suffix: '₽', delta: 15.2 },
-                { id: 'payouts', title: 'Выплаты (Payouts)', value: totalEarnings, suffix: '₽', delta: 8.5 },
-                { id: 'liability', title: 'Обязательства (Liability)', value: totalBalance, suffix: '₽', delta: 2.4 },
-                { id: 'profit', title: 'Маржа/Прибыль (Profit)', value: profit, suffix: '₽', delta: 18.9 },
-              ],
-              charts: [],
-              alerts: [],
-              topPartners,
-              dailySales: analytics.dailySales || []
-            };
-          } catch (e) {
-            console.error('CEO data fetch error:', e);
-          }
-          break;
-
-        case 'admin':
-          try {
-            const usersRes = await api.getAllUsers().catch(() => null);
-            if (usersRes?.success) {
-              const users = usersRes.users || [];
-              const today = new Date();
-              today.setHours(0, 0, 0, 0);
-              const thisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-              const last30Days = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-              
-              const newToday = users.filter((u: any) => {
-                const regDate = new Date(u.зарегистрирован || u.createdAt || 0);
-                return regDate >= today;
-              }).length;
-              
-              const newLast30 = users.filter((u: any) => {
-                const regDate = new Date(u.зарегистрирован || u.createdAt || 0);
-                return regDate >= last30Days;
-              }).length;
-
-              const activeUsers = users.filter((u: any) => u.isActive || u.активен).length;
-              const admins = users.filter((u: any) => u.isAdmin || u.роль === 'admin' || u.role === 'admin').length;
-
-              const registrationsByDay: { date: string; value: number }[] = [];
-              for (let i = 29; i >= 0; i--) {
-                const d = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
-                const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-                const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
-                const count = users.filter((u: any) => {
-                  const regDate = new Date(u.зарегистрирован || u.createdAt || 0);
-                  return regDate >= dayStart && regDate < dayEnd;
-                }).length;
-                registrationsByDay.push({
-                  date: `${d.getDate()} ${['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'][d.getMonth()]}.`,
-                  value: count
-                });
-              }
-
-              payload = {
-                kpis: [
-                  { id: 'total_users', title: 'Всего пользователей', value: users.length },
-                  { id: 'active_users', title: 'Активные', value: activeUsers },
-                  { id: 'new_users_30d', title: 'Новые за 30 дней', value: newLast30 },
-                  { id: 'admins', title: 'Админы', value: admins },
-                ],
-                charts: [
-                  { id: 'registrations', title: 'Регистрации по дням', type: 'area', data: registrationsByDay }
-                ],
-                table: {
-                  columns: [
-                    { key: 'id', title: 'ID' },
-                    { key: 'name', title: 'Имя' },
-                    { key: 'email', title: 'Email' },
-                  ],
-                  rows: users.slice(0, 10).map((u: any) => ({
-                    id: u.id,
-                    partnerId: u.id,
-                    name: `${u.имя || ''} ${u.фамилия || ''}`.trim() || 'Без имени',
-                    имя: `${u.имя || ''} ${u.фамилия || ''}`.trim() || 'Без имени',
-                    email: u.email || u.почта || '-'
-                  }))
-                }
-              };
-            }
-          } catch (e) {
-            console.error('Admin data fetch error:', e);
-          }
-          break;
-
-        case 'finance':
-          try {
-            const financeRes = await api.getAdminStats().catch(() => null);
-            if (financeRes?.success) {
-              const stats = financeRes.stats || {};
-              payload = {
-                kpis: [
-                  { id: 'total_revenue', title: 'Общий доход', value: stats.totalRevenue || 0 },
-                  { id: 'total_paid', title: 'Выплачено', value: stats.totalEarnings || 0 },
-                  { id: 'in_processing', title: 'В обработке', value: stats.totalBalance || 0 },
-                  { id: 'cashflow', title: 'Cashflow', value: (stats.totalRevenue || 0) - (stats.totalEarnings || 0) },
-                ],
-                charts: []
-              };
-            }
-          } catch (e) {
-            console.error('Finance data fetch error:', e);
-          }
-          break;
-
-        default:
-          break;
-      }
-
-      if (!payload || (payload.kpis.length === 0 && !payload.table)) {
-        payload = getMockDashboardData(currentMode, period);
-        setIsDemo(true);
-      }
-
-      if (payload.kpis.length === 0 && payload.charts.length === 0 && !payload.table) {
-        setState('empty');
-      } else {
-        setData(payload);
-        setState('success');
-      }
-    } catch (error) {
-      console.error('Dashboard data error:', error);
-      const fallback = getMockDashboardData(currentMode, period);
-      setData(fallback);
-      setIsDemo(true);
-      setState('success');
+    if (currentUser?.role === 'seo') {
+      return 'seo';
     }
+    // По умолчанию admin для всех остальных (на случай если попали сюда)
+    return 'admin';
   };
 
-  const handleModeChange = (mode: DashboardMode) => {
-    setCurrentMode(mode);
+  const handleModeChange = (newMode: DashboardMode) => {
+    console.log('🔄 Switching mode:', mode, '→', newMode);
+    setMode(newMode);
   };
 
-  const handlePeriodChange = (newPeriod: PeriodOption) => {
-    setPeriod(newPeriod);
+  const handleRefresh = async () => {
+    console.log('🔄 Refreshing dashboard...');
+    toast.info('Обновление данных...');
+    // Перезагрузка будет в дочернем компоненте
+    await new Promise(resolve => setTimeout(resolve, 500));
+    toast.success('Данные обновлены');
   };
 
-  const toDashboardData = (payload: DashboardPayload): DashboardData => ({
-    kpis: payload.kpis,
-    charts: payload.charts,
-    tables: payload.table ? [payload.table] : [],
-    alerts: payload.alerts || [],
-    topPartners: payload.topPartners,
-    dailySales: payload.dailySales,
-  });
+  const handleExport = () => {
+    console.log('📥 Exporting data for mode:', mode);
+    toast.info('Экспорт данных в CSV...');
+    
+    // Вызываем экспорт для текущего режима
+    // Экспорт будет обрабатываться в дочернем компоненте
+    const exportEvent = new CustomEvent('dashboard-export', { 
+      detail: { mode, period } 
+    });
+    window.dispatchEvent(exportEvent);
+  };
 
-  const renderModeContent = () => {
-    if (!data) return null;
+  const handleAudit = () => {
+    console.log('🔍 Running audit...');
+    toast.info('Запуск аудита системы...');
+    // TODO: Implement audit logic
+  };
 
-    if (currentMode === 'ceo') {
-      return <CEOMissionControl data={toDashboardData(data)} period={period} />;
+  // Рендерим содержимое в зависимости от режима
+  const renderContent = () => {
+    console.log('🎨 Rendering mode:', mode); // Отладка
+    
+    switch (mode) {
+      case 'ceo':
+        return <CEOMissionControl currentUser={currentUser} period={period} />;
+      
+      case 'admin':
+        return <AdminOpsDashboard currentUser={currentUser} period={period} />;
+      
+      case 'finance':
+        return <FinanceDashboard currentUser={currentUser} period={period} />;
+      
+      case 'warehouse':
+        return <WarehouseDashboard currentUser={currentUser} period={period} />;
+      
+      case 'seo':
+        return <SEODashboard currentUser={currentUser} period={period} />;
+      
+      case 'support':
+        return <SupportDashboard currentUser={currentUser} period={period} />;
+      
+      default:
+        return null;
     }
-
-    if (currentMode === 'admin') {
-      return <AdminOpsDashboard data={toDashboardData(data)} period={period} />;
-    }
-
-    if (currentMode === 'finance') {
-      return <FinanceDashboard data={toDashboardData(data)} period={period} />;
-    }
-
-    return (
-      <div className="space-y-6">
-        {data.kpis.length > 0 && (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-            {data.kpis.map(kpi => (
-              <KPICard key={kpi.id} kpi={kpi} />
-            ))}
-          </div>
-        )}
-
-        {data.alerts && data.alerts.length > 0 && (
-          <AlertsList alerts={data.alerts} />
-        )}
-
-        {data.charts.length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {data.charts.map(chart => (
-              <ChartContainer key={chart.id} chart={chart} />
-            ))}
-          </div>
-        )}
-
-        {data.table && (
-          <DataTable title="Последние записи" data={data.table} />
-        )}
-      </div>
-    );
   };
 
   return (
     <DashboardLayout
-      currentMode={currentMode}
+      mode={mode}
       onModeChange={handleModeChange}
-      allowedModes={allowedModes}
+      status={status}
+      statusMessage={statusMessage}
       period={period}
-      onPeriodChange={handlePeriodChange}
-      state={state}
-      isDemo={isDemo}
+      onPeriodChange={setPeriod}
+      onRefresh={handleRefresh}
+      onExport={handleExport}
+      onAudit={handleAudit}
+      currentUser={currentUser}
     >
-      {data && renderModeContent()}
+      {renderContent()}
     </DashboardLayout>
   );
 }

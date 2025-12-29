@@ -13,26 +13,23 @@ export function SidebarRu({ текущаяВкладка, изменитьВкл
   const isAdmin = currentUser?.isAdmin || false;
   const isCEO = currentUser?.type === 'admin' && currentUser?.role === 'ceo';
   
-  // Роли для унифицированного дашборда
-  const userRole = currentUser?.role || currentUser?.id || '';
-  const showUnifiedDashboard = isAdmin || isCEO || userRole === 'seo' || userRole === 'support' || userRole === 'warehouse';
-
   const navItems = [
-    { id: 'дашборд', label: 'Дашборд', icon: LayoutDashboard },
-    // 🆕 Панель управления (для CEO, админов и специальных ролей)
-    ...(showUnifiedDashboard ? [{ id: 'панель', label: 'Панель управления', icon: Crown }] : []),
+    // 🆕 "Дашборд" только для обычных пользователей (у CEO есть Mission Control)
+    ...(!isAdmin ? [{ id: 'дашборд', label: 'Дашборд', icon: LayoutDashboard }] : []),
+    // 👑 Mission Control (только для CEO)
+    ...(isCEO ? [{ id: 'mission-control', label: 'Mission Control', icon: Crown }] : []),
     // 🆕 Админ видит "Пользователи", обычные партнёры - "Структура"
     ...(isAdmin 
       ? [{ id: 'пользователи', label: 'Пользователи', icon: Users }] 
       : [{ id: 'структура', label: 'Структура', icon: Users }]
     ),
     { id: 'заказы', label: 'Заказы', icon: ShoppingBag },
-    // 💰 Админ видит "Финансы", партнёры - "Доходы" и "Баланс"
+    // 💰 Админ видит "Финансы", обычные партнёры - "Доходы" и "Баланс"
     ...(isAdmin 
       ? [{ id: 'финансы', label: 'Финансы', icon: Wallet }]
       : [
           { id: 'доходы', label: 'Доходы', icon: TrendingUp },
-          { id: 'баланс', label: 'Баланс', icon: Wallet },
+          { id: 'баланс', label: 'Баланс', icon: Wallet }
         ]
     ),
     { id: 'каталог', label: 'Каталог', icon: Package },

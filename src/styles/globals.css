@@ -123,6 +123,12 @@
   * {
     @apply border-border outline-ring/50;
   }
+  
+  /* 🎯 Убираем outline с SVG элементов */
+  svg,
+  svg * {
+    @apply outline-none border-none;
+  }
 
   body {
     @apply bg-background text-foreground;
@@ -247,4 +253,10 @@ input[type="number"] {
 
 [data-sonner-toast][data-type='loading'] [data-icon] {
   color: #F59E0B !important;
+}
+
+/* 🎯 Убираем outline с SVG элементов (для колец активности) */
+svg, svg * {
+  outline: none !important;
+  border: none !important;
 }

@@ -1,14 +1,13 @@
 import { Star } from 'lucide-react';
 
 interface RankBadgeProps {
-  rank: number; // Реальный ранг пользователя (0+, где 0 = нет команды)
+  rank: number; // Реальный ранг пользователя (1-11)
 }
 
 export function RankBadge({ rank }: RankBadgeProps) {
   
   // 🛡️ Защита от некорректных значений
-  // ✅ ИСПРАВЛЕНО: Разрешаем ранг 0 (нет команды)
-  const safeRank = Math.max(0, rank ?? 0);
+  const safeRank = Math.max(1, rank || 1);
   
   // Определяем цвет в зависимости от ранга
   const getRankStyle = (rank: number) => {

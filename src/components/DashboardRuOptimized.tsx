@@ -16,6 +16,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { TrendingUp, ShoppingBag, Users, Wallet, Loader2, RefreshCw, DollarSign, Package, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AdminToolbar } from './AdminToolbar';
 import { AchievementsWidget } from './AchievementsWidget';
 import { AdvancedAnalytics } from './AdvancedAnalytics';
 import { StatsWidgets } from './StatsWidgets';
@@ -46,9 +47,6 @@ import {
   exportFullDashboard 
 } from '../utils/exportDashboardToCSV';
 
-// 🛡️ Безопасный парсинг дат
-import { isInMonth, safeFormatDate } from '../utils/dateUtils';
-
 interface DashboardRuProps {
   currentUser: any;
   onRefresh: () => void;
@@ -63,6 +61,7 @@ export function DashboardRuOptimized({ currentUser, onRefresh, refreshTrigger }:
                   currentUser?.email === 'admin@admin.com' || 
                   currentUser?.id === 'ceo' || 
                   currentUser?.id === '1';
+  const showAdminToolbar = isAdmin;
   const effectiveUserId = currentUser?.id;
 
   // 💾 Сохраняем выбранный период в localStorage
@@ -83,13 +82,13 @@ export function DashboardRuOptimized({ currentUser, onRefresh, refreshTrigger }:
   const conversionFunnel = useConversionFunnel(team);
 
   // 📊 Вычисляем статистику для личного дашборда
-  // 🛡️ Используем безопасный парсинг дат для предотвращения RangeError
   const stats = {
     totalEarnings: earnings.reduce((sum, e) => sum + (e.сумма || e.amount || 0), 0),
     monthEarnings: earnings
       .filter(e => {
+        const date = new Date(e.дата || e.date || e.createdAt);
         const now = new Date();
-        return isInMonth(e.дата || e.date || e.createdAt, now.getMonth(), now.getFullYear());
+        return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
       })
       .reduce((sum, e) => sum + (e.сумма || e.amount || 0), 0),
     activeOrders: orders.filter(o => o.статус === 'pending' || o.status === 'pending').length,
@@ -219,6 +218,8 @@ export function DashboardRuOptimized({ currentUser, onRefresh, refreshTrigger }:
 
   return (
     <div className="p-4 lg:p-8 max-w-full overflow-x-hidden" style={{ backgroundColor: '#F7FAFC' }}>
+      {/* Admin Toolbar */}
+      {showAdminToolbar && <AdminToolbar userName={currentUser.имя} onUserChange={onRefresh} />}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-6 lg:mb-8">
@@ -507,7 +508,7 @@ export function DashboardRuOptimized({ currentUser, onRefresh, refreshTrigger }:
                         {order.товар || order.product || 'Товар'}
                       </p>
                       <p className="text-[#666]" style={{ fontSize: '13px' }}>
-                        {safeFormatDate(order.датаЗаказа || order.дата || order.createdAt)}
+                        {new Date(order.датаЗаказа || order.дата || order.createdAt).toLocaleDateString('ru-RU')}
                       </p>
                     </div>
                   </div>

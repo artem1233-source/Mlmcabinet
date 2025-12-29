@@ -50,8 +50,13 @@ export function NotificationBell({ onViewAll }: NotificationBellProps) {
     try {
       const response = await api.getNotifications();
       if (response.success) {
-        // Сортируем по дате (новые сначала) и берём только последние 5
+        // Фильтруем невалидные даты, сортируем по дате (новые сначала) и берём только последние 5
         const sorted = (response.notifications || [])
+          .filter((n: Notification) => {
+            if (!n.дата) return true;
+            const date = new Date(n.дата);
+            return !isNaN(date.getTime());
+          })
           .sort((a: Notification, b: Notification) => 
             new Date(b.дата).getTime() - new Date(a.дата).getTime()
           )

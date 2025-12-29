@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { ShoppingCart, Plus, Minus, Trash2, Loader2, Package } from 'lucide-react';
+import { ShoppingCart, X, Plus, Minus, Trash2, Loader2 } from 'lucide-react';
 import { Button } from './ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { ImageWithFallback } from './figma/ImageWithFallback';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from './ui/sheet';
 import { CheckoutRu } from './CheckoutRu';
 import { toast } from 'sonner';
 import * as api from '../utils/api';
@@ -36,12 +37,26 @@ export function CartRu({
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [showCheckout, setShowCheckout] = useState(false);
 
+  // Вычисляем общую стоимость корзины
   const totalAmount = cartItems.reduce((sum, item) => {
     const price = item.isPartner 
       ? (Number(item.product.цена1) || Number(item.product.партнёрскаяЦена) || 0)
       : (Number(item.product.цена_розница) || Number(item.product.розничнаяЦена) || 0);
-    return sum + (price * item.quantity);
+    const itemTotal = price * item.quantity;
+    
+    // 🆕 Логирование для отладки
+    console.log('📦 Cart item:', {
+      name: item.product.название,
+      price,
+      quantity: item.quantity,
+      itemTotal,
+      isPartner: item.isPartner
+    });
+    
+    return sum + itemTotal;
   }, 0);
+
+  console.log('💰 Total cart amount:', totalAmount);
 
   const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -53,73 +68,72 @@ export function CartRu({
 
     setCreatingOrder(true);
     try {
-      // 🆕 Формируем массив items с ПОЛНЫМИ данными товаров включая комиссии
-      const items = cartItems.map(item => {
-        const product = item.product;
-        const isGuest = !item.isPartner;
+      // Создаем заказы для каждого товара в корзине
+      const orders = [];
+      
+      for (const item of cartItems) {
+        // 🆕 Валидация SKU
+        const sku = item.product.sku;
+        console.log('📦 Creating order for:', item.product.название, 'SKU:', sku);
         
-        // Цены
-        const retailPrice = Number(product.цена_розница) || Number(product.розничнаяЦена) || 0;
-        const partnerPrice = Number(product.цена1) || Number(product.партнёрскаяЦена) || 0;
-        const priceL2 = Number(product.цена2) || 0;
-        const priceL3 = Number(product.цена3) || 0;
-        const companyPrice = Number(product.цена4) || Number(product.ценаКомпании) || 0;
+        if (!sku || sku.length < 2) {
+          console.error('❌ Invalid SKU:', sku, 'for product:', item.product);
+          
+          // Подробное сообщение для пользователя
+          const errorMsg = `Некорректный SKU товара "${item.product.название}" (SKU: "${sku}").\n\n` + 
+            `Это ошибка в данных товара. Решение:\n` +
+            `1. Удалите этот товар из корзины\n` +
+            `2. Или сбросьте демо-данные в консоли:\n` +
+            `   localStorage.clear(); location.reload()`;
+          
+          throw new Error(errorMsg);
+        }
         
-        // Вычисляем комиссии по водопадной схеме
-        const payoutL0 = isGuest ? Math.max(0, retailPrice - partnerPrice) : 0;
-        const payoutL1 = priceL2 > 0 ? Math.max(0, partnerPrice - priceL2) : 0;
-        const payoutL2 = (priceL2 > 0 && priceL3 > 0) ? Math.max(0, priceL2 - priceL3) : 0;
-        const payoutL3 = (priceL3 > 0 && companyPrice > 0) ? Math.max(0, priceL3 - companyPrice) : 0;
+        const data = await api.createOrder(
+          sku, 
+          item.isPartner, 
+          item.quantity
+        );
         
-        // Цена продажи
-        const salePrice = isGuest ? retailPrice : partnerPrice;
+        if (data.success && data.order) {
+          orders.push(data.order);
+        } else {
+          throw new Error(`Ошибка создания заказа для ${item.product.название}`);
+        }
+      }
+
+      // Если несколько заказов, объединяем их в один для оплаты
+      if (orders.length === 1) {
+        setSelectedOrder(orders[0]);
+      } else {
+        // Создаем комбинированный заказ для отображения в чекауте
+        // 🆕 Используем суммаЗаказа (уже умножено на количество) вместо цена * количество
+        const totalPrice = orders.reduce((sum, o) => sum + (o.суммаЗаказа || (o.цена || 0) * (o.количество || 1)), 0);
+        const productNames = orders.map(o => `${o.товар} (x${o.количество})`).join(', ');
         
-        return {
-          product_id: product.id || product.sku,
-          sku: product.sku,
-          name: product.название || product.name || 'Без названия',
-          quantity: item.quantity,
-          price: salePrice,
-          is_guest: isGuest,
-          partner_price: partnerPrice,
-          retail_price: retailPrice,
-          price_l2: priceL2,
-          price_l3: priceL3,
-          company_price: companyPrice,
-          payout_l0: payoutL0,
-          payout_l1: payoutL1,
-          payout_l2: payoutL2,
-          payout_l3: payoutL3,
+        const combinedOrder = {
+          id: orders[0].id, // ID первого заказа (для отображения)
+          orderIds: orders.map(o => o.id), // 🆕 Массив всех ID заказов
+          товар: productNames, // 🆕 Все товары через запятую
+          цена: totalPrice, // 🆕 Общая сумма всех заказов
+          количество: orders.reduce((sum, o) => sum + (o.количество || 0), 0),
+          суммаЗаказа: totalPrice,
+          userId: orders[0].userId,
+          статус: orders[0].статус,
+          датаЗаказа: orders[0].датаЗаказа,
+          isMultipleOrders: true, // 🆕 Флаг что это несколько заказов
+          orders: orders // 🆕 Сохраняем все заказы
         };
-      });
-      
-      console.log('📦 Creating order with items:', items);
-      
-      // Отправляем заказ с полными данными
-      const data = await api.createOrderWithItems(items);
-      
-      if (!data.success) {
-        throw new Error(data.error || 'Ошибка создания заказа');
+        
+        console.log('📦 Combined order created:', combinedOrder);
+        setSelectedOrder(combinedOrder);
       }
       
-      const order = data.order;
-      setSelectedOrder({
-        id: order.id,
-        orderId: order.id,
-        товар: items.map(i => `${i.name} (x${i.quantity})`).join(', '),
-        цена: totalAmount,
-        количество: totalItems,
-        суммаЗаказа: totalAmount,
-        статус: order.status || 'pending',
-        датаЗаказа: order.created_at,
-        items: items
-      });
-      
       setShowCheckout(true);
-      onClose();
+      onClose(); // Закрываем корзину
       
       toast.success('Заказ создан!', {
-        description: `${totalItems} товаров на ₽${totalAmount.toLocaleString()}`
+        description: `${totalItems} ${totalItems === 1 ? 'товар' : 'товара'} на сумму ₽${totalAmount.toLocaleString()}`
       });
     } catch (error) {
       console.error('Checkout error:', error);
@@ -139,113 +153,120 @@ export function CartRu({
 
   return (
     <>
-      <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="max-w-md p-0 overflow-hidden rounded-2xl">
-          <DialogHeader className="px-5 py-4 border-b border-gray-100 bg-white">
-            <DialogTitle className="flex items-center gap-2 text-[#1E1E1E] text-base">
+      <Sheet open={isOpen} onOpenChange={onClose}>
+        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2 text-[#1E1E1E]">
               <ShoppingCart className="w-5 h-5 text-[#39B7FF]" />
-              Корзина
-              {totalItems > 0 && (
-                <span className="ml-1 px-2 py-0.5 bg-[#39B7FF]/10 text-[#39B7FF] rounded-full text-xs font-semibold">
-                  {totalItems}
-                </span>
-              )}
-            </DialogTitle>
-          </DialogHeader>
+              Корзина ({totalItems})
+            </SheetTitle>
+            <SheetDescription>
+              Просмотрите и измените товары в корзине перед оформлением заказа
+            </SheetDescription>
+          </SheetHeader>
 
           {cartItems.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 px-6">
-              <div className="w-14 h-14 bg-gray-50 rounded-full flex items-center justify-center mb-3">
-                <Package className="w-7 h-7 text-gray-300" />
+            <div className="flex flex-col items-center justify-center py-20">
+              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                <ShoppingCart className="w-8 h-8 text-gray-400" />
               </div>
-              <p className="text-[#666] text-center text-sm">Корзина пуста</p>
-              <p className="text-[#999] text-center mt-1 text-xs">
+              <p className="text-[#666] text-center">Корзина пуста</p>
+              <p className="text-[#999] text-center mt-2" style={{ fontSize: '14px' }}>
                 Добавьте товары из каталога
               </p>
             </div>
           ) : (
-            <>
-              <div className="max-h-[320px] overflow-y-auto px-4 py-3">
-                <div className="space-y-2">
-                  {cartItems.map((item) => {
-                    const price = item.isPartner 
-                      ? (Number(item.product.цена1) || Number(item.product.партнёрскаяЦена) || 0)
-                      : (Number(item.product.цена_розница) || Number(item.product.розничнаяЦена) || 0);
-                    
-                    const itemKey = `${item.product.id || item.product.sku}-${item.isPartner ? 'partner' : 'guest'}`;
-                    
-                    return (
-                      <div 
-                        key={itemKey} 
-                        className="flex gap-3 p-3 bg-gray-50/80 rounded-xl border border-gray-100/50"
-                      >
-                        <div className="w-14 h-14 rounded-lg overflow-hidden bg-white flex-shrink-0 border border-gray-100">
-                          <ImageWithFallback
-                            src={item.product.изображение}
-                            alt={item.product.название}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex-1 min-w-0">
-                              <h4 className="text-[#1E1E1E] text-sm font-medium truncate leading-tight">
-                                {item.product.название}
-                              </h4>
-                              <p className="text-[10px] text-gray-400 mt-0.5">
-                                {item.isPartner ? 'Для себя' : 'Для гостя'}
-                              </p>
-                            </div>
-                            <button
-                              onClick={() => onRemoveItem(item.product.id || item.product.sku, item.isPartner)}
-                              className="p-1.5 hover:bg-red-50 rounded-lg transition-colors -mr-1 -mt-1"
-                            >
-                              <Trash2 className="w-3.5 h-3.5 text-gray-400 hover:text-red-500" />
-                            </button>
+            <div className="mt-6 space-y-4">
+              {/* Список товаров */}
+              <div className="space-y-3">
+                {cartItems.map((item) => {
+                  const price = item.isPartner 
+                    ? (Number(item.product.цена1) || Number(item.product.партнёрскаяЦена) || 0)
+                    : (Number(item.product.цена_розница) || Number(item.product.розничнаяЦена) || 0);
+                  
+                  const itemKey = `${item.product.id || item.product.sku}-${item.isPartner ? 'partner' : 'guest'}`;
+                  
+                  return (
+                    <Card key={itemKey} className="border-[#E6E9EE]">
+                      <CardContent className="p-4">
+                        <div className="flex gap-3">
+                          {/* Изображение товара */}
+                          <div className="w-20 h-20 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
+                            <ImageWithFallback
+                              src={item.product.изображение}
+                              alt={item.product.название}
+                              className="w-full h-full object-cover"
+                            />
                           </div>
 
-                          <div className="flex items-center justify-between mt-2">
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                onClick={() => onUpdateQuantity(item.product.id || item.product.sku, item.isPartner, item.quantity - 1)}
-                                disabled={item.quantity <= 1}
-                                className="w-6 h-6 flex items-center justify-center bg-white border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                              >
-                                <Minus className="w-3 h-3 text-gray-500" />
-                              </button>
-                              <span className="text-[#1E1E1E] w-6 text-center text-sm font-semibold">
-                                {item.quantity}
-                              </span>
-                              <button
-                                onClick={() => onUpdateQuantity(item.product.id || item.product.sku, item.isPartner, item.quantity + 1)}
-                                className="w-6 h-6 flex items-center justify-center bg-white border border-gray-200 rounded-md hover:bg-gray-50 transition-colors"
-                              >
-                                <Plus className="w-3 h-3 text-gray-500" />
-                              </button>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-[#39B7FF] text-sm font-bold">
-                                ₽{(price * item.quantity).toLocaleString()}
+                          {/* Информация  товаре */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <h4 className="text-[#1E1E1E] truncate" style={{ fontWeight: '600', fontSize: '14px' }}>
+                                  {item.product.название}
+                                </h4>
+                                <p className="text-[#666] mt-1" style={{ fontSize: '12px' }}>
+                                  {item.isPartner ? 'Партнёрская цена' : 'Розничная цена'}
+                                </p>
                               </div>
-                              {item.quantity > 1 && (
-                                <div className="text-[10px] text-gray-400">
-                                  {price.toLocaleString()} × {item.quantity}
+                              <button
+                                onClick={() => onRemoveItem(item.product.id || item.product.sku, item.isPartner)}
+                                className="p-1 hover:bg-red-50 rounded-lg transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4 text-red-500" />
+                              </button>
+                            </div>
+
+                            {/* Количество и цена */}
+                            <div className="flex items-center justify-between mt-3">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => onUpdateQuantity(item.product.id || item.product.sku, item.isPartner, item.quantity - 1)}
+                                  disabled={item.quantity <= 1}
+                                  className="w-7 h-7 flex items-center justify-center border border-[#E6E9EE] rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  <Minus className="w-3 h-3 text-[#666]" />
+                                </button>
+                                <span className="text-[#1E1E1E] w-8 text-center" style={{ fontWeight: '600' }}>
+                                  {item.quantity}
+                                </span>
+                                <button
+                                  onClick={() => onUpdateQuantity(item.product.id || item.product.sku, item.isPartner, item.quantity + 1)}
+                                  className="w-7 h-7 flex items-center justify-center border border-[#E6E9EE] rounded-lg hover:bg-gray-50"
+                                >
+                                  <Plus className="w-3 h-3 text-[#666]" />
+                                </button>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-[#39B7FF]" style={{ fontWeight: '700', fontSize: '16px' }}>
+                                  ₽{(price * item.quantity).toLocaleString()}
                                 </div>
-                              )}
+                                {item.quantity > 1 && (
+                                  <div className="text-[#999]" style={{ fontSize: '11px' }}>
+                                    ₽{price.toLocaleString()} × {item.quantity}
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
 
-              <div className="border-t border-gray-100 px-5 py-4 bg-white space-y-3">
+              {/* Итого */}
+              <div className="sticky bottom-0 bg-white pt-4 pb-4 border-t border-[#E6E9EE] space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-gray-500 text-sm">Товаров: {totalItems}</span>
-                  <span className="text-[#1E1E1E] text-lg font-bold">
+                  <span className="text-[#666]">Всего товаров:</span>
+                  <span className="text-[#1E1E1E]" style={{ fontWeight: '600' }}>{totalItems}</span>
+                </div>
+                
+                <div className="flex items-center justify-between">
+                  <span className="text-[#1E1E1E]" style={{ fontWeight: '700', fontSize: '18px' }}>Итого:</span>
+                  <span className="text-[#39B7FF]" style={{ fontWeight: '700', fontSize: '20px' }}>
                     ₽{totalAmount.toLocaleString()}
                   </span>
                 </div>
@@ -253,30 +274,34 @@ export function CartRu({
                 <Button
                   onClick={handleCheckout}
                   disabled={creatingOrder}
-                  className="w-full bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] hover:opacity-90 text-white h-11 rounded-xl font-semibold"
+                  className="w-full bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] hover:opacity-90 text-white h-12"
                 >
                   {creatingOrder ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                      Оформляю...
+                      Создание заказа...
                     </>
                   ) : (
-                    'Оформить заказ'
+                    <>
+                      Оформить заказ
+                    </>
                   )}
                 </Button>
 
-                <button
+                <Button
                   onClick={onClearCart}
-                  className="w-full text-center text-xs text-gray-400 hover:text-red-500 transition-colors py-1"
+                  variant="outline"
+                  className="w-full border-red-300 text-red-600 hover:bg-red-50"
                 >
                   Очистить корзину
-                </button>
+                </Button>
               </div>
-            </>
+            </div>
           )}
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
 
+      {/* Checkout Modal */}
       {showCheckout && selectedOrder && (
         <CheckoutRu
           order={selectedOrder}

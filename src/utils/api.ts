@@ -173,9 +173,7 @@ export async function getUserTeam(userId: string) {
   return apiCall(`/user/${userId}/team`);
 }
 
-export async function getUserRank(userId: string, useCache = false) {
-  // ⚠️ ВРЕМЕННО: useCache=false по умолчанию из-за бага с устаревшим кэшем рангов
-  // После деплоя исправленного backend можно вернуть useCache=true
+export async function getUserRank(userId: string, useCache = true) {
   return apiCall(`/user/${userId}/rank?cache=${useCache}`);
 }
 
@@ -223,16 +221,6 @@ export async function createOrder(sku: string, isPartner: boolean, quantity = 1)
   });
 }
 
-// 🆕 Создание заказа с ПОЛНЫМИ данными товаров (включая комиссии)
-export async function createOrderWithItems(items: any[]) {
-  console.log('📦 Creating order with full items data:', items);
-  
-  return apiCall('/orders', {
-    method: 'POST',
-    body: JSON.stringify({ items }),
-  });
-}
-
 export async function getOrders() {
   return apiCall('/orders');
 }
@@ -266,11 +254,6 @@ export async function getWithdrawals() {
   return apiCall('/withdrawals');
 }
 
-// Get user balance (SINGLE SOURCE OF TRUTH from backend)
-export async function getBalance() {
-  return apiCall('/balance');
-}
-
 // ======================
 // PAYMENTS
 // ======================
@@ -296,35 +279,6 @@ export async function getAdminStats() {
 
 export async function getAllUsers() {
   return apiCall('/admin/users');
-}
-
-// ======================
-// PAYOUTS (Admin) - Управление выплатами
-// ======================
-
-export async function getPayouts() {
-  return apiCall('/admin/withdrawals');
-}
-
-export async function approvePayout(payoutId: string) {
-  const cleanId = payoutId.replace('withdrawal:', '');
-  return apiCall(`/admin/withdrawals/${cleanId}/status`, {
-    method: 'POST',
-    body: JSON.stringify({ status: 'completed', note: 'Выплачено администратором' }),
-  });
-}
-
-export async function rejectPayout(payoutId: string, reason?: string) {
-  const cleanId = payoutId.replace('withdrawal:', '');
-  return apiCall(`/admin/withdrawals/${cleanId}/status`, {
-    method: 'POST',
-    body: JSON.stringify({ status: 'rejected', note: reason || 'Отклонено администратором' }),
-  });
-}
-
-// Admin Finance Stats - глобальная статистика для CEO
-export async function getAdminFinanceStats() {
-  return apiCall('/admin/finance/stats');
 }
 
 // Debug function - get all users without admin check
@@ -416,12 +370,6 @@ export async function assignReservedId(newId: string, userId: string) {
 
 export async function cleanBrokenRefs() {
   return apiCall('/admin/clean-broken-refs', {
-    method: 'POST',
-  });
-}
-
-export async function rebuildRelationships() {
-  return apiCall('/admin/rebuild-relationships', {
     method: 'POST',
   });
 }
@@ -583,10 +531,10 @@ export async function getAllWithdrawals() {
   return apiCall('/admin/withdrawals');
 }
 
-export async function updateWithdrawalStatus(withdrawalId: string, status: string, adminComment?: string) {
+export async function updateWithdrawalStatus(withdrawalId: string, status: string, note?: string) {
   return apiCall(`/admin/withdrawals/${withdrawalId}/status`, {
     method: 'POST',
-    body: JSON.stringify({ status, adminComment }),
+    body: JSON.stringify({ status, note }),
   });
 }
 
@@ -638,6 +586,21 @@ export async function testAdminConnection() {
     console.error('❌ Admin connection test failed:', error);
     throw error;
   }
+}
+
+// ======================
+// ADMIN FINANCE
+// ======================
+
+export async function getAdminFinanceStats() {
+  return apiCall('/admin/finance-stats');
+}
+
+export async function processPayoutAction(withdrawalId: string, action: 'approve' | 'reject', note?: string) {
+  return apiCall('/admin/payout-action', {
+    method: 'POST',
+    body: JSON.stringify({ withdrawalId, action, note }),
+  });
 }
 
 export async function getCounterInfo() {
@@ -991,65 +954,5 @@ export async function updateOrderStatus(orderId: string, status: string) {
   return apiCall(`/admin/orders/${orderId}/status`, {
     method: 'POST',
     body: JSON.stringify({ status }),
-  });
-}
-
-// ======================
-// ADMIN - MULTIPLE ID/CODES MANAGEMENT
-// ======================
-
-export interface PartnerCode {
-  value: string;
-  type: "numeric" | "alphanumeric";
-  primary: boolean;
-  isActive: boolean;
-  createdAt: string;
-  assignedBy?: string;
-  note?: string;
-}
-
-export async function getUserCodes(userId: string): Promise<{ success: boolean; userId: string; codes: PartnerCode[]; primaryId: string }> {
-  return apiCall(`/admin/user/${userId}/codes`);
-}
-
-export async function addUserCode(userId: string, code: string, makePrimary: boolean = false): Promise<{ success: boolean; message: string; codes: PartnerCode[] }> {
-  return apiCall(`/admin/user/${userId}/codes`, {
-    method: 'POST',
-    body: JSON.stringify({ code, makePrimary }),
-  });
-}
-
-export async function setCodeAsPrimary(userId: string, code: string): Promise<{ success: boolean; message: string; codes: PartnerCode[] }> {
-  return apiCall(`/admin/user/${userId}/codes/set-primary`, {
-    method: 'POST',
-    body: JSON.stringify({ code }),
-  });
-}
-
-export async function deactivateCode(userId: string, code: string): Promise<{ success: boolean; message: string; codes: PartnerCode[] }> {
-  return apiCall(`/admin/user/${userId}/codes/deactivate`, {
-    method: 'POST',
-    body: JSON.stringify({ code }),
-  });
-}
-
-export async function activateCode(userId: string, code: string): Promise<{ success: boolean; message: string; codes: PartnerCode[] }> {
-  return apiCall(`/admin/user/${userId}/codes/activate`, {
-    method: 'POST',
-    body: JSON.stringify({ code }),
-  });
-}
-
-export async function checkCodeAvailability(code: string): Promise<{ success: boolean; code: string; available: boolean; reason?: string; existingUserId?: string }> {
-  return apiCall(`/admin/codes/check/${encodeURIComponent(code)}`);
-}
-
-export async function resolveCode(code: string): Promise<{ success: boolean; code: string; userId: string; user: any }> {
-  return apiCall(`/admin/codes/resolve/${encodeURIComponent(code)}`);
-}
-
-export async function migrateAllUsersToCodes(): Promise<{ success: boolean; message: string; migrated: number; skipped: number; errors: string[] }> {
-  return apiCall('/admin/codes/migrate-all', {
-    method: 'POST',
   });
 }

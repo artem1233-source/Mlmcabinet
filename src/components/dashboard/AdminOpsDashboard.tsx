@@ -1,398 +1,594 @@
+import { useState, useEffect } from 'react';
+import { KPICard } from './KPICard';
+import { ChartContainer } from './ChartContainer';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Users, Activity, UserPlus, Shield, Calendar, Search, Download, UserX, TrendingUp } from 'lucide-react';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Avatar } from '../ui/avatar';
 import {
-  AreaChart,
-  Area,
-  PieChart,
-  Pie,
-  Cell,
+  Users,
+  UserCheck,
+  UserPlus,
+  Shield,
+  Search,
+  Download,
+  Calendar,
+  UserX,
+  TrendingUp,
+  Activity,
+} from 'lucide-react';
+import {
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
-  ResponsiveContainer,
   Tooltip,
+  ResponsiveContainer,
+  Legend,
+  PieChart,
+  Pie,
+  Cell,
 } from 'recharts';
-import type { DashboardData } from './types';
+import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { exportDashboard } from '../../utils/exportCSV';
+import { dashboardExporters } from '../../utils/dashboardExport';
+import { useDrilldown, createDrilldown } from './DrilldownProvider';
+import { 
+  parsePeriod, 
+  filterByPeriod, 
+  calculatePeriodSum,
+  calculatePeriodMetrics,
+  groupByDay,
+  getPreviousPeriodRange,
+  calculateDelta
+} from '../../utils/periodCalculations';
+import { toast } from 'sonner';
 
 interface AdminOpsDashboardProps {
-  data: DashboardData;
-  period: number;
+  currentUser: any;
+  period?: string;
 }
 
-function AdminKPICard({ 
-  title, 
-  value, 
-  subtitle, 
-  icon: Icon, 
-  iconColor, 
-  iconBg 
-}: { 
-  title: string; 
-  value: number | string; 
-  subtitle?: string; 
-  icon: any; 
-  iconColor: string; 
-  iconBg: string;
-}) {
-  return (
-    <Card className="bg-white rounded-2xl border border-gray-100 shadow-sm">
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <p className="text-[13px] text-[#6B7280] mb-1">{title}</p>
-            <p className="text-[36px] font-bold text-[#1E1E1E] leading-none mb-1.5">
-              {value}
-            </p>
-            {subtitle && (
-              <p className="text-[12px] text-[#9CA3AF]">{subtitle}</p>
-            )}
-          </div>
-          <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
-            style={{ backgroundColor: iconBg }}
-          >
-            <Icon className="w-5 h-5" style={{ color: iconColor }} />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
+interface UserStats {
+  total: number;
+  active: number;
+  inactive: number;
+  newToday: number;
+  newThisWeek: number;
+  newThisMonth: number;
+  admins: number;
+  partners: number;
 }
 
-function RegistrationChart({ data }: { data: any[] }) {
-  const chartData = data.length > 0 ? data : [
-    { date: '1 дек.', value: 0 },
-    { date: '4 дек.', value: 0 },
-    { date: '7 дек.', value: 4 },
-    { date: '10 дек.', value: 0 },
-    { date: '13 дек.', value: 0 },
-    { date: '16 дек.', value: 0 },
-    { date: '19 дек.', value: 0 },
-    { date: '22 дек.', value: 0 },
-    { date: '25 дек.', value: 0 },
-    { date: '29 дек.', value: 0 },
-  ];
+export function AdminOpsDashboard({ currentUser, period = '30' }: AdminOpsDashboardProps) {
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<UserStats | null>(null);
+  const [recentUsers, setRecentUsers] = useState<any[]>([]);
+  const [allUsers, setAllUsers] = useState<any[]>([]); // Сохраняем все данные для фильтрации
+  const [chartData, setChartData] = useState<any[]>([]);
+  const [rankDistribution, setRankDistribution] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  
+  const { navigateToPage } = useDrilldown();
+  const periodDays = parsePeriod(period);
 
-  return (
-    <Card className="bg-white rounded-2xl border border-gray-100 shadow-sm h-full">
-      <CardHeader className="px-6 pt-5 pb-2">
-        <CardTitle className="text-[15px] font-semibold text-[#1E1E1E]">
-          Регистрации по дням
-        </CardTitle>
-        <p className="text-[13px] text-[#9CA3AF]">Последние 30 дней</p>
-      </CardHeader>
-      <CardContent className="px-6 pb-5">
-        <ResponsiveContainer width="100%" height={240}>
-          <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-            <defs>
-              <linearGradient id="colorReg" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#39B7FF" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#39B7FF" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
-            <XAxis
-              dataKey="date"
-              stroke="#9CA3AF"
-              fontSize={10}
-              tickLine={false}
-              axisLine={false}
-              interval={0}
-              angle={-45}
-              textAnchor="end"
-              height={50}
-            />
-            <YAxis
-              stroke="#9CA3AF"
-              fontSize={11}
-              tickLine={false}
-              axisLine={false}
-              allowDecimals={false}
-            />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: '#FFF',
-                border: '1px solid #E5E7EB',
-                borderRadius: '8px',
-                fontSize: '12px',
-              }}
-            />
-            <Area
-              type="monotone"
-              dataKey="value"
-              stroke="#39B7FF"
-              strokeWidth={2}
-              fill="url(#colorReg)"
-              dot={{ r: 3, fill: '#39B7FF', strokeWidth: 0 }}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-        <div className="flex justify-center mt-2">
-          <div className="flex items-center gap-2 text-xs text-[#39B7FF]">
-            <div className="w-2 h-2 rounded-full bg-[#39B7FF]" />
-            <span>Регистрации</span>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+  useEffect(() => {
+    loadAdminOpsData();
+  }, []);
 
-function LevelDistributionChart() {
-  const pieData = [
-    { name: 'Уровень 1', value: 71, color: '#39B7FF' },
-    { name: 'Уровень 2', value: 14, color: '#10B981' },
-    { name: 'Уровень 3', value: 14, color: '#F59E0B' },
-  ];
+  // Пересчитываем статистику при изменении периода
+  useEffect(() => {
+    if (allUsers.length > 0) {
+      recalculateStats(allUsers);
+    }
+  }, [period]);
 
-  const renderCustomizedLabel = ({ cx, cy, midAngle, outerRadius, percent, name }: any) => {
-    const RADIAN = Math.PI / 180;
-    const radius = outerRadius * 1.3;
-    const x = cx + radius * Math.cos(-midAngle * RADIAN);
-    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+  // Слушаем событие экспорта
+  useEffect(() => {
+    const handleExport = () => {
+      handleExportData();
+    };
+    window.addEventListener('dashboard-export', handleExport);
+    return () => window.removeEventListener('dashboard-export', handleExport);
+  }, [allUsers, stats]);
 
-    const color = pieData.find(d => d.name === name)?.color || '#6B7280';
+  const recalculateStats = (users: any[]) => {
+    console.log(`📊 Recalculating stats for period: ${periodDays} days`);
+    
+    // Фильтруем пользователей по периоду регистрации
+    const currentPeriodUsers = filterByPeriod(users, 'дата_регистрации', periodDays);
+    const previousPeriod = getPreviousPeriodRange(periodDays);
+    
+    const previousPeriodUsers = users.filter((u: any) => {
+      if (!u.дата_регистрации) return false;
+      const regDate = new Date(u.дата_регистрации);
+      return regDate >= previousPeriod.start && regDate <= previousPeriod.end;
+    });
 
-    return (
-      <text
-        x={x}
-        y={y}
-        fill={color}
-        textAnchor={x > cx ? 'start' : 'end'}
-        dominantBaseline="central"
-        fontSize={12}
-        fontWeight={500}
-      >
-        {`${name}: ${(percent * 100).toFixed(0)}%`}
-      </text>
+    // Активность определяем по наличию заказов или баланса
+    const activeUsers = currentPeriodUsers.filter((u: any) => {
+      const hasBalance = (u.баланс || 0) > 0;
+      const hasEarnings = (u.totalEarnings || 0) > 0;
+      return hasBalance || hasEarnings;
+    });
+
+    const previousActiveUsers = previousPeriodUsers.filter((u: any) => {
+      const hasBalance = (u.баланс || 0) > 0;
+      const hasEarnings = (u.totalEarnings || 0) > 0;
+      return hasBalance || hasEarnings;
+    });
+
+    const admins = users.filter((u: any) => u.isAdmin);
+    const partners = users.filter((u: any) => !u.isAdmin);
+
+    // Вычисляем дельты
+    const totalDelta = calculateDelta(users.length, users.length);
+    const activeDelta = calculateDelta(activeUsers.length, previousActiveUsers.length);
+    const newUsersDelta = calculateDelta(currentPeriodUsers.length, previousPeriodUsers.length);
+
+    setStats({
+      total: users.length,
+      active: activeUsers.length,
+      inactive: users.length - activeUsers.length,
+      newToday: currentPeriodUsers.filter((u: any) => {
+        const regDate = new Date(u.дата_регистрации);
+        const today = new Date();
+        return regDate.toDateString() === today.toDateString();
+      }).length,
+      newThisWeek: currentPeriodUsers.length,
+      newThisMonth: currentPeriodUsers.length,
+      admins: admins.length,
+      partners: partners.length,
+    });
+
+    // График регистраций
+    const registrationChartData = groupByDay(
+      users,
+      'дата_регистрации',
+      'id',
+      periodDays
     );
+    
+    setChartData(registrationChartData.map(d => ({
+      date: d.date,
+      registrations: d.value,
+    })));
+
+    // Последние 10 зарегистрированных
+    const sortedByDate = [...users]
+      .filter((u: any) => u.дата_регистрации)
+      .sort((a: any, b: any) => {
+        const dateA = new Date(a.дата_регистрации).getTime();
+        const dateB = new Date(b.дата_регистрации).getTime();
+        return dateB - dateA;
+      })
+      .slice(0, 10);
+
+    setRecentUsers(sortedByDate);
+
+    // Распределение по уровням
+    const rankCounts: { [key: string]: number } = {
+      '1': 0,
+      '2': 0,
+      '3': 0,
+    };
+
+    users.forEach((u: any) => {
+      const level = u.уровень || u.level || 1;
+      rankCounts[level] = (rankCounts[level] || 0) + 1;
+    });
+
+    const rankDistrib = [
+      { name: 'Уровень 1', value: rankCounts['1'], fill: '#39B7FF' },
+      { name: 'Уровень 2', value: rankCounts['2'], fill: '#10B981' },
+      { name: 'Уровень 3', value: rankCounts['3'], fill: '#8B5CF6' },
+    ];
+
+    setRankDistribution(rankDistrib);
+  };
+
+  const loadAdminOpsData = async () => {
+    try {
+      setLoading(true);
+
+      // Загружаем всех пользователей
+      const usersUrl = `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/users`;
+      const usersResponse = await fetch(usersUrl, {
+        headers: {
+          'Authorization': `Bearer ${publicAnonKey}`,
+          'Content-Type': 'application/json',
+          'X-User-Id': currentUser.id,
+        },
+      });
+
+      if (!usersResponse.ok) {
+        throw new Error('Failed to load users');
+      }
+
+      const usersData = await usersResponse.json();
+      const users = usersData.users || [];
+
+      console.log('👥 Admin Ops loaded users:', users.length);
+
+      setAllUsers(users);
+      recalculateStats(users);
+
+    } catch (error) {
+      console.error('❌ Error loading Admin Ops data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExportData = () => {
+    dashboardExporters.admin({
+      kpis: [
+        { title: 'Всего пользователей', value: stats?.total || 0, period },
+        { title: 'Активные', value: stats?.active || 0, period },
+        { title: 'Новые за период', value: stats?.newThisWeek || 0, period },
+        { title: 'Админы', value: stats?.admins || 0, period },
+      ],
+      charts: [
+        { name: 'Registrations', data: chartData },
+        { name: 'RankDistribution', data: rankDistribution },
+      ],
+    });
+    toast.success('Данные экспортированы в CSV');
+  };
+
+  const handleDrilldownToUsers = (filters?: any) => {
+    navigateToPage('/admin/users', createDrilldown.users(filters, 'Управление пользователями'));
+  };
+
+  const filteredUsers = searchQuery
+    ? recentUsers.filter((u) => {
+        const query = searchQuery.toLowerCase();
+        return (
+          u.имя?.toLowerCase().includes(query) ||
+          u.фамилия?.toLowerCase().includes(query) ||
+          u.email?.toLowerCase().includes(query) ||
+          u.id?.toLowerCase().includes(query)
+        );
+      })
+    : recentUsers;
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins < 60) return `${diffMins} мин назад`;
+    if (diffHours < 24) return `${diffHours} ч назад`;
+    if (diffDays < 7) return `${diffDays} дн назад`;
+    return date.toLocaleDateString('ru-RU');
   };
 
   return (
-    <Card className="bg-white rounded-2xl border border-gray-100 shadow-sm h-full">
-      <CardHeader className="px-6 pt-5 pb-2">
-        <CardTitle className="text-[15px] font-semibold text-[#1E1E1E]">
-          Распределение по уровням
-        </CardTitle>
-        <p className="text-[13px] text-[#9CA3AF]">Партнёрская сеть</p>
-      </CardHeader>
-      <CardContent className="px-6 pb-5">
-        <ResponsiveContainer width="100%" height={280}>
-          <PieChart>
-            <Pie
-              data={pieData}
-              cx="50%"
-              cy="50%"
-              labelLine={false}
-              label={renderCustomizedLabel}
-              outerRadius={85}
-              innerRadius={50}
-              fill="#8884d8"
-              dataKey="value"
-              stroke="none"
-            >
-              {pieData.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.color} />
-              ))}
-            </Pie>
-            <Tooltip
-              contentStyle={{
-                backgroundColor: '#FFF',
-                border: '1px solid #E5E7EB',
-                borderRadius: '8px',
-                fontSize: '12px',
-              }}
-            />
-          </PieChart>
-        </ResponsiveContainer>
-      </CardContent>
-    </Card>
-  );
-}
+    <div className="space-y-6">
+      {/* BIG 4 KPI */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+        <KPICard
+          title="Всего пользователей"
+          value={stats?.total || 0}
+          delta={stats?.newThisMonth ? ((stats.newThisMonth / stats.total) * 100) : 0}
+          deltaLabel="новых за период"
+          icon={Users}
+          iconColor="#39B7FF"
+          iconBgColor="#E5F4FF"
+          status="ok"
+          size="large"
+          loading={loading}
+          onClick={() => handleDrilldownToUsers()}
+        />
 
-function RecentRegistrationsTable({ users }: { users: any[] }) {
-  return (
-    <Card className="bg-white rounded-2xl border border-gray-100 shadow-sm">
-      <CardHeader className="px-6 py-4 border-b border-gray-100">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
-              <Calendar className="w-4 h-4 text-gray-500" />
-            </div>
-            <CardTitle className="text-[15px] font-semibold text-[#1E1E1E]">
+        <KPICard
+          title="Активные"
+          value={stats?.active || 0}
+          delta={stats?.active && stats?.total ? ((stats.active / stats.total) * 100) : 0}
+          deltaLabel="от общего числа"
+          icon={Activity}
+          iconColor="#10B981"
+          iconBgColor="#ECFDF5"
+          status="ok"
+          size="large"
+          loading={loading}
+          onClick={() => handleDrilldownToUsers({ status: 'active' })}
+        />
+
+        <KPICard
+          title={`Новые за ${periodDays === 1 ? 'день' : periodDays === 7 ? 'неделю' : `${periodDays} дней`}`}
+          value={stats?.newThisWeek || 0}
+          delta={stats?.newToday || 0}
+          deltaLabel="сегодня"
+          icon={UserPlus}
+          iconColor="#F59E0B"
+          iconBgColor="#FEF3C7"
+          status={stats && stats.newThisWeek > 10 ? 'ok' : 'warning'}
+          size="large"
+          loading={loading}
+          onClick={() => handleDrilldownToUsers({ period: periodDays })}
+        />
+
+        <KPICard
+          title="Админы"
+          value={stats?.admins || 0}
+          icon={Shield}
+          iconColor="#8B5CF6"
+          iconBgColor="#F3E8FF"
+          status="ok"
+          size="large"
+          loading={loading}
+          onClick={() => handleDrilldownToUsers({ role: 'admin' })}
+        />
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {/* Registrations Chart */}
+        <ChartContainer
+          title="Регистрации по дням"
+          subtitle="Последние 30 дней"
+          loading={loading}
+          empty={chartData.length === 0}
+        >
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+              <XAxis dataKey="date" stroke="#6B7280" style={{ fontSize: 12 }} />
+              <YAxis stroke="#6B7280" style={{ fontSize: 12 }} />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: 'white',
+                  border: '1px solid #E5E7EB',
+                  borderRadius: '8px',
+                  fontSize: 12,
+                }}
+              />
+              <Legend />
+              <Line
+                type="monotone"
+                dataKey="registrations"
+                stroke="#39B7FF"
+                strokeWidth={3}
+                name="Регистрации"
+                dot={{ fill: '#39B7FF', r: 4 }}
+                activeDot={{ r: 6 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartContainer>
+
+        {/* Rank Distribution */}
+        <ChartContainer
+          title="Распределение по уровням"
+          subtitle="Партнёрская сеть"
+          loading={loading}
+          empty={rankDistribution.length === 0}
+        >
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={rankDistribution}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                label={({ name, percent }) =>
+                  `${name}: ${(percent * 100).toFixed(0)}%`
+                }
+                outerRadius={80}
+                fill="#8884d8"
+                dataKey="value"
+              >
+                {rankDistribution.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.fill} />
+                ))}
+              </Pie>
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: 'white',
+                  border: '1px solid #E5E7EB',
+                  borderRadius: '8px',
+                  fontSize: 12,
+                }}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+        </ChartContainer>
+      </div>
+
+      {/* Recent Users Table */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                <Calendar className="w-4 h-4 text-blue-500" />
+              </div>
               Последние регистрации
             </CardTitle>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Поиск по имени, email, ID..."
-                className="pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg w-[220px] focus:outline-none focus:ring-2 focus:ring-[#39B7FF]/20 focus:border-[#39B7FF]"
-              />
+
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <Input
+                  placeholder="Поиск по имени, email, ID..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10 w-[300px]"
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => {
+                  exportDashboard(recentUsers);
+                  toast.success('Данные экспортированы в CSV');
+                }}
+              >
+                <Download className="w-4 h-4" />
+              </Button>
             </div>
-            <button className="w-9 h-9 flex items-center justify-center border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-              <Download className="w-4 h-4 text-gray-500" />
-            </button>
           </div>
-        </div>
-      </CardHeader>
-      <CardContent className="p-0">
-        {users.length === 0 ? (
-          <div className="py-12 text-center">
-            <p className="text-[14px] text-[#9CA3AF]">Нет данных</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="px-6 py-3 text-left text-[11px] font-medium text-[#9CA3AF] uppercase tracking-wider">ID</th>
-                  <th className="px-6 py-3 text-left text-[11px] font-medium text-[#9CA3AF] uppercase tracking-wider">Имя</th>
-                  <th className="px-6 py-3 text-left text-[11px] font-medium text-[#9CA3AF] uppercase tracking-wider">Email</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.slice(0, 10).map((user, idx) => (
-                  <tr key={idx} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-3 text-[13px] text-[#6B7280]">{user.id || user.partnerId}</td>
-                    <td className="px-6 py-3 text-[13px] text-[#1E1E1E]">{user.name || user.имя || '-'}</td>
-                    <td className="px-6 py-3 text-[13px] text-[#6B7280]">{user.email || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="py-8 text-center text-sm text-[#6B7280]">
+              Загрузка...
+            </div>
+          ) : filteredUsers.length === 0 ? (
+            <div className="py-8 text-center text-sm text-[#6B7280]">
+              {searchQuery ? 'Ничего не найдено' : 'Нет данных'}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filteredUsers.map((user) => (
+                <div
+                  key={user.id}
+                  className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50 transition-colors border border-gray-100"
+                >
+                  {/* Avatar */}
+                  <Avatar className="w-10 h-10 shrink-0">
+                    {user.аватар ? (
+                      <img src={user.аватар} alt={user.имя} />
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white">
+                        {user.имя?.[0]?.toUpperCase() || 'U'}
+                      </div>
+                    )}
+                  </Avatar>
 
-function SmallStatCard({ 
-  title, 
-  value, 
-  subtitle, 
-  icon: Icon, 
-  iconColor, 
-  iconBg 
-}: { 
-  title: string; 
-  value: string | number; 
-  subtitle: string; 
-  icon: any; 
-  iconColor: string; 
-  iconBg: string; 
-}) {
-  return (
-    <Card className="bg-white rounded-2xl border border-gray-100 shadow-sm">
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-[13px] text-[#6B7280] mb-1">{title}</p>
-            <p className="text-[28px] font-bold text-[#1E1E1E] leading-none mb-1">{value}</p>
-            <p className="text-[12px] text-[#9CA3AF]">{subtitle}</p>
-          </div>
-          <div
-            className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
-            style={{ backgroundColor: iconBg }}
-          >
-            <Icon className="w-4 h-4" style={{ color: iconColor }} />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+                  {/* User Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm font-medium text-[#1E1E1E] truncate">
+                        {user.имя} {user.фамилия}
+                      </div>
+                      {user.isAdmin && (
+                        <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
+                          <Shield className="w-3 h-3 mr-1" />
+                          Admin
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-[#6B7280] mt-0.5">
+                      <span>ID: {user.id}</span>
+                      {user.email && <span>• {user.email}</span>}
+                    </div>
+                  </div>
 
-export function AdminOpsDashboard({ data, period: _period }: AdminOpsDashboardProps) {
-  const totalUsers = data.kpis.find(k => k.id === 'total_users')?.value || 9;
-  const activeUsers = data.kpis.find(k => k.id === 'active_users')?.value || 0;
-  const newUsers30 = data.kpis.find(k => k.id === 'new_users_30d')?.value || 0;
-  const admins = data.kpis.find(k => k.id === 'admins')?.value || 0;
+                  {/* Level Badge */}
+                  <Badge
+                    variant="outline"
+                    className="shrink-0"
+                    style={{
+                      backgroundColor: user.уровень === 3 ? '#F3E8FF' : user.уровень === 2 ? '#ECFDF5' : '#E5F4FF',
+                      color: user.уровень === 3 ? '#8B5CF6' : user.уровень === 2 ? '#10B981' : '#39B7FF',
+                      borderColor: user.уровень === 3 ? '#8B5CF6' : user.уровень === 2 ? '#10B981' : '#39B7FF',
+                    }}
+                  >
+                    Уровень {user.уровень || 1}
+                  </Badge>
 
-  const totalNum = typeof totalUsers === 'number' ? totalUsers : parseInt(totalUsers as string) || 9;
-  const activeNum = typeof activeUsers === 'number' ? activeUsers : parseInt(activeUsers as string) || 0;
-  const newNum = typeof newUsers30 === 'number' ? newUsers30 : parseInt(newUsers30 as string) || 0;
+                  {/* Balance */}
+                  <div className="text-right shrink-0 min-w-[100px]">
+                    <div className="text-sm font-semibold text-[#10B981]">
+                      {(user.баланс || 0).toLocaleString('ru-RU')} ₽
+                    </div>
+                    <div className="text-xs text-[#6B7280]">
+                      баланс
+                    </div>
+                  </div>
 
-  const activePct = totalNum > 0 ? Math.round((activeNum / totalNum) * 100) : 0;
-  const inactiveNum = totalNum - activeNum;
-  const inactivePct = totalNum > 0 ? Math.round((inactiveNum / totalNum) * 100) : 100;
+                  {/* Registration Date */}
+                  <div className="text-right shrink-0 min-w-[120px]">
+                    <div className="text-xs text-[#6B7280]">
+                      {user.дата_регистрации ? formatDate(user.дата_регистрации) : '—'}
+                    </div>
+                  </div>
 
-  const recentUsers = data.tables?.[0]?.rows || [];
+                  {/* Actions */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => {
+                      console.log('View user:', user.id);
+                      // TODO: navigate to user profile
+                    }}
+                  >
+                    Просмотр
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-  const registrationData = data.charts?.[0]?.data || [];
+      {/* Quick Stats Row */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-[#6B7280] mb-1">Неактивные</p>
+                <p className="text-2xl font-semibold text-[#1E1E1E]">
+                  {stats?.inactive || 0}
+                </p>
+                <p className="text-xs text-[#6B7280] mt-1">
+                  {stats?.total ? Math.round((stats.inactive / stats.total) * 100) : 0}% от общего числа
+                </p>
+              </div>
+              <div className="w-12 h-12 rounded-full bg-orange-50 flex items-center justify-center">
+                <UserX className="w-6 h-6 text-orange-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        <AdminKPICard
-          title="Всего пользователей"
-          value={totalNum}
-          subtitle="0% новых за период"
-          icon={Users}
-          iconColor="#39B7FF"
-          iconBg="#E0F2FE"
-        />
-        <AdminKPICard
-          title="Активные"
-          value={activeNum}
-          subtitle={`${activePct}% от общего числа`}
-          icon={Activity}
-          iconColor="#8B5CF6"
-          iconBg="#EDE9FE"
-        />
-        <AdminKPICard
-          title="Новые за 30 дней"
-          value={newNum}
-          subtitle="0% сегодня"
-          icon={UserPlus}
-          iconColor="#EC4899"
-          iconBg="#FCE7F3"
-        />
-        <AdminKPICard
-          title="Админы"
-          value={admins}
-          subtitle=""
-          icon={Shield}
-          iconColor="#06B6D4"
-          iconBg="#CFFAFE"
-        />
-      </div>
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-[#6B7280] mb-1">Партнёры</p>
+                <p className="text-2xl font-semibold text-[#1E1E1E]">
+                  {stats?.partners || 0}
+                </p>
+                <p className="text-xs text-[#6B7280] mt-1">
+                  активная сеть
+                </p>
+              </div>
+              <div className="w-12 h-12 rounded-full bg-green-50 flex items-center justify-center">
+                <UserCheck className="w-6 h-6 text-green-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <RegistrationChart data={registrationData} />
-        <LevelDistributionChart />
-      </div>
-
-      <RecentRegistrationsTable users={recentUsers} />
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <SmallStatCard
-          title="Неактивные"
-          value={inactiveNum}
-          subtitle={`${inactivePct}% от общего числа`}
-          icon={UserX}
-          iconColor="#F59E0B"
-          iconBg="#FEF3C7"
-        />
-        <SmallStatCard
-          title="Партнёры"
-          value={totalNum}
-          subtitle="активная сеть"
-          icon={Users}
-          iconColor="#10B981"
-          iconBg="#D1FAE5"
-        />
-        <SmallStatCard
-          title="Сегодня"
-          value="+0"
-          subtitle="новых регистраций"
-          icon={TrendingUp}
-          iconColor="#39B7FF"
-          iconBg="#E0F2FE"
-        />
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-[#6B7280] mb-1">Сегодня</p>
+                <p className="text-2xl font-semibold text-[#1E1E1E]">
+                  +{stats?.newToday || 0}
+                </p>
+                <p className="text-xs text-[#6B7280] mt-1">
+                  новых регистраций
+                </p>
+              </div>
+              <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center">
+                <TrendingUp className="w-6 h-6 text-blue-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

@@ -1,15 +1,22 @@
 /**
- * 🚀 ХУК ДЛЯ ЗАГРУЗКИ ВСЕХ ПОЛЬЗОВАТЕЛЕЙ ИЗ SQL
+ * 🚀 ОБЩИЙ ХУК ДЛЯ ЗАГРУЗКИ ВСЕХ ПОЛЬЗОВАТЕЛЕЙ
  * 
- * SINGLE SOURCE OF TRUTH: Все данные загружаются НАПРЯМУЮ из Supabase SQL таблицы `profiles`
- * Никаких KV Store, никаких API прокси - только SQL!
+ * Использует React Query для кэширования данных.
+ * Все компоненты вкладки "Управление ID" используют этот хук,
+ * что позволяет делать 1 запрос вместо 4-х отдельных.
+ * 
+ * Преимущества:
+ * - Один запрос к API вместо множества
+ * - Автоматическое кэширование
+ * - Автоматическая перезагрузка при необходимости
+ * - Shared state между компонентами
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '../utils/supabase/client';
+import * as api from '../utils/api';
 
 const CACHE_TIME = 5 * 60 * 1000; // 5 минут
-const STALE_TIME = 30 * 1000; // 30 секунд - более свежие данные
+const STALE_TIME = 2 * 60 * 1000; // 2 минуты
 
 export interface User {
   id: string;
@@ -42,7 +49,7 @@ export interface UseAllUsersResult {
 }
 
 /**
- * Хук для загрузки всех пользователей НАПРЯМУЮ из SQL таблицы profiles
+ * Хук для загрузки всех пользователей с кэшированием
  */
 export function useAllUsers(): UseAllUsersResult {
   const queryClient = useQueryClient();
@@ -55,49 +62,23 @@ export function useAllUsers(): UseAllUsersResult {
     refetch,
     isRefetching,
   } = useQuery({
-    queryKey: ['all-users-sql'],
+    queryKey: ['all-users'],
     queryFn: async () => {
-      console.log('🔄 useAllUsers: Fetching all users from SQL profiles table...');
+      console.log('🔄 useAllUsers: Fetching all users from API...');
+      const response = await api.getAllUsers();
       
-      const { data: profiles, error: sqlError } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      if (sqlError) {
-        console.error('❌ useAllUsers SQL error:', sqlError);
-        throw new Error(sqlError.message);
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to load users');
       }
       
-      const users: User[] = (profiles || []).map((p: any) => ({
-        id: p.user_id || p.id,
-        имя: p.name || p.first_name || '',
-        фамилия: p.last_name || '',
-        email: p.email || '',
-        телефон: p.phone || '',
-        спонсорId: p.referrer_id || p.sponsor_id || null,
-        команда: p.team || [],
-        баланс: p.balance || 0,
-        доступныйБаланс: p.available_balance || p.balance || 0,
-        уровень: p.level || 0,
-        isAdmin: p.is_admin || false,
-        created: p.created_at,
-        telegram: p.telegram || '',
-        whatsapp: p.whatsapp || '',
-        instagram: p.instagram || '',
-        vk: p.vk || '',
-        avatar_url: p.avatar_url || '',
-        raw: p, // сохраняем оригинальные данные
-      }));
+      const users = response.users || [];
+      console.log(`✅ useAllUsers: Loaded ${users.length} users`);
       
-      console.log(`✅ useAllUsers: Loaded ${users.length} users from SQL`);
-      console.log('📊 Sample user balances:', users.slice(0, 3).map(u => ({ id: u.id, баланс: u.баланс })));
-      
-      return users;
+      return users as User[];
     },
     staleTime: STALE_TIME,
-    gcTime: CACHE_TIME,
-    refetchOnWindowFocus: true, // Обновлять при фокусе
+    cacheTime: CACHE_TIME, // Используем cacheTime для совместимости
+    refetchOnWindowFocus: false,
     retry: 2,
   });
 
@@ -113,24 +94,26 @@ export function useAllUsers(): UseAllUsersResult {
 
 /**
  * Хук для инвалидации кэша пользователей
+ * Используйте после операций, изменяющих данные пользователей
  */
 export function useInvalidateUsers() {
   const queryClient = useQueryClient();
 
   return () => {
-    console.log('♻️ Invalidating all-users-sql cache');
-    queryClient.invalidateQueries({ queryKey: ['all-users-sql'] });
+    console.log('♻️ Invalidating all-users cache');
+    queryClient.invalidateQueries({ queryKey: ['all-users'] });
   };
 }
 
 /**
- * Хук для получения пользователей из кэша
+ * Хук для получения пользователей с фильтрацией без запроса к API
+ * Использует закэшированные данные
  */
 export function useCachedUsers() {
   const queryClient = useQueryClient();
   
   const getCachedUsers = (): User[] => {
-    return queryClient.getQueryData(['all-users-sql']) || [];
+    return queryClient.getQueryData(['all-users']) || [];
   };
 
   return getCachedUsers;

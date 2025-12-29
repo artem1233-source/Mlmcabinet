@@ -1,41 +1,76 @@
-# Figma UI Components
+# 📦 Figma UI Components
 
-This folder is synchronized with GitHub repository containing UI components from Figma Make.
+## ⚠️ ВАЖНО: Эта папка синхронизируется с GitHub!
 
-## Structure
+Эта директория содержит **ТОЛЬКО UI компоненты** из Figma Make.
+
+### Правила:
+
+✅ **Можно:**
+- Чистый JSX/TSX код
+- Props интерфейсы
+- Стили (Tailwind классы)
+- UI логика (открыть/закрыть модалку, переключить таб)
+- Импорты из `../ui/` (shadcn компоненты)
+- Импорты из `lucide-react` (иконки)
+
+❌ **НЕЛЬЗЯ:**
+- `useEffect` с API запросами
+- `fetch()` или `axios` вызовы
+- Прямая работа с Supabase
+- Бизнес-логика (расчёты комиссий, MLM формулы)
+- localStorage/sessionStorage (кроме UI состояний)
+
+### Структура:
 
 ```
-/figma-ui
-├── components/           # Main UI components from Figma Make
-│   ├── dashboard/       # Dashboard UI (no logic!)
-│   ├── admin/           # Admin UI
-│   └── shared/          # Shared UI components
-└── ui/                  # shadcn/ui components from Figma Make
+/figma-ui/
+├── components/
+│   ├── dashboard/        # Dashboard UI компоненты
+│   ├── admin/            # Admin panel UI
+│   └── shared/           # Переиспользуемые UI компоненты
+└── ui/                   # shadcn/ui компоненты
 ```
 
-## Important Rules
-
-1. **DO NOT add business logic here** - This folder contains pure UI only
-2. **DO NOT manually edit files** - They will be overwritten by Figma Make sync
-3. **Use Container pattern** - Import UI from here into `/src/containers/`
-
-## Sync Workflow
-
-```
-Figma Make → GitHub → Replit (this folder)
-```
-
-## Example Usage
+### Паттерн компонента:
 
 ```tsx
-// In /src/containers/dashboard/CEOMissionControlContainer.tsx
-import { CEOMissionControlView } from '../../figma-ui/components/dashboard/CEOMissionControlView';
+// ✅ ПРАВИЛЬНО: Чистый UI компонент
+export function DashboardView({ 
+  loading, 
+  stats, 
+  onRefresh 
+}: DashboardViewProps) {
+  if (loading) return <Spinner />;
+  
+  return (
+    <div>
+      <h1>Revenue: {stats.revenue}</h1>
+      <button onClick={onRefresh}>Refresh</button>
+    </div>
+  );
+}
 
-export function CEOMissionControlContainer({ currentUser }) {
-  const [data, setData] = useState(null);
+// ❌ НЕПРАВИЛЬНО: Компонент с логикой
+export function Dashboard() {
+  const [stats, setStats] = useState(null);
   
-  // All logic here...
+  useEffect(() => {
+    fetch('/api/stats').then(setStats); // ❌ API запрос
+  }, []);
   
-  return <CEOMissionControlView data={data} />;
+  return <div>{stats.revenue}</div>;
 }
 ```
+
+### Workflow:
+
+1. **Figma Make** создаёт UI компоненты здесь
+2. **GitHub** синхронизирует эту папку
+3. **Replit** импортирует в `/src/figma-ui/`
+4. **Replit** создаёт Container компоненты с логикой
+5. **Vercel** деплоит финальное приложение
+
+---
+
+**Последнее обновление:** ${new Date().toLocaleDateString('ru-RU')}

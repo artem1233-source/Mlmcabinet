@@ -1,5 +1,6 @@
 import AppRu from './AppRu';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { DrilldownProvider } from './components/dashboard/DrilldownProvider'; // 🆕 Drilldown Provider
 import { useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -50,7 +51,9 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary>
-        <AppRu />
+        <DrilldownProvider>
+          <AppRu />
+        </DrilldownProvider>
       </ErrorBoundary>
     </QueryClientProvider>
   );

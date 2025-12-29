@@ -26,8 +26,14 @@ export function OrdersRu({ currentUser, refreshTrigger }: OrdersRuProps) {
     try {
       const data = await api.getOrders();
       if (data.success && data.orders) {
-        // Sort by date (newest first)
-        const sortedOrders = data.orders.sort((a: any, b: any) => 
+        // Filter out invalid orders and sort by date (newest first)
+        const validOrders = data.orders.filter((o: any) => {
+          if (!o.дата) return true;
+          const date = new Date(o.дата);
+          return !isNaN(date.getTime()) && date <= new Date();
+        });
+        
+        const sortedOrders = validOrders.sort((a: any, b: any) => 
           new Date(b.дата).getTime() - new Date(a.дата).getTime()
         );
         setOrders(sortedOrders);
@@ -215,13 +221,18 @@ export function OrdersRu({ currentUser, refreshTrigger }: OrdersRuProps) {
                         <div>
                           <span className="opacity-70">Дата:</span>{' '}
                           <span className="font-medium">
-                            {new Date(order.дата).toLocaleDateString('ru-RU', {
-                              day: '2-digit',
-                              month: '2-digit',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
+                            {order.дата ? (() => {
+                              const date = new Date(order.дата);
+                              return !isNaN(date.getTime()) 
+                                ? date.toLocaleDateString('ru-RU', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })
+                                : 'Неверная дата';
+                            })() : '—'}
                           </span>
                         </div>
                       </div>

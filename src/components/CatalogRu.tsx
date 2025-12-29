@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Tag, Loader2, Package, Plus, Edit2, Trash2, Save, X, Archive, ArchiveRestore, MoreVertical, FolderOpen, AlertCircle, ShoppingCart } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { ShoppingCart, Tag, Loader2, Package, Plus, Edit2, Trash2, Save, X, Upload, Archive, ArchiveRestore, MoreVertical, FolderOpen, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
@@ -8,6 +8,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { ImageWithFallback } from './figma/ImageWithFallback';
+import { AdminToolbar } from './AdminToolbar';
+import { CatalogDebug } from './CatalogDebug';
 import { toast } from 'sonner';
 import { CheckoutRu } from './CheckoutRu';
 import * as api from '../utils/api';
@@ -27,6 +29,7 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
                   currentUser?.email === 'admin@admin.com' || 
                   currentUser?.id === 'ceo' || 
                   currentUser?.id === '1';
+  const showAdminToolbar = isAdmin;
   
   // 🔍 Debug: проверяем статус админа
   console.log('🔍 CatalogRu: currentUser:', currentUser);
@@ -40,31 +43,6 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [showCheckout, setShowCheckout] = useState(false);
   const [showArchived, setShowArchived] = useState(false); // Показывать архивные товары
-  
-  // 🎯 Анимация "улетания" в корзину
-  const [flyAnimation, setFlyAnimation] = useState<{active: boolean; x: number; y: number}>({active: false, x: 0, y: 0});
-  
-  const handleAddWithAnimation = useCallback((e: React.MouseEvent, product: any, isPartner: boolean) => {
-    if (onAddToCart) {
-      const rect = (e.target as HTMLElement).getBoundingClientRect();
-      setFlyAnimation({ active: true, x: rect.left + rect.width / 2, y: rect.top });
-      
-      setTimeout(() => {
-        setFlyAnimation({ active: false, x: 0, y: 0 });
-      }, 600);
-      
-      onAddToCart(product, isPartner, 1);
-      
-      const price = isPartner 
-        ? (Number(product.цена1) || Number(product.партнёрскаяЦена) || 0)
-        : (Number(product.цена_розница) || Number(product.розничнаяЦена) || 0);
-      
-      toast.success(`${product.название} добавлен`, {
-        description: isPartner ? `Партнёрская цена: ₽${price.toLocaleString()}` : `Розничная цена: ₽${price.toLocaleString()}`,
-        duration: 2000
-      });
-    }
-  }, [onAddToCart]);
   
   // Admin states
   const [showProductModal, setShowProductModal] = useState(false);
@@ -156,38 +134,24 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
     const price4 = parseFloat(productForm.цена4) || 0;
 
     // Если хотя бы одна цена заполнена, рассчитываем комиссии
-    // 🆕 СТРОГАЯ ЛОГИКА: синхронизирована с backend (commission_backend.ts)
-    // Если какой-то уровень цены = 0 — комиссия для этого уровня = 0
     if (retailPrice > 0 || partnerPrice > 0) {
-      // L0: разница между розничной и партнёрской ценой (всегда)
-      const L0 = Math.max(0, retailPrice - partnerPrice);
-      
-      // L1: разница P1 - P2. Если P2=0 — L1=0
-      const L1 = price2 > 0 ? Math.max(0, partnerPrice - price2) : 0;
-      
-      // L2: разница P2 - P3. Если P3=0 — L2=0
-      const L2 = (price2 > 0 && price3 > 0) ? Math.max(0, price2 - price3) : 0;
-      
-      // L3: разница P3 - P4. Если P4=0 — L3=0
-      const L3 = (price3 > 0 && price4 > 0) ? Math.max(0, price3 - price4) : 0;
-      
       const calculatedCommission: ProductCommission = {
         guest: {
-          L0: L0,  // Продавец получает разницу между розницей и партнёрской ценой
-          L1: L1,  // 1 линия спонсора продавца
-          L2: L2,  // 2 линия спонсора продавца
-          L3: L3   // 3 линия спонсора продавца
+          L0: retailPrice - partnerPrice, // Продавец получает разницу между розницей и партнёрской ценой
+          L1: partnerPrice - price2,      // 1 линия спонсора продавца
+          L2: price2 - price3,            // 2 линия спонсора продавца
+          L3: price3 - price4             // 3 линия спонсора продавца
         },
         partner: {
-          L1: L1,  // 1 линия получает разницу между ценой1 и ценой2
-          L2: L2,  // 2 линия получает разницу между ценой2 и ценой3
-          L3: L3,  // 3 линия получает разницу между ценой3 и базой
+          L1: partnerPrice - price2,   // 1 линия получает разницу между ценой1 и ценой2
+          L2: price2 - price3,          // 2 линия получает разницу между ценой2 и ценой3
+          L3: price3 - price4,          // 3 линия получает разницу между ценой3 и базой
           L4: 0,
           L5: 0
         }
       };
       
-      console.log('🔢 Auto-calculated commissions (strict logic):', calculatedCommission);
+      console.log('🔢 Auto-calculated commissions:', calculatedCommission);
       console.log('📊 Prices:', { retailPrice, partnerPrice, price2, price3, price4 });
       
       // 🆕 Валидация комиссий
@@ -715,6 +679,7 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
 
   return (
     <>
+      {showAdminToolbar && <AdminToolbar userName={currentUser.имя} onUserChange={() => loadProducts()} />}
       
       <div className="p-4 lg:p-8 max-w-full overflow-x-hidden" style={{ backgroundColor: '#F7FAFC' }}>
         {/* 🔧 ДИАГНОСТИЧЕСКИЙ КОМПОНЕНТ - ОТКЛЮЧЕН */}
@@ -1100,20 +1065,34 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
                       ) : (
                         <>
                           <Button
-                            onClick={(e) => handleAddWithAnimation(e, товар, false)}
-                            className="w-full bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] hover:opacity-90 text-white active:scale-95 transition-transform"
+                            onClick={() => {
+                              if (onAddToCart) {
+                                onAddToCart(товар, false, 1);
+                                toast.success('Добавлено в корзину', {
+                                  description: `${товар.название} (гость)`
+                                });
+                              }
+                            }}
+                            className="w-full bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] hover:opacity-90 text-white"
                           >
-                            <Plus size={16} className="mr-1.5" />
-                            Продать гостю · ₽{розничнаяЦена.toLocaleString()}
+                            <ShoppingCart size={16} className="mr-2" />
+                            Продать гостю (₽{розничнаяЦена.toLocaleString()})
                           </Button>
                           
                           <Button
-                            onClick={(e) => handleAddWithAnimation(e, товар, true)}
+                            onClick={() => {
+                              if (onAddToCart) {
+                                onAddToCart(товар, true, 1);
+                                toast.success('Добавлено в корзину', {
+                                  description: `${товар.название} (партнёр)`
+                                });
+                              }
+                            }}
                             variant="outline"
-                            className="w-full border-[#39B7FF] text-[#39B7FF] hover:bg-[#39B7FF]/5 active:scale-95 transition-transform"
+                            className="w-full border-[#39B7FF] text-[#39B7FF] hover:bg-[#39B7FF]/5"
                           >
-                            <Plus size={16} className="mr-1.5" />
-                            Купить себе · ₽{партнёрскаяЦена.toLocaleString()}
+                            <ShoppingCart size={16} className="mr-2" />
+                            Купить (₽{партнёрскаяЦена.toLocaleString()})
                           </Button>
                         </>
                       )}
@@ -1126,43 +1105,6 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
           );
         })()}
       </div>
-
-      {/* 🎯 Анимация улетания в корзину */}
-      {flyAnimation.active && (
-        <div
-          className="fixed pointer-events-none z-[9999]"
-          style={{
-            left: flyAnimation.x - 20,
-            top: flyAnimation.y - 20,
-          }}
-        >
-          <div 
-            className="w-10 h-10 bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] rounded-full flex items-center justify-center shadow-lg animate-fly-to-cart"
-          >
-            <ShoppingCart className="w-5 h-5 text-white" />
-          </div>
-        </div>
-      )}
-      
-      <style>{`
-        @keyframes fly-to-cart {
-          0% {
-            transform: scale(1) translate(0, 0);
-            opacity: 1;
-          }
-          40% {
-            transform: scale(1.2) translate(0, -30px);
-            opacity: 1;
-          }
-          100% {
-            transform: scale(0.3) translate(calc(100vw - 150px), calc(-100vh + 100px));
-            opacity: 0;
-          }
-        }
-        .animate-fly-to-cart {
-          animation: fly-to-cart 0.6s ease-out forwards;
-        }
-      `}</style>
 
       {/* Checkout Modal */}
       {showCheckout && selectedOrder && (
@@ -1895,7 +1837,6 @@ export function CatalogRu({ currentUser, onOrderCreated, onAddToCart }: CatalogR
           </div>
         </DialogContent>
       </Dialog>
-
     </>
   );
 }

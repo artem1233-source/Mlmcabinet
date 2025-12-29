@@ -270,7 +270,7 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
       userEmail: user.email
     });
 
-    const confirmMsg = `Присвоить номер ${selectedReservedId} пользователю ${user.имя} ${user.фамилия}?\n\nСтарый номер ${user.id} сохранится как дополнительный код пользователя.`;
+    const confirmMsg = `Присвоить номер ${selectedReservedId} пользователю ${user.имя} ${user.фамилия}?\n\nСтарый номер ${user.id} вернётся в свободные.`;
     if (!confirm(confirmMsg)) return;
 
     try {
@@ -860,7 +860,7 @@ export function IdManager({ currentUser, onDataChange }: IdManagerProps) {
                 <li>• <strong>Занятые</strong> — присвоены пользователям (кликабельны для перехода)</li>
                 <li>• <strong>Свободные</strong> — выдаются по порядку при регистрации</li>
                 <li>• <strong>Зарезервированные</strong> — не выдаются автоматически, можно присвоить вручную</li>
-                <li>• 🔒 При смене номера старый <strong>сохраняется</strong> как дополнительный код (никогда не возвращается в свободные)</li>
+                <li>• При смене номера старый возвращается в свободные</li>
                 <li>• 🔍 <strong>Поиск:</strong> используйте поле поиска над каждой колонкой для быстрого нахождения номеров</li>
                 <li>• 🚀 <strong>Виртуализация:</strong> все {freeIds.length.toLocaleString('ru-RU')} номеров доступны, рендерятся только видимые для максимальной производительности</li>
               </ul>

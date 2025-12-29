@@ -1,16 +1,13 @@
-export * from './types';
-export { KPICard } from './KPICard';
-export { ChartContainer } from './ChartContainer';
-export { AlertsList } from './AlertsList';
-export { DataTable } from './DataTable';
-export { DashboardLayout } from './DashboardLayout';
+// Dashboard Views
 export { UnifiedDashboard } from './UnifiedDashboard';
 export { CEOMissionControl } from './CEOMissionControl';
 export { AdminOpsDashboard } from './AdminOpsDashboard';
-export { FinanceDashboard } from './FinanceDashboard';
 export { WarehouseDashboard } from './WarehouseDashboard';
+export { FinanceDashboard } from './FinanceDashboard';
 export { SEODashboard } from './SEODashboard';
 export { SupportDashboard } from './SupportDashboard';
+
+// Dashboard Components
+export { DashboardLayout } from './DashboardLayout';
 export { StatusLight } from './StatusLight';
-export { ActionItem } from './ActionItem';
-export { DrilldownProvider, useDrilldown, createDrilldown, useRestoreDrilldown } from './DrilldownProvider';
+export { DrilldownProvider, useDrilldown } from './DrilldownProvider';

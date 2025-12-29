@@ -1,144 +1,98 @@
 /**
  * 🚀 ОПТИМИЗИРОВАННЫЙ ХУК ДЛЯ ЗАГРУЗКИ ДАННЫХ ДАШБОРДА
  * 
- * SINGLE SOURCE OF TRUTH: Все данные загружаются НАПРЯМУЮ из Supabase SQL
- * - orders → SQL таблица `orders`
- * - earnings → SQL таблица `earnings`
- * - profiles → SQL таблица `profiles`
+ * Особенности:
+ * - React Query для кэширования заказов, доходов, статистики
+ * - Автоматическая инвалидация кэша
+ * - Мемоизация вычислений графиков
+ * - Параллельная загрузка всех данных
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '../utils/supabase/client';
+import * as api from '../utils/api';
 import { toast } from 'sonner';
 import { useMemo } from 'react';
-import { safeParseDate, safeToDateString, safeGetTime, isInMonth, isDateBeforeOrEqual } from '../utils/dateUtils';
 
 /**
- * Хук для загрузки заказов из SQL
+ * Хук для загрузки заказов
  */
 export function useOrders(enabled = true) {
   return useQuery({
-    queryKey: ['orders-sql'],
+    queryKey: ['orders'],
     queryFn: async () => {
-      console.log('🔄 useDashboardData: Loading orders from SQL...');
+      console.log('🔄 useDashboardData: Loading orders');
+      const response = await api.getOrders();
       
-      const { data: orders, error } = await supabase
-        .from('orders')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      if (error) {
-        console.error('❌ Orders SQL error:', error);
-        throw new Error(error.message);
+      if (!response.success) {
+        throw new Error('Failed to load orders');
       }
       
-      const mappedOrders = (orders || []).map((o: any) => ({
-        id: o.id,
-        партнерId: o.user_id || o.partner_id,
-        покупательId: o.buyer_id || o.user_id,
-        итого: o.total || 0,
-        статус: o.status || 'pending',
-        товары: o.items || [],
-        датаСоздания: o.created_at,
-        createdAt: o.created_at,
-        d1: o.d1,
-        d2: o.d2,
-        d3: o.d3,
-        комиссияD1: o.commission_d1 || 0,
-        комиссияD2: o.commission_d2 || 0,
-        комиссияD3: o.commission_d3 || 0,
-      }));
-      
-      console.log('✅ useDashboardData: Loaded', mappedOrders.length, 'orders from SQL');
-      return mappedOrders;
+      console.log('✅ useDashboardData: Loaded', response.orders?.length || 0, 'orders');
+      return response.orders || [];
     },
     enabled,
-    staleTime: 30000,
-    gcTime: 300000,
+    staleTime: 30000, // 30 секунд
+    cacheTime: 300000, // 5 минут
     retry: 2,
+    onError: (error) => {
+      console.error('❌ useDashboardData: Error loading orders:', error);
+      toast.error('Не удалось загрузить заказы');
+    },
   });
 }
 
 /**
- * Хук для загрузки доходов из SQL
+ * Хук для загрузки доходов
  */
 export function useEarnings(enabled = true) {
   return useQuery({
-    queryKey: ['earnings-sql'],
+    queryKey: ['earnings'],
     queryFn: async () => {
-      console.log('🔄 useDashboardData: Loading earnings from SQL...');
+      console.log('🔄 useDashboardData: Loading earnings');
+      const response = await api.getEarnings();
       
-      const { data: earnings, error } = await supabase
-        .from('earnings')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      if (error) {
-        console.error('❌ Earnings SQL error:', error);
-        throw new Error(error.message);
+      if (!response.success) {
+        throw new Error('Failed to load earnings');
       }
       
-      const mappedEarnings = (earnings || []).map((e: any) => ({
-        id: e.id,
-        userId: e.user_id,
-        amount: e.amount || 0,
-        level: e.level,
-        orderId: e.order_id,
-        date: e.created_at,
-        createdAt: e.created_at,
-      }));
-      
-      console.log('✅ useDashboardData: Loaded', mappedEarnings.length, 'earnings from SQL');
-      return mappedEarnings;
+      console.log('✅ useDashboardData: Loaded', response.earnings?.length || 0, 'earnings');
+      return response.earnings || [];
     },
     enabled,
     staleTime: 30000,
-    gcTime: 300000,
+    cacheTime: 300000,
     retry: 2,
+    onError: (error) => {
+      console.error('❌ useDashboardData: Error loading earnings:', error);
+      toast.error('Не удалось загрузить доходы');
+    },
   });
 }
 
 /**
- * Хук для загрузки статистики администратора из SQL
+ * Хук для загрузки статистики администратора
  */
 export function useAdminStats(isAdmin: boolean) {
   return useQuery({
-    queryKey: ['adminStats-sql'],
+    queryKey: ['adminStats'],
     queryFn: async () => {
-      console.log('🔄 useDashboardData: Loading admin stats from SQL...');
+      console.log('🔄 useDashboardData: Loading admin stats');
+      const response = await api.getAdminStats();
       
-      // Загружаем агрегированные данные из SQL
-      const [
-        { count: totalUsers },
-        { data: balanceData },
-        { data: ordersData },
-        { data: earningsData },
-      ] = await Promise.all([
-        supabase.from('profiles').select('*', { count: 'exact', head: true }),
-        supabase.from('profiles').select('balance'),
-        supabase.from('orders').select('total'),
-        supabase.from('earnings').select('amount'),
-      ]);
+      if (!response.success) {
+        throw new Error('Failed to load admin stats');
+      }
       
-      const totalBalance = (balanceData || []).reduce((sum: number, p: any) => sum + (p.balance || 0), 0);
-      const totalRevenue = (ordersData || []).reduce((sum: number, o: any) => sum + (o.total || 0), 0);
-      const totalEarnings = (earningsData || []).reduce((sum: number, e: any) => sum + (e.amount || 0), 0);
-      
-      const stats = {
-        totalUsers: totalUsers || 0,
-        totalBalance,
-        totalRevenue,
-        totalEarnings,
-        totalOrders: ordersData?.length || 0,
-      };
-      
-      console.log('✅ useDashboardData: Loaded admin stats from SQL:', stats);
-      return stats;
+      console.log('✅ useDashboardData: Loaded admin stats');
+      return response.stats;
     },
     enabled: isAdmin,
-    staleTime: 60000,
-    gcTime: 300000,
+    staleTime: 60000, // 1 минута для админ статистики
+    cacheTime: 300000,
     retry: 2,
+    onError: (error) => {
+      console.error('❌ useDashboardData: Error loading admin stats:', error);
+    },
   });
 }
 
@@ -147,20 +101,25 @@ export function useAdminStats(isAdmin: boolean) {
  */
 export function useDashboardStats(orders: any[], earnings: any[], team: any[]) {
   return useMemo(() => {
+    // Считаем общий доход
     const totalEarnings = earnings.reduce((sum, e) => sum + (e.amount || 0), 0);
     
+    // Считаем доход за месяц
     const currentMonth = new Date().getMonth();
     const currentYear = new Date().getFullYear();
     const monthEarnings = earnings
       .filter(e => {
-        return isInMonth(e.date || e.createdAt, currentMonth, currentYear);
+        const date = new Date(e.date || e.createdAt);
+        return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
       })
       .reduce((sum, e) => sum + (e.amount || 0), 0);
     
+    // Считаем активные заказы
     const activeOrders = orders.filter(o => 
-      o.статус === 'pending' || o.статус === 'processing' || o.status === 'pending'
+      o.status === 'pending' || o.status === 'processing'
     ).length;
     
+    // Размер команды
     const teamSize = team.length;
     
     console.log('📊 Dashboard stats calculated:', {
@@ -184,6 +143,7 @@ export function useDashboardStats(orders: any[], earnings: any[], team: any[]) {
  */
 export function useChartData(orders: any[], period: '7d' | '30d' | '90d' | '1y' = '30d') {
   return useMemo(() => {
+    // Определяем количество дней
     const days = {
       '7d': 7,
       '30d': 30,
@@ -191,6 +151,7 @@ export function useChartData(orders: any[], period: '7d' | '30d' | '90d' | '1y' 
       '1y': 365
     }[period];
     
+    // Создаём массив дат
     const now = new Date();
     const chartData = [];
     
@@ -199,12 +160,17 @@ export function useChartData(orders: any[], period: '7d' | '30d' | '90d' | '1y' 
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().split('T')[0];
       
+      // Считаем заказы и доход за этот день
       const dayOrders = orders.filter(o => {
-        const orderDateStr = safeToDateString(o.createdAt || o.датаСоздания);
-        return orderDateStr === dateStr;
+        const orderDate = new Date(o.createdAt || o.date);
+        // Проверяем валидность даты (пропускаем невалидные без логирования)
+        if (isNaN(orderDate.getTime())) {
+          return false;
+        }
+        return orderDate.toISOString().split('T')[0] === dateStr;
       });
       
-      const revenue = dayOrders.reduce((sum, o) => sum + (o.итого || o.total || 0), 0);
+      const revenue = dayOrders.reduce((sum, o) => sum + (o.total || 0), 0);
       
       chartData.push({
         date: dateStr,
@@ -230,8 +196,8 @@ export function useRecentOrders(orders: any[], limit = 5) {
   return useMemo(() => {
     const sorted = [...orders]
       .sort((a, b) => {
-        const dateA = safeGetTime(a.createdAt || a.датаСоздания, 0);
-        const dateB = safeGetTime(b.createdAt || b.датаСоздания, 0);
+        const dateA = new Date(a.createdAt || a.date).getTime();
+        const dateB = new Date(b.createdAt || b.date).getTime();
         return dateB - dateA;
       })
       .slice(0, limit);
@@ -256,14 +222,17 @@ export function useTeamGrowthData(team: any[], period: '7d' | '30d' | '90d' | '1
     
     const now = new Date();
     const growthData = [];
+    let cumulativeCount = 0;
     
     for (let i = days - 1; i >= 0; i--) {
       const date = new Date(now);
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().split('T')[0];
       
+      // Считаем партнёров зарегистрированных до этой даты
       const partnersUntilDate = team.filter(m => {
-        return isDateBeforeOrEqual(m.датаРегистрации || m.зарегистрирован || m.created, date);
+        const regDate = new Date(m.датаРегистрации || m.зарегистрирован);
+        return regDate <= date;
       }).length;
       
       growthData.push({
@@ -289,11 +258,11 @@ export function useInvalidateDashboard() {
   const queryClient = useQueryClient();
   
   return () => {
-    console.log('🔄 Invalidating dashboard cache (SQL)');
-    queryClient.invalidateQueries({ queryKey: ['orders-sql'] });
-    queryClient.invalidateQueries({ queryKey: ['earnings-sql'] });
-    queryClient.invalidateQueries({ queryKey: ['adminStats-sql'] });
-    queryClient.invalidateQueries({ queryKey: ['all-users-sql'] });
+    console.log('🔄 Invalidating dashboard cache');
+    queryClient.invalidateQueries({ queryKey: ['orders'] });
+    queryClient.invalidateQueries({ queryKey: ['earnings'] });
+    queryClient.invalidateQueries({ queryKey: ['adminStats'] });
+    queryClient.invalidateQueries({ queryKey: ['team'] }); // Если используется
   };
 }
 
@@ -304,10 +273,10 @@ export function useRefreshDashboard() {
   const queryClient = useQueryClient();
   
   return async () => {
-    console.log('🔄 Refreshing dashboard data (SQL)');
-    await queryClient.refetchQueries({ queryKey: ['orders-sql'] });
-    await queryClient.refetchQueries({ queryKey: ['earnings-sql'] });
-    await queryClient.refetchQueries({ queryKey: ['adminStats-sql'] });
+    console.log('🔄 Refreshing dashboard data');
+    await queryClient.refetchQueries({ queryKey: ['orders'] });
+    await queryClient.refetchQueries({ queryKey: ['earnings'] });
+    await queryClient.refetchQueries({ queryKey: ['adminStats'] });
     toast.success('Данные обновлены');
   };
 }
@@ -318,7 +287,11 @@ export function useRefreshDashboard() {
 export function useConversionFunnel(team: any[]) {
   return useMemo(() => {
     const total = team.length;
-    const active = team.filter(m => (m.баланс || m.balance || 0) > 0).length;
+    
+    // Активные - те у кого баланс > 0
+    const active = team.filter(m => (m.баланс || 0) > 0).length;
+    
+    // Лидеры - те у кого есть команда (предполагаем, что команда сохранена)
     const leaders = team.filter(m => m.команда && m.команда.length > 0).length;
     
     return {
@@ -332,43 +305,29 @@ export function useConversionFunnel(team: any[]) {
 }
 
 /**
- * Хук для загрузки всех пользователей из SQL (только для админа)
+ * Хук для загрузки всех пользователей (только для админа)
  */
 export function useAllUsers(isAdmin: boolean) {
   return useQuery({
-    queryKey: ['allUsers-sql'],
+    queryKey: ['allUsers'],
     queryFn: async () => {
-      console.log('🔄 useDashboardData: Loading all users from SQL profiles...');
+      console.log('🔄 useDashboardData: Loading all users for filtering');
+      const response = await api.getAllUsers();
       
-      const { data: profiles, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      if (error) {
-        console.error('❌ Profiles SQL error:', error);
-        throw new Error(error.message);
+      if (!response.success) {
+        throw new Error('Failed to load users');
       }
       
-      const users = (profiles || []).map((p: any) => ({
-        id: p.user_id || p.id,
-        имя: p.name || p.first_name || '',
-        фамилия: p.last_name || '',
-        email: p.email || '',
-        баланс: p.balance || 0,
-        уровень: p.level || 0,
-        isAdmin: p.is_admin || false,
-        created: p.created_at,
-        спонсорId: p.referrer_id || p.sponsor_id || null,
-        команда: p.team || [],
-      }));
-      
-      console.log('✅ useDashboardData: Loaded', users.length, 'users from SQL');
-      return users;
+      console.log('✅ useDashboardData: Loaded', response.users?.length || 0, 'users');
+      return response.users || [];
     },
     enabled: isAdmin,
-    staleTime: 60000,
-    gcTime: 300000,
+    staleTime: 60000, // 1 минута
+    cacheTime: 300000, // 5 минут
     retry: 2,
+    onError: (error) => {
+      console.error('❌ useDashboardData: Error loading users:', error);
+      toast.error('Не удалось загрузить пользователей');
+    },
   });
 }

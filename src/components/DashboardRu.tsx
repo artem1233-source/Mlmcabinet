@@ -1,20 +1,15 @@
 import { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Users, Wallet, ShoppingBag, Award, Target, Zap, Calendar as CalendarIcon, ArrowUpRight, ArrowDownRight, Activity, Crown, Rocket, Star, Gift, CheckCircle2, Clock, Package, UserPlus, DollarSign, BarChart3, Share2, Plus, CreditCard, Loader2 } from 'lucide-react';
+import { TrendingUp, TrendingDown, Users, Wallet, ShoppingBag, Award, Target, Zap, Calendar as CalendarIcon, ArrowUpRight, ArrowDownRight, Activity, Crown, Rocket, Star, Gift, CheckCircle2, Clock, Package, UserPlus, DollarSign, BarChart3, Share2, Plus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
 import { Progress } from './ui/progress';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Textarea } from './ui/textarea';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import * as api from '../utils/api';
 import { toast } from 'sonner';
-import { supabase } from '../utils/supabase/client';
 
 interface DashboardRuProps {
   currentUser: any;
@@ -27,12 +22,31 @@ interface DashboardRuProps {
 const ActivityRing = ({ radius, stroke, progress, color, label, value }: any) => {
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (progress / 100) * circumference;
+  const size = radius * 2 + stroke * 2;
 
   return (
-    <div className="relative">
-      <svg width={radius * 2 + stroke * 2} height={radius * 2 + stroke * 2} className="transform -rotate-90">
+    <div 
+      className="relative inline-block !outline-none !border-none !ring-0 !shadow-none"
+      style={{
+        width: size,
+        height: size,
+        boxShadow: 'none !important',
+        filter: 'none',
+        outline: 'none'
+      }}
+    >
+      <svg 
+        className="!outline-none !border-none"
+        width={size} 
+        height={size} 
+        style={{ 
+          transform: 'rotate(-90deg)',
+          display: 'block'
+        }}
+      >
         {/* Background circle */}
         <circle
+          className="!outline-none"
           cx={radius + stroke}
           cy={radius + stroke}
           r={radius}
@@ -41,7 +55,8 @@ const ActivityRing = ({ radius, stroke, progress, color, label, value }: any) =>
           fill="none"
         />
         {/* Progress circle */}
-        <motion.circle
+        <circle
+          className="!outline-none"
           cx={radius + stroke}
           cy={radius + stroke}
           r={radius}
@@ -49,23 +64,22 @@ const ActivityRing = ({ radius, stroke, progress, color, label, value }: any) =>
           strokeWidth={stroke}
           fill="none"
           strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
           strokeLinecap="round"
-          initial={{ strokeDashoffset: circumference }}
-          animate={{ strokeDashoffset }}
-          transition={{ duration: 1.5, delay: 0.2, ease: "easeOut" }}
-          style={{ filter: `drop-shadow(0 0 8px ${color})` }}
+          style={{
+            strokeDashoffset,
+            transition: 'stroke-dashoffset 1.5s ease-out 0.2s'
+          }}
         />
       </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
+      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none !outline-none !border-none !ring-0 !shadow-none">
         <motion.div
           initial={{ opacity: 0, scale: 0.5 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5, delay: 0.5 }}
-          className="text-center"
+          className="text-center !outline-none !ring-0"
         >
-          <div className="text-2xl font-bold text-gray-800">{value}</div>
-          <div className="text-xs text-gray-500 mt-1">{label}</div>
+          <div className="text-2xl font-bold text-gray-800 !outline-none !ring-0">{value}</div>
+          <div className="text-xs text-gray-500 mt-1 !outline-none !ring-0">{label}</div>
         </motion.div>
       </div>
     </div>
@@ -182,12 +196,6 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
   const [orders, setOrders] = useState<any[]>([]);
   const [myOrders, setMyOrders] = useState<any[]>([]);
   const [recentActivity, setRecentActivity] = useState<any[]>([]);
-  
-  // 💸 Модальное окно вывода средств
-  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
-  const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [withdrawDetails, setWithdrawDetails] = useState('');
-  const [withdrawing, setWithdrawing] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -196,60 +204,25 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
   const loadData = async () => {
     try {
       setLoading(true);
-      console.log('🔄 DashboardRu: Loading data from SQL...');
       
-      // 🔥 SINGLE SOURCE OF TRUTH: Загружаем НАПРЯМУЮ из SQL
-      
-      // Загружаем команду из SQL profiles (где referrer_id = currentUser.id)
-      const { data: teamProfiles, error: teamError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('referrer_id', currentUser.id);
-      
-      if (teamError) console.error('Team SQL error:', teamError);
-      
-      const teamArray = (teamProfiles || []).map((p: any) => ({
-        id: p.user_id || p.id,
-        имя: p.name || p.first_name || '',
-        баланс: p.balance || 0,
-        датаРегистрации: p.created_at,
-        зарегистрирован: p.created_at,
-      }));
+      // Загружаем команду
+      const teamData = await api.getUserTeam(currentUser.id);
+      const teamArray = Array.isArray(teamData) ? teamData : [];
       setTeam(teamArray);
-      console.log(`✅ Loaded ${teamArray.length} team members from SQL`);
       
-      // Загружаем заказы из SQL
-      const { data: sqlOrders, error: ordersError } = await supabase
-        .from('orders')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      if (ordersError) console.error('Orders SQL error:', ordersError);
-      
-      const ordersArray = (sqlOrders || []).map((o: any) => ({
-        id: o.id,
-        партнерId: o.user_id || o.partner_id,
-        итого: o.total || 0,
-        датаСоздания: o.created_at,
-        created_at: o.created_at,
-        товары: o.items || [],
-        d1: o.d1,
-        d2: o.d2,
-        d3: o.d3,
-        комиссияD1: o.commission_d1 || 0,
-        комиссияD2: o.commission_d2 || 0,
-        комиссияD3: o.commission_d3 || 0,
-      }));
+      // Загружаем все заказы для расчёта комиссий
+      const allOrders = await api.getOrders();
+      const ordersArray = Array.isArray(allOrders) ? allOrders : (allOrders?.orders ? allOrders.orders : []);
       setOrders(ordersArray);
-      console.log(`✅ Loaded ${ordersArray.length} orders from SQL`);
       
       // Мои заказы
       const myOrdersData = ordersArray.filter((o: any) => o.партнерId === currentUser.id);
       setMyOrders(myOrdersData);
       
       // Формируем недавнюю активность
-      const activity: any[] = [];
+      const activity = [];
       
+      // Новые партнёры (последние 7 дней)
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
       const newPartners = teamArray.filter((m: any) => {
@@ -269,8 +242,12 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
         });
       });
       
-      const recentOrders = [...ordersArray]
-        .filter((o: any) => o.партнерId === currentUser.id || teamArray.some((m: any) => m.id === o.партнерId))
+      // Недавние заказы (последние 10)
+      const recentOrders = [...(ordersArray || [])]
+        .filter((o: any) => {
+          // Мои заказы или заказы команды
+          return o.партнерId === currentUser.id || teamArray.some((m: any) => m.id === o.партнерId);
+        })
         .sort((a: any, b: any) => new Date(b.датаСоздания || b.created_at).getTime() - new Date(a.датаСоздания || a.created_at).getTime())
         .slice(0, 10);
       
@@ -282,11 +259,12 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
           color: isMine ? 'text-green-500' : 'text-purple-500',
           bg: isMine ? 'bg-green-50' : 'bg-purple-50',
           title: isMine ? 'Ваш заказ' : 'Заказ команды',
-          description: `${order.товары?.length || 0} товаров на ${(order.итого || 0).toLocaleString('ru-RU')}₽`,
+          description: `${order.товары?.length || 0} товаров на ${order.итого?.toLocaleString('ru-RU')}₽`,
           time: new Date(order.датаСоздания || order.created_at),
         });
       });
       
+      // Сортируем по времени
       activity.sort((a, b) => b.time.getTime() - a.time.getTime());
       setRecentActivity(activity.slice(0, 10));
       
@@ -371,49 +349,6 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
     }
     
     return months;
-  };
-  
-  // 💸 Функция отправки заявки на вывод средств
-  const handleWithdraw = async () => {
-    const amount = Number(withdrawAmount);
-    const balance = currentUser?.баланс || 0;
-    
-    if (!amount || amount <= 0) {
-      toast.error('Введите корректную сумму');
-      return;
-    }
-    
-    if (amount > balance) {
-      toast.error(`Недостаточно средств. Доступно: ${balance.toLocaleString()}₽`);
-      return;
-    }
-    
-    if (!withdrawDetails.trim()) {
-      toast.error('Введите реквизиты для вывода');
-      return;
-    }
-    
-    setWithdrawing(true);
-    try {
-      const result = await api.requestWithdrawal(amount, 'card', withdrawDetails);
-      
-      if (result.success) {
-        toast.success('Заявка на вывод отправлена!', {
-          description: 'Ожидайте подтверждения от администратора'
-        });
-        setShowWithdrawModal(false);
-        setWithdrawAmount('');
-        setWithdrawDetails('');
-        onRefresh?.();
-      } else {
-        throw new Error(result.error || 'Ошибка отправки заявки');
-      }
-    } catch (error) {
-      console.error('Withdraw error:', error);
-      toast.error(error instanceof Error ? error.message : 'Ошибка отправки заявки');
-    } finally {
-      setWithdrawing(false);
-    }
   };
 
   // Генерация данных для графика роста команды
@@ -552,8 +487,8 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
   const getLevelProgress = () => {
     if (!Array.isArray(orders) || !Array.isArray(team)) {
       return { 
-        current: currentUser.уровень ?? 0, 
-        next: (currentUser.уровень ?? 0) + 1, 
+        current: currentUser.уровень || 1, 
+        next: (currentUser.уровень || 1) + 1, 
         teamProgress: 0, 
         revenueProgress: 0, 
         requirements: null,
@@ -562,12 +497,11 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
       };
     }
     
-    const currentLevel = currentUser.уровень ?? 0;
+    const currentLevel = currentUser.уровень || 1;
     const nextLevel = currentLevel + 1;
     
     // Требования для уровней (пример)
     const requirements: Record<number, { team: number; revenue: number }> = {
-      1: { team: 5, revenue: 100000 },
       2: { team: 15, revenue: 500000 },
       3: { team: 50, revenue: 2000000 },
     };
@@ -577,20 +511,6 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
     }
     
     const req = requirements[nextLevel];
-    
-    // Защита от undefined (если нет требований для уровня)
-    if (!req) {
-      return { 
-        current: currentLevel, 
-        next: nextLevel, 
-        teamProgress: 0, 
-        revenueProgress: 0, 
-        requirements: null, 
-        currentTeam: team.length, 
-        currentRevenue: 0 
-      };
-    }
-    
     const totalRevenue = orders.reduce((sum, order) => {
       if (order.партнерId === currentUser.id || team.some(m => m.id === order.партнерId)) {
         return sum + (order.итого || 0);
@@ -666,7 +586,7 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
             
             <div className="grid grid-cols-3 gap-4 md:gap-8">
               {/* Blue Ring - Income */}
-              <div className="flex flex-col items-center">
+              <div className="flex flex-col items-center !ring-0 !shadow-none !outline-none" style={{ outline: 'none', boxShadow: 'none' }}>
                 <ActivityRing
                   radius={50}
                   stroke={10}
@@ -683,7 +603,7 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
               </div>
 
               {/* Green Ring - Team */}
-              <div className="flex flex-col items-center">
+              <div className="flex flex-col items-center !ring-0 !shadow-none !outline-none" style={{ outline: 'none', boxShadow: 'none' }}>
                 <ActivityRing
                   radius={50}
                   stroke={10}
@@ -700,7 +620,7 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
               </div>
 
               {/* Red Ring - Activity */}
-              <div className="flex flex-col items-center">
+              <div className="flex flex-col items-center !ring-0 !shadow-none !outline-none" style={{ outline: 'none', boxShadow: 'none' }}>
                 <ActivityRing
                   radius={50}
                   stroke={10}
@@ -806,10 +726,8 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
               <Button 
                 size="sm" 
                 className="w-full bg-purple-600 hover:bg-purple-700 text-white"
-                onClick={() => setShowWithdrawModal(true)}
-                disabled={(currentUser?.баланс || 0) <= 0}
+                onClick={() => onNavigate?.('баланс')}
               >
-                <CreditCard className="w-4 h-4 mr-1" />
                 Вывести
               </Button>
             </CardContent>
@@ -1175,81 +1093,6 @@ export function DashboardRu({ currentUser, onNavigate, onRefresh, refreshTrigger
           </CardContent>
         </Card>
       </motion.div>
-      
-      {/* 💸 Модальное окно вывода средств */}
-      <Dialog open={showWithdrawModal} onOpenChange={setShowWithdrawModal}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <CreditCard className="w-5 h-5 text-purple-600" />
-              Вывод средств
-            </DialogTitle>
-            <DialogDescription>
-              Доступно к выводу: <span className="font-bold text-purple-600">{(currentUser?.баланс || 0).toLocaleString()}₽</span>
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="withdraw-amount">Сумма вывода (₽)</Label>
-              <Input
-                id="withdraw-amount"
-                type="number"
-                placeholder="Введите сумму"
-                value={withdrawAmount}
-                onChange={(e) => setWithdrawAmount(e.target.value)}
-                max={currentUser?.баланс || 0}
-                min={1}
-              />
-              {withdrawAmount && Number(withdrawAmount) > (currentUser?.баланс || 0) && (
-                <p className="text-xs text-red-500">Сумма превышает доступный баланс</p>
-              )}
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="withdraw-details">Реквизиты для перевода</Label>
-              <Textarea
-                id="withdraw-details"
-                placeholder="Номер карты или банковские реквизиты&#10;Например: 4276 **** **** 1234 (Сбербанк)"
-                value={withdrawDetails}
-                onChange={(e) => setWithdrawDetails(e.target.value)}
-                rows={3}
-              />
-            </div>
-            
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-              <p className="text-xs text-yellow-800">
-                ⏳ Заявка будет рассмотрена администратором в течение 1-3 рабочих дней. 
-                Средства будут заблокированы до обработки заявки.
-              </p>
-            </div>
-          </div>
-          
-          <div className="flex gap-3">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => setShowWithdrawModal(false)}
-            >
-              Отмена
-            </Button>
-            <Button
-              className="flex-1 bg-purple-600 hover:bg-purple-700"
-              onClick={handleWithdraw}
-              disabled={withdrawing || !withdrawAmount || Number(withdrawAmount) <= 0 || Number(withdrawAmount) > (currentUser?.баланс || 0) || !withdrawDetails.trim()}
-            >
-              {withdrawing ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Отправка...
-                </>
-              ) : (
-                'Отправить заявку'
-              )}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

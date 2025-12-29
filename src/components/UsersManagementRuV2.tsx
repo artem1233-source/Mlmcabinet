@@ -82,7 +82,6 @@ import { Label } from './ui/label';
 import { toast } from 'sonner';
 import * as api from '../utils/api';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
-import { supabase } from '../utils/supabase/client';
 import { IdManager } from './admin/IdManager';
 import { ChangeUserId } from './admin/ChangeUserId';
 import { ManualLinkFixer } from './admin/ManualLinkFixer';
@@ -383,12 +382,6 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
     return () => clearInterval(interval);
   }, [viewMode]); // Убрали лишние зависимости, чтобы не пересоздавать интервал
 
-  // 🔥 ПРИНУДИТЕЛЬНАЯ загрузка при монтировании компонента
-  useEffect(() => {
-    console.log('🔥 UsersManagement mounted - forcing loadUsers from SQL');
-    loadUsers(false);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   const loadUserRanks = async () => {
     try {
       setRanksLoading(true);
@@ -425,46 +418,23 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
   const loadAllUsersForTree = async () => {
     try {
       setTreeLoading(true);
-      
-      // 🔥 SINGLE SOURCE OF TRUTH: SQL таблица profiles
-      console.log('🔄 Loading users for tree from SQL profiles...');
-      
-      const { data: profiles, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('is_admin', false)
-        .order('created_at', { ascending: false });
-      
-      if (error) {
-        console.error('❌ SQL error loading tree users:', error);
-        // Показываем пустой список при ошибке RLS
-        setAllUsers([]);
-        setExpandedUsers(new Set());
-        return;
+      const response = await api.getAllUsers();
+      if (response.success) {
+        const loadedUsers = response.users || [];
+        // 🚫 Additional frontend filter to exclude admins
+        const filteredUsers = loadedUsers.filter((u: any) => 
+          u.__type !== 'admin' && 
+          u.isAdmin !== true && 
+          u.роль !== 'admin'
+        );
+        setAllUsers(filteredUsers);
+        // Auto-expand root users
+        const rootUsers = filteredUsers.filter((u: any) => !u.спонсорId);
+        setExpandedUsers(new Set(rootUsers.map((u: any) => u.id)));
       }
-      
-      const loadedUsers = (profiles || []).map((p: any) => ({
-        id: p.user_id || p.id,
-        имя: p.name || p.first_name || '',
-        фамилия: p.last_name || '',
-        email: p.email || '',
-        баланс: p.balance || 0,
-        уровень: p.level || 0,
-        isAdmin: p.is_admin || false,
-        спонсорId: p.referrer_id || p.sponsor_id || null,
-        команда: p.team || [],
-        created: p.created_at,
-      }));
-      
-      console.log('✅ Loaded', loadedUsers.length, 'users for tree from SQL');
-      
-      setAllUsers(loadedUsers);
-      const rootUsers = loadedUsers.filter((u: any) => !u.спонсорId);
-      setExpandedUsers(new Set(rootUsers.map((u: any) => u.id)));
     } catch (error) {
       console.error('Failed to load tree users:', error);
-      setAllUsers([]);
-      setExpandedUsers(new Set());
+      toast.error('Ошибка загрузки дерева');
     } finally {
       setTreeLoading(false);
     }
@@ -472,119 +442,102 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
 
   const loadUsers = async (isSearch = false) => {
     try {
+      // 🔍 Используем разные loading states
       if (isSearch) {
         setSearchLoading(true);
       } else {
         setLoading(true);
       }
       
-      // 🔥 SINGLE SOURCE OF TRUTH: SQL таблица profiles
-      console.log('🔄 Loading users from SQL profiles table...');
+      const userId = localStorage.getItem('userId');
+
+      const params = new URLSearchParams({
+        page: pagination.page.toString(),
+        limit: pagination.limit.toString(),
+      });
+
+      if (debouncedSearch) params.append('search', debouncedSearch);
+      params.append('sortBy', sortBy);
+      params.append('sortOrder', sortOrder);
       
-      let query = supabase
-        .from('profiles')
-        .select('*', { count: 'exact' });
-      
-      // Применяем поиск
-      if (debouncedSearch) {
-        query = query.or(`name.ilike.%${debouncedSearch}%,email.ilike.%${debouncedSearch}%,id.ilike.%${debouncedSearch}%`);
+      // 🆕 Отправляем диапазон рангов
+      if (rankFrom !== 0 || rankTo !== 150 || rankExactMatch) {
+        params.append('rankFrom', rankFrom.toString());
+        params.append('rankTo', rankTo.toString());
       }
       
-      // Применяем фильтр по балансу
-      if (balanceFrom) {
-        query = query.gte('balance', parseFloat(balanceFrom));
+      // 🆕 Отправляем диапазон баланса
+      if (balanceFrom) params.append('balanceFrom', balanceFrom);
+      if (balanceTo) params.append('balanceTo', balanceTo);
+      
+      // 🎯 Отправляем фильтр из виджетов статистики
+      if (activeStatsFilter && activeStatsFilter !== 'all') {
+        params.append('statsFilter', activeStatsFilter);
       }
-      if (balanceTo) {
-        query = query.lte('balance', parseFloat(balanceTo));
+
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/users/paginated?${params}`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${publicAnonKey}`,
+            'X-User-Id': userId || '',
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to load users');
       }
+
+      const loadedUsers = data.users || [];
       
-      // Сортировка
-      const sortColumn = sortBy === 'created' ? 'created_at' : 
-                        sortBy === 'name' ? 'name' : 
-                        sortBy === 'balance' ? 'balance' : 
-                        sortBy === 'level' ? 'rank_level' : 'created_at';
-      query = query.order(sortColumn, { ascending: sortOrder === 'asc' });
-      
-      // Пагинация
-      const from = (pagination.page - 1) * pagination.limit;
-      const to = from + pagination.limit - 1;
-      query = query.range(from, to);
-      
-      const { data: profiles, error, count } = await query;
-      
-      if (error) {
-        console.error('❌ SQL error loading users:', error);
-        // При ошибке RLS показываем пустой список
-        setUsers([]);
-        setPagination({ page: 1, limit: 50, total: 0, totalPages: 0, hasMore: false });
-        setStats({ totalUsers: 0, newToday: 0, newThisMonth: 0, activePartners: 0, passivePartners: 0, activeUsers: 0, passiveUsers: 0, withTeam: 0, totalBalance: 0, orphans: 0 });
-        return;
+      // 🔍 DEBUG: Выводим данные о команде пользователя 014
+      const user014 = loadedUsers.find((u: any) => u.id === '014');
+      if (user014) {
+        console.log('\n🔍 DEBUG User 014 (Artem10) RAW data:');
+        console.log('   ID:', user014.id);
+        console.log('   Имя:', user014.имя, user014.фамилия);
+        console.log('   Ранг:', user014.уровень);
+        console.log('   SpонсорId:', user014.спонсорId);
+        console.log('   команда RAW:', user014.команда);
+        console.log('   команда type:', typeof user014.команда);
+        console.log('   команда isArray:', Array.isArray(user014.команда));
+        console.log('   команда length:', user014.команда?.length);
+        if (Array.isArray(user014.команда)) {
+          user014.команда.forEach((item: any, index: number) => {
+            console.log(`   команда[${index}]:`, {
+              value: item,
+              type: typeof item,
+              stringValue: String(item),
+              isValidString: typeof item === 'string' && item.trim() !== ''
+            });
+          });
+        }
+        console.log('\n');
       }
-      
-      const loadedUsers = (profiles || []).map((p: any) => ({
-        id: p.id,
-        имя: p.name || p.first_name || '',
-        фамилия: p.last_name || '',
-        email: p.email || '',
-        телефон: p.phone || '',
-        баланс: p.balance || 0,
-        доступныйБаланс: p.available_balance || p.balance || 0,
-        уровень: p.rank_level || 0,
-        isAdmin: p.is_admin || false,
-        спонсорId: p.referrer_id || null,
-        команда: p.team || [],
-        created: p.created_at,
-        telegram: p.telegram || '',
-        whatsapp: p.whatsapp || '',
-        instagram: p.instagram || '',
-        vk: p.vk || '',
-        avatar_url: p.avatar_url || '',
-        lastActivity: p.last_login,
-      }));
-      
-      console.log(`✅ Loaded ${loadedUsers.length} users from SQL. Total: ${count}`);
-      console.log('📊 Sample balances:', loadedUsers.slice(0, 3).map(u => ({ id: u.id, баланс: u.баланс })));
       
       setUsers(loadedUsers);
-      
-      const total = count || 0;
       setPagination({
-        page: pagination.page,
-        limit: pagination.limit,
-        total: total,
-        totalPages: Math.ceil(total / pagination.limit),
-        hasMore: (pagination.page * pagination.limit) < total,
+        page: data.pagination.page,
+        limit: data.pagination.limit,
+        total: data.pagination.total,
+        totalPages: data.pagination.totalPages,
+        hasMore: data.pagination.hasMore,
       });
       
-      // 📊 Статистика из SQL
-      const { data: allProfiles } = await supabase
-        .from('profiles')
-        .select('balance, team, is_admin');
-      
-      const allUsers = allProfiles || [];
-      const totalBalance = allUsers.reduce((sum: number, p: any) => sum + (p.balance || 0), 0);
-      const activeUsers = allUsers.filter(p => (p.balance || 0) > 0).length;
-      const usersWithTeam = allUsers.filter(p => p.team && p.team.length > 0).length;
-      
-      setStats({
-        totalUsers: total,
-        newToday: 0,
-        newThisMonth: 0,
-        activePartners: activeUsers,
-        passivePartners: total - activeUsers,
-        activeUsers: activeUsers,
-        passiveUsers: total - activeUsers,
-        withTeam: usersWithTeam,
-        totalBalance: totalBalance,
-        orphans: 0
-      });
-      
+      // 📊 Update stats if available
+      if (data.stats) {
+        setStats(data.stats);
+      }
     } catch (error: any) {
       console.error('Failed to load users:', error);
-      // При ошибке показываем пустой список
-      setUsers([]);
-      setStats({ totalUsers: 0, newToday: 0, newThisMonth: 0, activePartners: 0, passivePartners: 0, activeUsers: 0, passiveUsers: 0, withTeam: 0, totalBalance: 0, orphans: 0 });
+      toast.error('Ошибка загрузки пользователей');
     } finally {
+      // 🔍 Сбрасываем loading state в зависимости от типа запроса
       if (isSearch) {
         setSearchLoading(false);
       } else {

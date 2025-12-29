@@ -1,18 +1,15 @@
 import { LucideIcon, TrendingUp, TrendingDown } from 'lucide-react';
 import { Card, CardContent } from '../ui/card';
-import { KPI, TrendDirection } from './types';
+import { StatusType } from './StatusLight';
 
-export type StatusType = 'ok' | 'warning' | 'critical';
 export type KPISize = 'small' | 'medium' | 'large';
 
-export interface KPICardProps {
-  kpi?: KPI;
-  title?: string;
-  value?: number | string;
+interface KPICardProps {
+  title: string;
+  value: number | string;
   suffix?: string;
   prefix?: string;
   delta?: number;
-  trend?: TrendDirection;
   deltaLabel?: string;
   icon?: LucideIcon;
   iconColor?: string;
@@ -20,35 +17,26 @@ export interface KPICardProps {
   status?: StatusType;
   size?: KPISize;
   loading?: boolean;
-  onClick?: () => void;
-  clickable?: boolean;
+  onClick?: () => void; // Drilldown handler
+  clickable?: boolean; // Показать hover эффект
 }
 
 export function KPICard({
-  kpi,
-  title: propTitle,
-  value: propValue,
-  suffix: propSuffix = '',
-  prefix: propPrefix = '',
-  delta: propDelta,
-  trend: propTrend,
+  title,
+  value,
+  suffix = '',
+  prefix = '',
+  delta,
   deltaLabel,
   icon: Icon,
   iconColor = '#39B7FF',
   iconBgColor = '#E5F4FF',
-  status: _status = 'ok',
+  status = 'ok',
   size = 'medium',
   loading = false,
   onClick,
   clickable = false,
 }: KPICardProps) {
-  const title = propTitle || kpi?.title || '';
-  const value = propValue ?? kpi?.value ?? 0;
-  const suffix = propSuffix || kpi?.suffix || '';
-  const prefix = propPrefix || kpi?.prefix || '';
-  const delta = propDelta ?? kpi?.delta;
-  const trend = propTrend || kpi?.trend;
-
   const sizeClasses = {
     small: 'p-3',
     medium: 'p-4',
@@ -82,8 +70,6 @@ export function KPICard({
 
   const isClickable = onClick || clickable;
 
-  const effectiveDelta = delta ?? (typeof value === 'number' && trend ? (trend === 'up' ? 10 : trend === 'down' ? -10 : 0) : undefined);
-
   return (
     <Card
       className={`relative transition-all ${
@@ -107,16 +93,16 @@ export function KPICard({
                 {formatValue(value)}
                 {suffix}
               </p>
-              {effectiveDelta !== undefined && (
+              {delta !== undefined && (
                 <div className="flex items-center gap-1 text-xs">
-                  {effectiveDelta > 0 ? (
+                  {delta > 0 ? (
                     <TrendingUp className="w-3 h-3 text-[#10B981]" />
-                  ) : effectiveDelta < 0 ? (
+                  ) : delta < 0 ? (
                     <TrendingDown className="w-3 h-3 text-[#EF4444]" />
                   ) : null}
-                  <span className={effectiveDelta > 0 ? 'text-[#10B981]' : effectiveDelta < 0 ? 'text-[#EF4444]' : 'text-[#6B7280]'}>
-                    {effectiveDelta > 0 ? '+' : ''}
-                    {effectiveDelta}%
+                  <span className={delta > 0 ? 'text-[#10B981]' : delta < 0 ? 'text-[#EF4444]' : 'text-[#6B7280]'}>
+                    {delta > 0 ? '+' : ''}
+                    {delta}%
                   </span>
                   {deltaLabel && <span className="text-[#6B7280]">{deltaLabel}</span>}
                 </div>
@@ -134,6 +120,7 @@ export function KPICard({
           </div>
         )}
 
+        {/* Clickable indicator */}
         {isClickable && !loading && (
           <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#39B7FF] opacity-0 group-hover:opacity-100 transition-opacity" />
         )}

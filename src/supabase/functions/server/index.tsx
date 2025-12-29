@@ -5,7 +5,6 @@ import * as kv from "./kv_store.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getUserRank, invalidateRankCache, updateUplineRanks, updateUserRank, calculateUserRank } from "./rank_calculator.tsx";
 import * as metricsCache from "./user_metrics_cache.tsx";
-import { convertToBackendFormat, getProductPrices, calculateCommissionsFromPrices, extractPriceLadder, BACKEND_DEFAULT_COMMISSIONS, BACKEND_DEFAULT_PRICES } from "./commission_backend.ts";
 
 // 🎯 HELPER: Инвалидация кэша при изменении пользователей
 async function invalidateUsersCache() {
@@ -97,7 +96,7 @@ app.use(
 app.use('*', logger(console.log));
 
 // 💓 Activity Tracking Middleware (как в ВК)
-// Автоматически обновляет lastActivity при ЛЮБОМ запросе
+// Автоматически обно������ляет lastActivity при ЛЮБОМ запросе
 app.use('*', async (c, next) => {
   // Получаем userId из заголовка
   const userIdHeader = c.req.header('X-User-Id');
@@ -168,7 +167,7 @@ async function verifyUser(userIdHeader: string | null) {
     throw new Error("User not found");
   }
   
-  // 🆕 ИСПРАВЛЕНИЕ: Проверяем и восстанавливаем флаг isAdmin для первого пользователя, admin@admin.com и CEO
+  // 🆕 ИСПРАВЛЕНИЕ: Проверяем и восстанавливаем ��ла�� isAdmin для первого пользователя, admin@admin.com и CEO
   const isFirstUser = user.id === '1';
   const isAdminEmail = user.email?.toLowerCase() === 'admin@admin.com';
   const isCEO = user.id === 'ceo';
@@ -196,80 +195,7 @@ function isUserAdmin(user: any): boolean {
   return user?.isAdmin === true || 
          user?.email?.toLowerCase() === 'admin@admin.com' || 
          user?.id === 'ceo' || 
-         user?.id === 'seo' ||
          user?.id === '1';
-}
-
-// 💰 WITHDRAWAL STATUS MODEL (explicit):
-// - pending: awaiting admin review (BLOCKS funds)
-// - processing: admin approved, payment in progress (BLOCKS funds)
-// - approved: admin approved, synonymous with processing (BLOCKS funds)
-// - paid: successfully paid out (BLOCKS funds - money is gone)
-// - completed: successfully paid out, alias for paid (BLOCKS funds)
-// - rejected: admin rejected, funds returned (DOES NOT block)
-// - failed: payment failed, funds returned (DOES NOT block)
-// - canceled: user canceled, funds returned (DOES NOT block)
-const BLOCKING_STATUSES = ['pending', 'processing', 'approved', 'paid', 'completed'];
-const NON_BLOCKING_STATUSES = ['rejected', 'failed', 'canceled'];
-
-// 💰 Get available balance for a user (SINGLE SOURCE OF TRUTH)
-// Available = Total Earnings - Sum of BLOCKING payouts
-async function getAvailableBalance(userId: string): Promise<{
-  available: number;
-  totalEarned: number;
-  blockedAmount: number;
-  pendingAmount: number;
-  paidAmount: number;
-}> {
-  console.log(`💰 Computing available balance for user: "${userId}"`);
-  
-  // 1. Get total earnings from SQL (Supabase) - amount is NUMERIC
-  const { data: earningsData, error: earningsError } = await supabase
-    .from('earnings')
-    .select('amount')
-    .eq('user_id', userId);
-  
-  if (earningsError) {
-    console.error(`❌ Failed to get earnings for balance calc:`, earningsError);
-  }
-  
-  // Use Number() for NUMERIC type, NOT parseFloat to avoid float issues
-  const totalEarned = (earningsData || []).reduce((sum: number, e: any) => {
-    const amt = Number(e.amount) || 0;
-    return sum + amt;
-  }, 0);
-  
-  // 2. Get payouts and calculate blocked amount
-  const { data: payoutsData, error: payoutsError } = await supabase
-    .from('payouts')
-    .select('amount, status')
-    .eq('user_id', userId);
-  
-  if (payoutsError) {
-    console.error(`❌ Failed to get payouts for balance calc:`, payoutsError);
-  }
-  
-  let pendingAmount = 0;  // pending + processing
-  let paidAmount = 0;     // approved + paid + completed
-  
-  (payoutsData || []).forEach((p: any) => {
-    const amt = Number(p.amount) || 0;
-    const status = (p.status || '').toLowerCase();
-    
-    if (status === 'pending' || status === 'processing') {
-      pendingAmount += amt;
-    } else if (status === 'approved' || status === 'paid' || status === 'completed') {
-      paidAmount += amt;
-    }
-    // rejected/failed/canceled = funds returned, don't count
-  });
-  
-  const blockedAmount = pendingAmount + paidAmount;
-  const available = Math.max(0, totalEarned - blockedAmount);
-  
-  console.log(`💰 Balance for "${userId}": earned=${totalEarned}, blocked=${blockedAmount} (pending=${pendingAmount}, paid=${paidAmount}), available=${available}`);
-  
-  return { available, totalEarned, blockedAmount, pendingAmount, paidAmount };
 }
 
 // 🔄 ID Reuse Management
@@ -364,7 +290,7 @@ async function getNextPartnerId(): Promise<string> {
     const isOccupied = occupiedIds.includes(nextId);
     const isReserved = reservedIds.includes(nextId);
     
-    console.log(`🔍 Checking partner ID ${nextId}: occupied=${isOccupied}, reserved=${isReserved}`);
+    console.log(`�� Checking partner ID ${nextId}: occupied=${isOccupied}, reserved=${isReserved}`);
     console.log(`   occupiedIds.includes(${nextId}) = ${occupiedIds.includes(nextId)}`);
     console.log(`   reservedIds.includes(${nextId}) = ${reservedIds.includes(nextId)}`);
     
@@ -463,521 +389,8 @@ async function syncReservedIds(): Promise<{
     before: reservedIds.sort((a, b) => a - b),
     after: cleanedReservedIds.sort((a, b) => a - b),
     removed: duplicates.sort((a, b) => a - b),
-    message: `Удалено ${duplicates.length} дублирующихся номеров (уже заняты пользователями)`
+    message: `Удалено ${duplicates.length} дублирующихся номеров (����же заняты пользователями)`
   };
-}
-
-// ==============================================
-// 🆕 MULTIPLE ID SYSTEM - PARTNER CODES
-// ==============================================
-// Новая система: один пользователь может иметь множество ID/кодов
-// ID никогда не освобождается для других пользователей
-
-interface PartnerCode {
-  value: string;           // "001" или "ARTEM"
-  type: "numeric" | "alphanumeric";
-  primary: boolean;
-  isActive: boolean;
-  createdAt: string;
-  assignedBy?: string;     // ID админа, который назначил код
-}
-
-interface CodeMapping {
-  userId: string;
-  primary: boolean;
-  isActive: boolean;
-  createdAt: string;
-  type: "numeric" | "alphanumeric";
-}
-
-// Получить все коды пользователя
-async function getUserCodes(userId: string): Promise<PartnerCode[]> {
-  const user = await kv.get(`user:id:${userId}`);
-  if (!user) return [];
-  return user.codes || [];
-}
-
-// Найти userId по коду (любому - цифровому или буквенному)
-async function resolveCodeToUserId(code: string): Promise<string | null> {
-  const normalizedCode = code.toUpperCase().trim();
-  
-  // Сначала проверяем глобальный mapping
-  const mapping = await kv.get(`id:code:${normalizedCode}`);
-  if (mapping && mapping.isActive) {
-    return mapping.userId;
-  }
-  
-  // Для обратной совместимости: проверяем старый формат (user:id:{code})
-  const user = await kv.get(`user:id:${normalizedCode}`);
-  if (user) {
-    return normalizedCode;
-  }
-  
-  // Для числовых ID пробуем разные форматы (001 vs 1)
-  if (/^\d+$/.test(normalizedCode)) {
-    const numId = parseInt(normalizedCode, 10);
-    const formats = [
-      String(numId),
-      String(numId).padStart(3, '0'),
-      String(numId).padStart(5, '0')
-    ];
-    
-    for (const format of formats) {
-      const mappingAlt = await kv.get(`id:code:${format}`);
-      if (mappingAlt && mappingAlt.isActive) {
-        return mappingAlt.userId;
-      }
-      
-      const userAlt = await kv.get(`user:id:${format}`);
-      if (userAlt) {
-        return format;
-      }
-    }
-  }
-  
-  return null;
-}
-
-// Проверить, свободен ли код для использования
-async function isCodeAvailable(code: string): Promise<{ available: boolean; reason?: string; existingUserId?: string }> {
-  const normalizedCode = code.toUpperCase().trim();
-  
-  // Проверяем глобальный mapping
-  const mapping = await kv.get(`id:code:${normalizedCode}`);
-  if (mapping) {
-    return {
-      available: false,
-      reason: `Код "${normalizedCode}" уже привязан к пользователю ${mapping.userId}`,
-      existingUserId: mapping.userId
-    };
-  }
-  
-  // Проверяем существующего пользователя с таким ID
-  const existingUser = await kv.get(`user:id:${normalizedCode}`);
-  if (existingUser) {
-    return {
-      available: false,
-      reason: `Код "${normalizedCode}" уже используется как основной ID пользователя`,
-      existingUserId: normalizedCode
-    };
-  }
-  
-  // Для числовых кодов проверяем альтернативные форматы
-  if (/^\d+$/.test(normalizedCode)) {
-    const numId = parseInt(normalizedCode, 10);
-    const formats = [
-      String(numId),
-      String(numId).padStart(3, '0'),
-      String(numId).padStart(5, '0')
-    ];
-    
-    for (const format of formats) {
-      if (format !== normalizedCode) {
-        const altMapping = await kv.get(`id:code:${format}`);
-        if (altMapping) {
-          return {
-            available: false,
-            reason: `Код "${normalizedCode}" (формат ${format}) уже привязан к пользователю ${altMapping.userId}`,
-            existingUserId: altMapping.userId
-          };
-        }
-        
-        const altUser = await kv.get(`user:id:${format}`);
-        if (altUser) {
-          return {
-            available: false,
-            reason: `Код "${normalizedCode}" (формат ${format}) уже используется`,
-            existingUserId: format
-          };
-        }
-      }
-    }
-  }
-  
-  return { available: true };
-}
-
-// Добавить новый код пользователю (не заменяет, а добавляет)
-async function addCodeToUser(userId: string, code: string, options: {
-  makePrimary?: boolean;
-  assignedBy?: string;
-} = {}): Promise<{ success: boolean; error?: string }> {
-  const normalizedCode = code.toUpperCase().trim();
-  
-  // Проверяем, свободен ли код
-  const availability = await isCodeAvailable(normalizedCode);
-  if (!availability.available) {
-    return { success: false, error: availability.reason };
-  }
-  
-  // Получаем пользователя
-  const user = await kv.get(`user:id:${userId}`);
-  if (!user) {
-    return { success: false, error: `Пользователь ${userId} не найден` };
-  }
-  
-  // Определяем тип кода
-  const codeType: "numeric" | "alphanumeric" = /^\d+$/.test(normalizedCode) ? "numeric" : "alphanumeric";
-  
-  // Создаем новый код
-  const newCode: PartnerCode = {
-    value: normalizedCode,
-    type: codeType,
-    primary: options.makePrimary || false,
-    isActive: true,
-    createdAt: new Date().toISOString(),
-    assignedBy: options.assignedBy
-  };
-  
-  // Инициализируем массив кодов если нужно
-  if (!user.codes) {
-    user.codes = [];
-  }
-  
-  // Если делаем новый код основным, сбрасываем primary у остальных
-  if (options.makePrimary) {
-    user.codes = user.codes.map((c: PartnerCode) => ({ ...c, primary: false }));
-  }
-  
-  // Добавляем код
-  user.codes.push(newCode);
-  
-  // Сохраняем пользователя
-  await kv.set(`user:id:${userId}`, user);
-  
-  // Создаем глобальный mapping
-  const mapping: CodeMapping = {
-    userId,
-    primary: newCode.primary,
-    isActive: true,
-    createdAt: newCode.createdAt,
-    type: codeType
-  };
-  await kv.set(`id:code:${normalizedCode}`, mapping);
-  
-  console.log(`✅ Added code "${normalizedCode}" to user ${userId} (primary: ${newCode.primary})`);
-  
-  return { success: true };
-}
-
-// Установить код как основной
-async function setCodeAsPrimary(userId: string, code: string): Promise<{ success: boolean; error?: string }> {
-  const normalizedCode = code.toUpperCase().trim();
-  
-  const user = await kv.get(`user:id:${userId}`);
-  if (!user) {
-    return { success: false, error: `Пользователь ${userId} не найден` };
-  }
-  
-  if (!user.codes || user.codes.length === 0) {
-    return { success: false, error: 'У пользователя нет дополнительных кодов' };
-  }
-  
-  const codeIndex = user.codes.findIndex((c: PartnerCode) => c.value === normalizedCode);
-  if (codeIndex === -1) {
-    return { success: false, error: `Код "${normalizedCode}" не найден у пользователя` };
-  }
-  
-  // Сбрасываем primary у всех и устанавливаем у нужного
-  user.codes = user.codes.map((c: PartnerCode, i: number) => ({
-    ...c,
-    primary: i === codeIndex
-  }));
-  
-  await kv.set(`user:id:${userId}`, user);
-  
-  // Обновляем mappings
-  for (const c of user.codes) {
-    const mapping = await kv.get(`id:code:${c.value}`);
-    if (mapping) {
-      mapping.primary = c.primary;
-      await kv.set(`id:code:${c.value}`, mapping);
-    }
-  }
-  
-  console.log(`✅ Set code "${normalizedCode}" as primary for user ${userId}`);
-  
-  return { success: true };
-}
-
-// Деактивировать код (не удаляет, но делает неактивным)
-async function deactivateCode(userId: string, code: string): Promise<{ success: boolean; error?: string }> {
-  const normalizedCode = code.toUpperCase().trim();
-  
-  const user = await kv.get(`user:id:${userId}`);
-  if (!user) {
-    return { success: false, error: `Пользователь ${userId} не найден` };
-  }
-  
-  // Нельзя деактивировать основной ID пользователя
-  if (user.id === normalizedCode) {
-    return { success: false, error: 'Нельзя деактивировать основной ID пользователя' };
-  }
-  
-  if (!user.codes || user.codes.length === 0) {
-    return { success: false, error: 'У пользователя нет дополнительных кодов' };
-  }
-  
-  const codeIndex = user.codes.findIndex((c: PartnerCode) => c.value === normalizedCode);
-  if (codeIndex === -1) {
-    return { success: false, error: `Код "${normalizedCode}" не найден у пользователя` };
-  }
-  
-  user.codes[codeIndex].isActive = false;
-  await kv.set(`user:id:${userId}`, user);
-  
-  // Обновляем mapping
-  const mapping = await kv.get(`id:code:${normalizedCode}`);
-  if (mapping) {
-    mapping.isActive = false;
-    await kv.set(`id:code:${normalizedCode}`, mapping);
-  }
-  
-  console.log(`⏸️ Deactivated code "${normalizedCode}" for user ${userId}`);
-  
-  return { success: true };
-}
-
-// Активировать код
-async function activateCode(userId: string, code: string): Promise<{ success: boolean; error?: string }> {
-  const normalizedCode = code.toUpperCase().trim();
-  
-  const user = await kv.get(`user:id:${userId}`);
-  if (!user) {
-    return { success: false, error: `Пользователь ${userId} не найден` };
-  }
-  
-  if (!user.codes || user.codes.length === 0) {
-    return { success: false, error: 'У пользователя нет дополнительных кодов' };
-  }
-  
-  const codeIndex = user.codes.findIndex((c: PartnerCode) => c.value === normalizedCode);
-  if (codeIndex === -1) {
-    return { success: false, error: `Код "${normalizedCode}" не найден у пользователя` };
-  }
-  
-  user.codes[codeIndex].isActive = true;
-  await kv.set(`user:id:${userId}`, user);
-  
-  // Обновляем mapping
-  const mapping = await kv.get(`id:code:${normalizedCode}`);
-  if (mapping) {
-    mapping.isActive = true;
-    await kv.set(`id:code:${normalizedCode}`, mapping);
-  }
-  
-  console.log(`▶️ Activated code "${normalizedCode}" for user ${userId}`);
-  
-  return { success: true };
-}
-
-// Миграция: создать mapping для существующего основного ID пользователя
-async function migrateUserToNewCodeSystem(userId: string): Promise<{ success: boolean; migrated: boolean }> {
-  const user = await kv.get(`user:id:${userId}`);
-  if (!user) {
-    return { success: false, migrated: false };
-  }
-  
-  // Проверяем, есть ли уже mapping для основного ID
-  const existingMapping = await kv.get(`id:code:${userId}`);
-  if (existingMapping) {
-    return { success: true, migrated: false }; // Уже мигрирован
-  }
-  
-  // Создаем mapping для основного ID
-  const mapping: CodeMapping = {
-    userId,
-    primary: true,
-    isActive: true,
-    createdAt: user.датаРегистрации || new Date().toISOString(),
-    type: /^\d+$/.test(userId) ? "numeric" : "alphanumeric"
-  };
-  await kv.set(`id:code:${userId}`, mapping);
-  
-  // Добавляем основной ID в массив codes если его там нет
-  if (!user.codes) {
-    user.codes = [];
-  }
-  
-  const hasPrimaryCode = user.codes.some((c: PartnerCode) => c.value === userId);
-  if (!hasPrimaryCode) {
-    user.codes.unshift({
-      value: userId,
-      type: mapping.type,
-      primary: true,
-      isActive: true,
-      createdAt: mapping.createdAt
-    });
-    await kv.set(`user:id:${userId}`, user);
-  }
-  
-  console.log(`🔄 Migrated user ${userId} to new code system`);
-  
-  return { success: true, migrated: true };
-}
-
-/**
- * 🆕 ЕДИНАЯ ФУНКЦИЯ создания earnings из подтверждённого заказа
- * Вызывается из: /orders/:orderId/confirm, demo-payment, YooKassa webhook
- * 
- * @param order - заказ с полями комиссии, комиссииУровни, sku, партнёрскаяПокупка
- * @returns массив созданных earnings
- */
-async function createEarningsFromOrder(order: any): Promise<any[]> {
-  const createdEarnings: any[] = [];
-  
-  console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-  console.log(`💰 createEarningsFromOrder: Order ${order.id}`);
-  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-  
-  if (!order.комиссии) {
-    console.log(`⚠️ No комиссии in order — skipping earnings creation`);
-    return createdEarnings;
-  }
-  
-  // 🆕 Получаем товар для логирования ценовой лестницы
-  const products = await kv.getByPrefix('product:');
-  const product = products.find((p: any) => p.sku === order.sku);
-  const ladder = extractPriceLadder(product);
-  
-  console.log(`📦 SKU: ${order.sku}`);
-  console.log(`👤 isPartner: ${order.партнёрскаяПокупка}`);
-  
-  if (ladder) {
-    // Используем СТРОГУЮ логику (без неоднозначных fallbacks)
-    const P0 = ladder.P0;
-    const P1 = ladder.P1;
-    const P2 = ladder.P2 ?? 0;
-    const P3 = ladder.P3 ?? 0;
-    const P_company = ladder.P_company ?? 0;
-    
-    console.log(`💵 Price Ladder:`);
-    console.log(`   P0 (Розничная): ${P0}₽`);
-    console.log(`   P1 (Уровень 1): ${P1}₽`);
-    console.log(`   P2 (Уровень 2): ${P2}₽ ${P2 === 0 ? '(не задано)' : ''}`);
-    console.log(`   P3 (Уровень 3): ${P3}₽ ${P3 === 0 ? '(не задано)' : ''}`);
-    console.log(`   P_company:      ${P_company}₽ ${P_company === 0 ? '(не задано)' : ''}`);
-    
-    // Вычисляем комиссии (строгая логика)
-    const L0 = Math.max(0, P0 - P1);
-    const L1 = P2 > 0 ? Math.max(0, P1 - P2) : 0;
-    const L2 = (P2 > 0 && P3 > 0) ? Math.max(0, P2 - P3) : 0;
-    const L3 = (P3 > 0 && P_company > 0) ? Math.max(0, P3 - P_company) : 0;
-    
-    console.log(`📊 Calculated Commissions (strict logic):`);
-    console.log(`   L0: ${L0}₽ = P0(${P0}) - P1(${P1})`);
-    console.log(`   L1: ${L1}₽ = ${P2 > 0 ? `P1(${P1}) - P2(${P2})` : 'N/A (P2 not set)'}`);
-    console.log(`   L2: ${L2}₽ = ${(P2 > 0 && P3 > 0) ? `P2(${P2}) - P3(${P3})` : 'N/A (P2 or P3 not set)'}`);
-    console.log(`   L3: ${L3}₽ = ${(P3 > 0 && P_company > 0) ? `P3(${P3}) - P_company(${P_company})` : 'N/A (P3 or P_company not set)'}`);
-    
-    // Проверки
-    const guestTotal = L0 + L1 + L2 + L3 + P_company;
-    const partnerTotal = L1 + L2 + L3 + P_company;
-    console.log(`✅ Verification:`);
-    console.log(`   Guest:   L0+L1+L2+L3+P_company = ${guestTotal}₽ (should be P0=${P0}₽) ${guestTotal !== P0 ? '⚠️ MISMATCH' : '✓'}`);
-    console.log(`   Partner: L1+L2+L3+P_company = ${partnerTotal}₽ (should be P1=${P1}₽) ${partnerTotal !== P1 ? '⚠️ MISMATCH' : '✓'}`);
-  } else {
-    console.log(`⚠️ No price ladder found — using stored commissions`);
-  }
-  
-  console.log(`📋 Stored Комиссии:`, order.комиссии);
-  console.log(`📋 Stored КомиссииУровни:`, order.комиссииУровни);
-  
-  for (const [userId, amount] of Object.entries(order.комиссии)) {
-    const numAmount = Number(amount);
-    if (numAmount <= 0) continue;
-    
-    // Обновляем баланс пользователя
-    const user = await kv.get(`user:id:${userId}`);
-    if (!user) {
-      console.log(`⚠️ User ${userId} not found, skipping payout`);
-      continue;
-    }
-    
-    user.баланс = (user.баланс || 0) + numAmount;
-    await kv.set(`user:id:${userId}`, user);
-    
-    if (user.telegramId) {
-      await kv.set(`user:tg:${user.telegramId}`, user);
-    }
-    
-    // Создаём earning запись
-    const earningId = `earning:${Date.now()}-${userId}-${Math.random().toString(36).slice(2, 6)}`;
-    const level = order.комиссииУровни?.[userId] || 'L0';
-    const lineIndex = typeof level === 'string' ? Number(level.replace('L', '')) : 0;
-    
-    const earning = {
-      id: earningId,
-      userId: userId,
-      orderId: order.id,
-      amount: numAmount,
-      сумма: numAmount,
-      level: level,
-      линия: lineIndex,
-      fromUserId: order.покупательId,
-      sku: order.sku,
-      isPartner: order.партнёрскаяПокупка,
-      createdAt: new Date().toISOString()
-    };
-    
-    // 🔥 ВАЖНО: Сохраняем в KV (для совместимости)
-    await kv.set(earningId, earning);
-    await kv.set(`earning:user:${userId}:${earningId}`, earning);
-    
-    // 🔥 КРИТИЧЕСКИ ВАЖНО: Сохраняем в SQL таблицу earnings!
-    // Без этого GET /earnings и Дашборд покажут 0
-    try {
-      const { data: insertedEarning, error: insertError } = await supabase
-        .from('earnings')
-        .insert({
-          user_id: userId,           // <--- простой ID: "004", "seo"
-          order_id: order.id,        // UUID заказа
-          amount: numAmount,
-          level: level,
-          order_type: order.партнёрскаяПокупка ? 'partner' : 'guest',  // 🔥 Required field!
-          product_sku: order.sku || null,
-          status: 'paid'
-        })
-        .select()
-        .single();
-      
-      if (insertError) {
-        console.error(`   ⚠️ SQL earnings insert failed for ${userId}:`, insertError.message);
-      } else {
-        console.log(`   💾 SQL earning saved: id=${insertedEarning?.id}, user_id=${userId}, amount=${numAmount}₽`);
-      }
-      
-      // 🔥 Также обновляем balance в SQL таблице profiles
-      const { error: balanceError } = await supabase.rpc('increment_balance', {
-        p_user_id: userId,
-        p_amount: numAmount
-      });
-      
-      if (balanceError) {
-        // Если RPC не существует, пробуем прямой UPDATE
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({ balance: user.баланс })  // user.баланс уже обновлён выше
-          .eq('user_id', userId);
-        
-        if (updateError) {
-          console.log(`   ⚠️ Failed to update SQL profile balance: ${updateError.message}`);
-        } else {
-          console.log(`   💰 SQL profile balance updated: ${user.баланс}₽`);
-        }
-      } else {
-        console.log(`   💰 SQL balance incremented by ${numAmount}₽ for user ${userId}`);
-      }
-    } catch (sqlError) {
-      console.error(`   ⚠️ SQL operation failed:`, sqlError);
-    }
-    
-    createdEarnings.push(earning);
-    console.log(`   ✅ Earning: ${numAmount}₽ → ${userId} (${level}, линия=${lineIndex})`);
-  }
-  
-  console.log(`💰 createEarningsFromOrder: Created ${createdEarnings.length} earnings for order ${order.id}`);
-  return createdEarnings;
 }
 
 // Calculate MLM payouts
@@ -988,22 +401,84 @@ async function calculatePayouts(price: number, isPartner: boolean, sku: string, 
   const products = await kv.getByPrefix('product:');
   const product = products.find((p: any) => p.sku === sku);
   
-  // 🆕 ЕДИНСТВЕННЫЙ ИСТОЧНИК ИСТИНЫ: вычисляем комиссии из ценовой лестницы
-  // Формула: L0=P0-P1, L1=P1-P2, L2=P2-P3, L3=P3-P_company
-  const commissions = calculateCommissionsFromPrices(product || { sku }, isPartner);
-  
-  // 🆕 Получаем цены через helper (с fallback на дефолты)
-  const prices = getProductPrices(product || { sku });
-  const actualPrice = isPartner ? prices.partner : prices.retail;
-  
-  // Логирование для отладки (включая ценовую лестницу)
-  const ladder = extractPriceLadder(product);
-  console.log(`💰 calculatePayouts: sku=${sku}, isPartner=${isPartner}`);
-  console.log(`   Product found: ${!!product}`);
-  if (ladder) {
-    console.log(`   Price ladder: P0=${ladder.P0}, P1=${ladder.P1}, P2=${ladder.P2}, P3=${ladder.P3}, P_company=${ladder.P_company}`);
+  if (!product) {
+    // Fallback to hardcoded products for backward compatibility
+    const productConfig: any = {
+      'H2-1': {
+        retail: 6500,
+        partner: 4900,
+        d0: 1600,
+        d1: 1500,
+        d2: 900,
+        d3: 600
+      },
+      'H2-3': {
+        retail: 18000,
+        partner: 13500,
+        d0: 4500,
+        d1: 4000,
+        d2: 2500,
+        d3: 1500
+      }
+    };
+    
+    const config = productConfig[sku];
+    if (!config) {
+      throw new Error(`Unknown product SKU: ${sku}`);
+    }
+    
+    const actualPrice = isPartner ? config.partner : config.retail;
+    
+    if (!isPartner) {
+      // Guest purchase - L0 gets d0
+      if (upline.u0) {
+        payouts.push({
+          userId: upline.u0,
+          amount: config.d0,
+          level: 'L0'
+        });
+      }
+    } else {
+      // Partner purchase - distribute d1, d2, d3 to upline
+      if (upline.u1) {
+        payouts.push({
+          userId: upline.u1,
+          amount: config.d1,
+          level: 'L1'
+        });
+      }
+      if (upline.u2) {
+        payouts.push({
+          userId: upline.u2,
+          amount: config.d2,
+          level: 'L2'
+        });
+      }
+      if (upline.u3) {
+        payouts.push({
+          userId: upline.u3,
+          amount: config.d3,
+          level: 'L3'
+        });
+      }
+    }
+    
+    return { price: actualPrice, payouts };
   }
-  console.log(`   Commissions: d0=${commissions.d0}, d1=${commissions.d1}, d2=${commissions.d2}, d3=${commissions.d3}`);
+  
+  // 🆕 Получаем цены и комиссии из товара
+  const retailPrice = Number(product.цена_розница || product.розничнаяЦена || 0);
+  const partnerPrice = Number(product.цена1 || product.партнёрскаяЦена || 0);
+  
+  // Получаем комиссии из товара или используем дефолтные
+  const commissions = product.комиссии || {
+    d0: 1600,
+    d1: 1500,
+    d2: 900,
+    d3: 600
+  };
+  
+  const actualPrice = isPartner ? partnerPrice : retailPrice;
   
   if (!isPartner) {
     // Guest purchase - L0 gets d0
@@ -1012,28 +487,6 @@ async function calculatePayouts(price: number, isPartner: boolean, sku: string, 
         userId: upline.u0,
         amount: commissions.d0 || 0,
         level: 'L0'
-      });
-    }
-    // 🆕 Для гостевых покупок также выплачиваем d1/d2/d3 спонсорам продавца
-    if (upline.u1) {
-      payouts.push({
-        userId: upline.u1,
-        amount: commissions.d1 || 0,
-        level: 'L1'
-      });
-    }
-    if (upline.u2) {
-      payouts.push({
-        userId: upline.u2,
-        amount: commissions.d2 || 0,
-        level: 'L2'
-      });
-    }
-    if (upline.u3) {
-      payouts.push({
-        userId: upline.u3,
-        amount: commissions.d3 || 0,
-        level: 'L3'
       });
     }
   } else {
@@ -1198,9 +651,10 @@ app.post("/make-server-05aa3c8a/user/activity", async (c) => {
   try {
     const { userId } = await c.req.json();
     
-    console.log('💓 Heartbeat received for userId:', userId);
+    // console.log('💓 Heartbeat received for userId:', userId);
     
     if (!userId) {
+      console.log('⚠️ Heartbeat: Missing userId');
       return c.json({ error: "userId is required" }, 400);
     }
 
@@ -1208,7 +662,7 @@ app.post("/make-server-05aa3c8a/user/activity", async (c) => {
     const user = await kv.get(userKey);
     
     if (!user) {
-      console.log('❌ User not found for heartbeat:', userId);
+      console.log('⚠️ User not found for heartbeat:', userId);
       return c.json({ error: "User not found" }, 404);
     }
 
@@ -1220,12 +674,18 @@ app.post("/make-server-05aa3c8a/user/activity", async (c) => {
     user.lastActivity = newLastLogin;
     await kv.set(userKey, user);
 
-    console.log(`✅ Activity updated for ${user.имя || userId}: ${oldLastLogin} → ${newLastLogin}`);
+    // console.log(`✅ Activity updated for ${user.имя || userId}: ${oldLastLogin} → ${newLastLogin}`);
     
     return c.json({ success: true, lastLogin: user.lastLogin, userId: user.id });
   } catch (error) {
-    console.error('❌ Activity update error:', error);
-    return c.json({ error: 'Failed to update activity' }, 500);
+    // Тихо логируем ошибки activity update - это не критичная функциональность
+    console.warn('⚠️ Activity update warning:', error instanceof Error ? error.message : String(error));
+    // Возвращаем ошибку, но клиент должен её игнорировать
+    return c.json({ 
+      success: false,
+      error: 'Failed to update activity',
+      details: error instanceof Error ? error.message : String(error)
+    }, 500);
   }
 });
 
@@ -1371,10 +831,6 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
     await kv.set(emailKey, { id: newUserId }); // Храним только ID для быстрого поиска
     // Create refCode index for fast lookup
     await kv.set(`user:refcode:${refCode}`, { id: newUserId });
-    
-    // ✅ Явно кэшируем ранг 0 для нового пользователя (у него ещё нет команды)
-    await kv.set(`rank:user:${newUserId}`, 0);
-    console.log(`✅ Rank cache set to 0 for new user ${newUserId}`);
     
     // 🆕 Обновляем команду спонсора
     if (sponsor) {
@@ -1565,6 +1021,18 @@ app.post("/make-server-05aa3c8a/auth/login", async (c) => {
         console.log(`⚠️ User exists in KV but not in Supabase Auth. Attempting to migrate...`);
         
         try {
+          // Check if user already exists in Supabase Auth
+          const { data: existingUsers } = await supabase.auth.admin.listUsers();
+          const userExists = existingUsers?.users?.some(u => u.email === userEmail);
+          
+          if (userExists) {
+            console.log(`⚠️ User ${userEmail} already exists in Supabase Auth but password is incorrect`);
+            return c.json({ 
+              error: "Неверный пароль",
+              hint: "Пользователь существует, но пароль неверный" 
+            }, 401);
+          }
+          
           // Create user in Supabase Auth with the provided password
           const { data: newAuthData, error: createError } = await supabase.auth.admin.createUser({
             email: userEmail,
@@ -1608,7 +1076,7 @@ app.post("/make-server-05aa3c8a/auth/login", async (c) => {
         } catch (migrationError) {
           console.error(`❌ Migration error:`, migrationError);
           return c.json({ 
-            error: "Ошибка миграции учетной записи. Попробуйте сбросить пароль.",
+            error: "Ошибка миграции учетной записи. Попробуйте сбросить паро��ь.",
             details: migrationError instanceof Error ? migrationError.message : String(migrationError)
           }, 401);
         }
@@ -1800,10 +1268,6 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
     await kv.set(emailKey, { id: partnerId });
     // Create refCode index for fast lookup
     await kv.set(`user:refcode:${refCode}`, { id: partnerId });
-    
-    // ✅ Явно кэшируем ранг 0 для нового партнёра (у него ещё нет команды)
-    await kv.set(`rank:user:${partnerId}`, 0);
-    console.log(`✅ Rank cache set to 0 for new partner ${partnerId}`);
     
     // Update sponsor's team
     if (sponsor) {
@@ -2371,7 +1835,7 @@ app.post("/make-server-05aa3c8a/user/avatar", async (c) => {
       return c.json({ error: 'No file provided' }, 400);
     }
     
-    // Проверка размера (макс 2MB)
+    // Про��ерка размера (макс 2MB)
     if (file.size > 2 * 1024 * 1024) {
       return c.json({ error: 'Файл слишком большой (макс 2MB)' }, 400);
     }
@@ -2538,47 +2002,18 @@ app.delete("/make-server-05aa3c8a/user/account", async (c) => {
       }
     }
     
-    // 🔓 Free ALL user IDs (primary + additional codes) for reuse
-    const freedCodes: string[] = [];
-    
-    // 1. Free the primary ID
+    // Free the ID for reuse
     if (userId.length === 3 && /^\d+$/.test(userId)) {
       await freePartnerId(userId);
     } else {
       await freeUserId(userId);
     }
-    freedCodes.push(userId);
     
-    // 2. Delete global mapping for primary ID
-    await kv.del(`id:code:${userId}`);
-    
-    // 3. Free all additional codes from user.codes[] array
-    if (currentUser.codes && Array.isArray(currentUser.codes)) {
-      for (const code of currentUser.codes) {
-        const codeValue = code.value || code;
-        if (codeValue && codeValue !== userId) {
-          // Delete global mapping
-          await kv.del(`id:code:${codeValue}`);
-          
-          // Free numeric codes for reuse
-          if (/^\d+$/.test(codeValue)) {
-            if (codeValue.length === 3) {
-              await freePartnerId(codeValue);
-            } else {
-              await freeUserId(codeValue);
-            }
-          }
-          freedCodes.push(codeValue);
-        }
-      }
-    }
-    
-    console.log(`✅ User ${userId} self-deleted. Freed codes: [${freedCodes.join(', ')}]`);
+    console.log(`✅ User ${userId} self-deleted and ID freed for reuse`);
     
     return c.json({ 
       success: true, 
-      message: `Ваш аккаунт удалён. Освобождено ${freedCodes.length} ID для новых пользователей.`,
-      freedCodes
+      message: 'Ваш аккаунт удалён. Ваш ID будет доступен для новых пользователей.' 
     });
   } catch (error) {
     console.error(`❌ Self-delete error:`, error);
@@ -2586,13 +2021,13 @@ app.delete("/make-server-05aa3c8a/user/account", async (c) => {
   }
 });
 
-// Get user by ID - HYBRID: Profile from KV, Balance from SQL
+// Get user by ID
 app.get("/make-server-05aa3c8a/user/:userId", async (c) => {
   try {
     const userId = c.req.param('userId');
     console.log(`📥 Getting user data for ID: ${userId}`);
     
-    // Try user first from KV
+    // Try user first
     let userData = await kv.get(`user:id:${userId}`);
     
     // If not found, try admin (for CEO and admin-X IDs)
@@ -2606,50 +2041,8 @@ app.get("/make-server-05aa3c8a/user/:userId", async (c) => {
       return c.json({ error: "User not found" }, 404);
     }
     
-    // 🔥 GET BALANCE FROM SQL - THIS IS THE SOURCE OF TRUTH
-    // Сначала пробуем profiles.balance, потом считаем из earnings
-    let sqlBalance = 0;
-    
-    const { data: sqlProfile, error: sqlError } = await supabase
-      .from('profiles')
-      .select('balance')
-      .eq('user_id', userId)
-      .single();
-    
-    if (sqlError) {
-      console.log(`⚠️ SQL profile lookup failed for ${userId}: ${sqlError.message}`);
-    }
-    
-    if (sqlProfile?.balance) {
-      sqlBalance = sqlProfile.balance;
-      console.log(`💰 SQL profiles.balance for ${userId}: ${sqlBalance}₽`);
-    } else {
-      // 🔥 FALLBACK: Считаем баланс из таблицы earnings
-      const { data: earningsData, error: earningsError } = await supabase
-        .from('earnings')
-        .select('amount')
-        .eq('user_id', userId);
-      
-      if (!earningsError && earningsData) {
-        sqlBalance = earningsData.reduce((sum, e) => sum + (e.amount || 0), 0);
-        console.log(`💰 SQL earnings sum for ${userId}: ${sqlBalance}₽ (from ${earningsData.length} records)`);
-      } else {
-        console.log(`⚠️ SQL earnings lookup failed for ${userId}: ${earningsError?.message}`);
-        // Используем KV баланс как последний fallback
-        sqlBalance = userData.баланс || 0;
-        console.log(`💰 Fallback to KV balance for ${userId}: ${sqlBalance}₽`);
-      }
-    }
-    
-    // Merge: KV profile data + SQL balance
-    const mergedUserData = {
-      ...userData,
-      баланс: sqlBalance,
-      доступныйБаланс: sqlBalance  // Also update available balance
-    };
-    
-    console.log(`✅ Found user: ${mergedUserData.имя} ${mergedUserData.фамилия} (type: ${mergedUserData.type || 'user'}), balance: ${sqlBalance}`);
-    return c.json({ success: true, user: mergedUserData });
+    console.log(`✅ Found user: ${userData.имя} ${userData.фамилия} (type: ${userData.type || 'user'})`);
+    return c.json({ success: true, user: userData });
   } catch (error) {
     console.log(`Get user error: ${error}`);
     return c.json({ error: `Failed to get user: ${error}` }, 500);
@@ -2698,26 +2091,15 @@ app.get("/make-server-05aa3c8a/user/:userId/profile", async (c) => {
     const teamMembers = allUsersArray.filter((u: any) => u.спонсорId === userId);
     profileData.teamSize = teamMembers.length;
     
-    // 🔥 GET BALANCE FROM SQL - THIS IS THE SOURCE OF TRUTH
-    const { data: sqlProfile } = await supabase
-      .from('profiles')
-      .select('balance')
-      .eq('user_id', userId)
-      .single();
-    const sqlBalance = sqlProfile?.balance ?? 0;
-    
     // Поля которые показываем только если разрешено или это свой профиль
     if (isOwnProfile || privacySettings.showBalance !== false) {
-      profileData.баланс = sqlBalance; // FROM SQL, NOT KV
+      profileData.баланс = userData.баланс || 0;
     }
     
     if (isOwnProfile || privacySettings.showEarnings !== false) {
-      // 🔥 GET EARNINGS FROM SQL - THIS IS THE SOURCE OF TRUTH
-      const { data: earningsData } = await supabase
-        .from('earnings')
-        .select('amount')
-        .eq('user_id', userId);
-      const totalEarnings = (earningsData || []).reduce((sum: number, e: any) => sum + (e.amount || 0), 0);
+      // Подсчитываем общий заработок из earnings
+      const earnings = await kv.getByPrefix(`earning:user:${userId}:`);
+      const totalEarnings = earnings.reduce((sum: number, e: any) => sum + (e.сумма || e.amount || 0), 0);
       profileData.totalEarnings = totalEarnings;
     }
     
@@ -2764,7 +2146,7 @@ app.get("/make-server-05aa3c8a/user/:userId/profile", async (c) => {
   }
 });
 
-// Get user's team structure - HYBRID: Structure from KV, Balances from SQL
+// Get user's team structure
 app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
   try {
     await verifyUser(c.req.header('X-User-Id'));
@@ -2772,52 +2154,46 @@ app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
     
     console.log(`📊 Building team structure for user: ${userId}`);
     
-    // Get all users from KV for structure (нужны все для поиска рефералов)
+    // Get all users (excluding admins)
     const allUsers = await kv.getByPrefix('user:id:');
     const allUsersArray = Array.isArray(allUsers) ? allUsers : [];
     
-    // 🔥 ИСПРАВЛЕНО: НЕ фильтруем админов при поиске текущего пользователя!
-    // Админы (seo, CEO) тоже могут иметь рефералов
-    const currentUser = allUsersArray.find((u: any) => u.id === userId);
+    // 🆕 ИСПРАВЛЕНИЕ: Фильтруем администраторов из списка пользователей
+    const nonAdminUsers = allUsersArray.filter((u: any) => !isUserAdmin(u));
+    console.log(`📊 Filtered ${allUsersArray.length} total users to ${nonAdminUsers.length} non-admin users`);
     
-    // Если не нашли среди user:id, проверим среди admin:id
-    let actualCurrentUser = currentUser;
-    if (!actualCurrentUser) {
-      const allAdmins = await kv.getByPrefix('admin:id:');
-      const allAdminsArray = Array.isArray(allAdmins) ? allAdmins : [];
-      actualCurrentUser = allAdminsArray.find((a: any) => a.id === userId);
-    }
-    
-    if (!actualCurrentUser) {
-      console.log(`⚠️ User ${userId} not found for team structure`);
+    // Получаем данные текущего пользователя для рефкода
+    const currentUser = nonAdminUsers.find((u: any) => u.id === userId);
+    if (!currentUser) {
       return c.json({ success: true, team: [] });
     }
     
-    // Для поиска команды (рефералов) исключаем админов, но ищем среди обычных пользователей
-    const nonAdminUsers = allUsersArray.filter((u: any) => !isUserAdmin(u));
-    console.log(`📊 Filtered ${allUsersArray.length} total users to ${nonAdminUsers.length} non-admin users (for team search)`);
-    console.log(`📊 Current user: ${actualCurrentUser.id} (${actualCurrentUser.имя}), refCode: ${actualCurrentUser.рефКод}`);
-    
-    // Recursive function to build team with depth
+    // Рекурсивная функция для построения команды с глубиной
     const buildTeamWithDepth = (sponsorId: string, sponsorRefCode: string, depth: number, visited: Set<string> = new Set()): any[] => {
+      // Защита от циклических ссылок
       if (visited.has(sponsorId) || depth > 10) {
         return [];
       }
       
       visited.add(sponsorId);
       
+      // Найти всех прямых партнёров (только не-админов)
       const directPartners = nonAdminUsers.filter((u: any) => 
         u.спонсорId === sponsorId && u.id !== sponsorId
       );
       
-      console.log(`📊   Level ${depth}: Found ${directPartners.length} direct partners for sponsor ${sponsorId}`);
+      console.log(`📊   Level ${depth}: Found ${directPartners.length} direct partners for sponsor ${sponsorId} (refCode: ${sponsorRefCode})`);
       
-      const partnersWithDepth = directPartners.map((partner: any) => ({
-        ...partner,
-        глубина: depth,
-        пригласительКод: sponsorRefCode
-      }));
+      // Для каждого партнёра добавляем глубину и пригласительный код
+      const partnersWithDepth = directPartners.map((partner: any) => {
+        return {
+          ...partner,
+          глубина: depth,
+          пригласительКод: sponsorRefCode  // Dynamically set based on current sponsor's refCode
+        };
+      });
       
+      // Получаем команды всех прямых партнёров (следующий уровень)
       const subTeams = directPartners.flatMap((partner: any) => 
         buildTeamWithDepth(partner.id, partner.рефКод, depth + 1, new Set(visited))
       );
@@ -2825,54 +2201,13 @@ app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
       return [...partnersWithDepth, ...subTeams];
     };
     
-    // Build team starting from depth 1
-    const teamMembers = buildTeamWithDepth(userId, actualCurrentUser.рефКод, 1);
+    // Строим всю команду начиная с глубины 1
+    const teamMembers = buildTeamWithDepth(userId, currentUser.рефКод, 1);
     
     console.log(`✅ Built team structure: ${teamMembers.length} members across all levels`);
-    
-    // 🔥 GET EARNINGS FROM SQL - THIS IS THE SOURCE OF TRUTH
-    if (teamMembers.length > 0) {
-      try {
-        const teamIds = teamMembers.map((m: any) => m.id);
-        
-        // Load earnings from SQL earnings table (NOT profiles!)
-        const { data: sqlEarnings, error: sqlError } = await supabase
-          .from('earnings')
-          .select('user_id, amount')
-          .in('user_id', teamIds);
-        
-        if (sqlError) {
-          console.error(`❌ SQL earnings query error: ${sqlError.message}`);
-        }
-        
-        // Calculate total earnings per user from earnings table
-        const earningsMap = new Map<string, number>();
-        (sqlEarnings || []).forEach((earning: any) => {
-          const current = earningsMap.get(earning.user_id) || 0;
-          earningsMap.set(earning.user_id, current + (parseFloat(earning.amount) || 0));
-        });
-        
-        console.log(`📊 Earnings from SQL: ${JSON.stringify(Object.fromEntries(earningsMap))}`);
-        
-        // Override KV balances with calculated earnings from SQL
-        teamMembers.forEach((member: any) => {
-          const sqlEarningsTotal = earningsMap.get(member.id) ?? 0;
-          const kvBalance = member.баланс || 0;
-          if (sqlEarningsTotal !== kvBalance) {
-            console.log(`💰 Earnings override for ${member.id}: KV=${kvBalance} → SQL=${sqlEarningsTotal}`);
-          }
-          member.баланс = sqlEarningsTotal;
-        });
-        
-        console.log(`✅ Synced ${earningsMap.size} earnings from SQL (earnings table)`);
-      } catch (syncError) {
-        console.log(`⚠️ Failed to sync team earnings from SQL: ${syncError}`);
-        // If SQL fails, set all balances to 0 (safe default)
-        teamMembers.forEach((member: any) => {
-          member.баланс = 0;
-        });
-      }
-    }
+    console.log(`   Level 1: ${teamMembers.filter(m => m.глубина === 1).length}`);
+    console.log(`   Level 2: ${teamMembers.filter(m => m.глубина === 2).length}`);
+    console.log(`   Level 3: ${teamMembers.filter(m => m.глубина === 3).length}`);
     
     return c.json({ success: true, team: teamMembers });
   } catch (error) {
@@ -2952,62 +2287,27 @@ app.get("/make-server-05aa3c8a/user/:userId/rank", async (c) => {
 
 app.get("/make-server-05aa3c8a/products", async (c) => {
   try {
-    // 🔥 READ FROM BOTH SQL AND KV, MERGE RESULTS
-    
-    // 1. Get products from SQL (new source of truth)
-    const { data: sqlProducts, error: sqlError } = await supabase
-      .from('products')
-      .select('*')
-      .eq('is_active', true)
-      .eq('is_archived', false);
-    
-    if (sqlError) {
-      console.error(`📦 SQL products query error: ${sqlError.message}`);
-    }
-    
-    console.log(`📦 GET /products - SQL products: ${sqlProducts?.length || 0}`);
-    
-    // 2. Get products from KV store (legacy)
+    // Get custom products from KV store with keys
     const allProductEntries = await kv.getByPrefixWithKeys('product:');
+    
+    console.log(`📦 GET /products - Total entries from KV: ${allProductEntries.length}`);
+    console.log(`📦 Entry keys preview:`, allProductEntries.slice(0, 5).map((e: any) => e.key));
+    
+    // Filter to get only product records (not SKU lookup keys)
+    // Product keys have format "product:prod_XXX", SKU lookup keys have format "product:sku:XXX"
     const productEntries = allProductEntries.filter((entry: any) => 
       entry.key.startsWith('product:prod_')
     );
-    const kvProducts = productEntries.map((e: any) => e.value);
-    const activeKvProducts = kvProducts.filter((p: any) => p.активен !== false && p.в_архиве !== true);
     
-    console.log(`📦 GET /products - KV products: ${activeKvProducts.length}`);
+    console.log(`📦 Filtered product entries (by key): ${productEntries.length}`);
     
-    // 3. Merge: SQL products + KV products (avoiding duplicates by ID)
-    const sqlProductIds = new Set((sqlProducts || []).map((p: any) => p.id));
-    const uniqueKvProducts = activeKvProducts.filter((p: any) => !sqlProductIds.has(p.id));
+    // Extract values and filter active
+    const products = productEntries.map((e: any) => e.value);
+    const activeProducts = products.filter((p: any) => p.активен !== false);
     
-    // 4. Map SQL products to frontend format (Russian field names)
-    const mappedSqlProducts = (sqlProducts || []).map((p: any) => ({
-      id: p.id,
-      sku: p.sku,
-      название: p.name,
-      описание: p.description,
-      изображение: p.image_url,
-      цена_розница: String(p.price_retail || 0),
-      цена1: String(p.price_partner || 0),
-      цена2: String(p.price_l2 || 0),
-      цена3: String(p.price_l3 || 0),
-      цена4: String(p.price_company || 0),
-      retail_price: p.price_retail || 0,
-      partner_price: p.price_partner || 0,
-      категория: p.category || 'general',
-      активен: p.is_active !== false,
-      в_архиве: p.is_archived === true,
-      создан: p.created_at,
-      обновлён: p.updated_at,
-      commission: p.commission || null
-    }));
+    console.log(`📦 Active products: ${activeProducts.length}`);
     
-    const allProducts = [...mappedSqlProducts, ...uniqueKvProducts];
-    
-    console.log(`📦 GET /products - Total merged: ${allProducts.length}`);
-    
-    return c.json({ success: true, products: allProducts });
+    return c.json({ success: true, products: activeProducts });
   } catch (error) {
     console.log(`Get products error: ${error}`);
     return c.json({ error: `Failed to get products: ${error}` }, 500);
@@ -3197,76 +2497,22 @@ app.post("/make-server-05aa3c8a/upload/course-material", async (c) => {
 // ORDERS
 // ======================
 
-// Create order - 🆕 ИСПРАВЛЕНО: Теперь сохраняет в SQL с жёсткой проверкой ошибок
+// Create order
 app.post("/make-server-05aa3c8a/orders", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
-    const { sku, isPartner, quantity = 1, usedReferralCode, items } = await c.req.json();
+    const { sku, isPartner, quantity = 1 } = await c.req.json();
     
-    console.log(`📦 Creating order: SKU=${sku}, isPartner=${isPartner}, quantity=${quantity}, usedCode=${usedReferralCode}, items=${JSON.stringify(items)}`);
+    console.log(`📦 Creating order: SKU=${sku}, isPartner=${isPartner}, quantity=${quantity}`);
     
-    // Если передан массив items (корзина), используем его
-    if (items && Array.isArray(items) && items.length > 0) {
-      // 🆕 НОВЫЙ ФОРМАТ: Корзина с несколькими товарами
-      const totalPrice = items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
-      
-      // Подготовка данных для SQL (БЕЗ поля id - Postgres сгенерирует UUID сам)
-      const orderPayload = {
-        user_id: currentUser.id,
-        status: 'pending',
-        total_amount: totalPrice,
-        items: items, // JSONB массив с товарами и комиссиями
-        created_at: new Date().toISOString(),
-      };
-      
-      console.log(`📝 Inserting order into SQL:`, JSON.stringify(orderPayload, null, 2));
-      
-      // 🆕 ЖЁСТКАЯ ПРОВЕРКА ОШИБОК
-      const { data: insertedOrder, error: insertError } = await supabase
-        .from('orders')
-        .insert(orderPayload)
-        .select()
-        .single();
-      
-      if (insertError) {
-        console.error(`❌ CRITICAL DB ERROR:`, insertError);
-        return c.json({ 
-          success: false, 
-          error: insertError.message, 
-          details: insertError,
-          code: insertError.code
-        }, 500);
-      }
-      
-      console.log(`✅ Order created in SQL: ${insertedOrder.id} by ${currentUser.имя || currentUser.id}`);
-      
-      return c.json({ 
-        success: true, 
-        order: insertedOrder,
-        orderId: insertedOrder.id,
-        paymentUrl: `/payment/${insertedOrder.id}`
-      });
-    }
-    
-    // СТАРЫЙ ФОРМАТ: Один товар по SKU (для обратной совместимости)
     if (!sku) {
       return c.json({ error: "SKU is required" }, 400);
     }
     
+    // Валидация SKU
     if (!sku || sku.length < 2) {
       console.error(`❌ Invalid SKU: "${sku}"`);
       return c.json({ error: `Invalid SKU format: "${sku}"` }, 400);
-    }
-    
-    // Если передан реферальный код, проверяем его и находим владельца
-    let resolvedSponsorId: string | null = null;
-    if (usedReferralCode) {
-      resolvedSponsorId = await resolveCodeToUserId(usedReferralCode);
-      if (!resolvedSponsorId) {
-        console.log(`⚠️ Referral code "${usedReferralCode}" not found, ignoring`);
-      } else {
-        console.log(`✅ Resolved referral code "${usedReferralCode}" to user ${resolvedSponsorId}`);
-      }
     }
     
     // Find upline chain
@@ -3275,130 +2521,97 @@ app.post("/make-server-05aa3c8a/orders", async (c) => {
     // Calculate payouts (function calculates price internally)
     const { price, payouts } = await calculatePayouts(0, isPartner, sku, upline);
     
-    // Build items array for single product
-    const singleItem = {
-      sku: sku,
-      quantity: quantity,
-      price: price,
-      is_guest: !isPartner,
-      payouts: payouts
-    };
+    // Calculate total commission
+    const комиссии: { [userId: string]: number } = {};
+    const комиссииУровни: { [userId: string]: string } = {};
     
-    // Подготовка данных для SQL (БЕЗ поля id)
-    const orderPayload = {
-      user_id: currentUser.id,
-      status: 'pending',
-      total_amount: price * quantity,
-      items: [singleItem],
-      created_at: new Date().toISOString(),
-    };
+    payouts.forEach(payout => {
+      комиссии[payout.userId] = payout.amount;
+      комиссииУровни[payout.userId] = payout.level;
+    });
     
-    console.log(`📝 Inserting single-item order into SQL:`, JSON.stringify(orderPayload, null, 2));
-    
-    // 🆕 ЖЁСТКАЯ ПРОВЕРКА ОШИБОК
-    const { data: insertedOrder, error: insertError } = await supabase
-      .from('orders')
-      .insert(orderPayload)
-      .select()
-      .single();
-    
-    if (insertError) {
-      console.error(`❌ CRITICAL DB ERROR:`, insertError);
-      return c.json({ 
-        success: false, 
-        error: insertError.message, 
-        details: insertError,
-        code: insertError.code
-      }, 500);
-    }
-    
-    // Также сохраняем в KV для обратной совместимости с другими частями системы
-    const kvOrder = {
-      id: insertedOrder.id,
+    // Create order
+    const orderId = `ORD-${Date.now()}`;
+    const order = {
+      id: orderId,
       покупательId: currentUser.id,
       sku: sku,
       количество: quantity,
       цена: price * quantity,
+      комиссии: комиссии,
+      комиссииУровни: комиссииУровни,
       партнёрскаяПокупка: isPartner,
       дата: new Date().toISOString(),
-      статус: 'pending',
-      usedReferralCode: usedReferralCode?.toUpperCase().trim(),
-      resolvedSponsorId: resolvedSponsorId
+      статус: 'pending' // pending, paid, cancelled
     };
-    await kv.set(`order:${insertedOrder.id}`, kvOrder);
-    await kv.set(`order:user:${currentUser.id}:${insertedOrder.id}`, kvOrder);
     
-    console.log(`✅ Order created: ${insertedOrder.id} by ${currentUser.имя || currentUser.id}`);
+    // Debug: Log server time and order date
+    console.log(`📅 Creating order - Server time: ${new Date().toISOString()}, Year: ${new Date().getFullYear()}`);
+    
+    await kv.set(`order:${orderId}`, order);
+    await kv.set(`order:user:${currentUser.id}:${orderId}`, order);
+    
+    console.log(`✅ Order created: ${orderId} by ${currentUser.имя} at ${order.дата}`);
     
     return c.json({ 
       success: true, 
-      order: insertedOrder,
-      orderId: insertedOrder.id,
-      paymentUrl: `/payment/${insertedOrder.id}`
+      order,
+      paymentUrl: `/payment/${orderId}` // Would be real payment URL
     });
     
   } catch (error) {
-    console.error(`❌ Create order EXCEPTION:`, error);
-    return c.json({ 
-      success: false,
-      error: `Failed to create order: ${error}` 
-    }, 500);
+    console.log(`Create order error: ${error}`);
+    return c.json({ error: `Failed to create order: ${error}` }, 500);
   }
 });
 
-// Get user's orders - 🆕 ИСПРАВЛЕНО: Использует X-User-Id НАПРЯМУЮ
+// Get user's orders
 app.get("/make-server-05aa3c8a/orders", async (c) => {
   try {
-    // 🆕 Берём ID НАПРЯМУЮ из заголовка (например, "004", "seo")
-    const targetUserId = c.req.header('X-User-Id');
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
     
-    if (!targetUserId) {
-      console.error(`❌ GET /orders: No X-User-Id header provided`);
-      return c.json({ success: false, error: "User ID required", orders: [] }, 400);
+    // Get all orders for this user
+    const orders = await kv.getByPrefix(`order:user:${currentUser.id}:`);
+    const ordersArray = Array.isArray(orders) ? orders : [];
+    
+    // 🗑️ Auto-cleanup: Delete invalid orders with future dates
+    const now = new Date();
+    const validOrders: any[] = [];
+    
+    for (const order of ordersArray) {
+      let isValid = true;
+      
+      if (order.дата) {
+        try {
+          const orderDate = new Date(order.дата);
+          if (isNaN(orderDate.getTime()) || orderDate > now) {
+            // Auto-delete invalid order
+            console.log(`  🗑️ AUTO-DELETING invalid order ${order.id} (date: ${order.дата})`);
+            await kv.del(`order:${order.id}`);
+            await kv.del(`order:user:${currentUser.id}:${order.id}`);
+            isValid = false;
+          }
+        } catch (e) {
+          console.log(`  🗑️ AUTO-DELETING order ${order.id} with unparseable date`);
+          await kv.del(`order:${order.id}`);
+          await kv.del(`order:user:${currentUser.id}:${order.id}`);
+          isValid = false;
+        }
+      }
+      
+      if (isValid) {
+        validOrders.push(order);
+      }
     }
     
-    // Проверяем что пользователь существует
-    await verifyUser(targetUserId);
-    
-    console.log(`📦 GET /orders for user: "${targetUserId}" (using X-User-Id directly)`);
-    
-    // 🆕 Загружаем из SQL таблицы orders СТРОГО по ID из заголовка
-    const { data: ordersData, error: ordersError } = await supabase
-      .from('orders')
-      .select('*')
-      .eq('user_id', targetUserId)  // <--- КЛЮЧЕВОЙ МОМЕНТ
-      .order('created_at', { ascending: false });
-    
-    if (ordersError) {
-      console.error(`❌ SQL orders error for user "${targetUserId}":`, ordersError);
-      return c.json({ success: true, orders: [] });
-    }
-    
-    // Преобразуем в формат, ожидаемый фронтендом
-    const orders = (ordersData || []).map((o: any) => ({
-      id: o.id,
-      oderId: o.id,
-      покупательId: o.user_id,
-      userId: o.user_id,
-      статус: o.status,
-      status: o.status,
-      цена: o.total_amount,
-      total: o.total_amount,
-      items: o.items,
-      дата: o.created_at,
-      createdAt: o.created_at,
-      датаЗаказа: o.created_at
-    }));
-    
-    console.log(`✅ Loaded ${orders.length} orders from SQL for user "${targetUserId}"`);
-    
-    return c.json({ success: true, orders });
+    return c.json({ success: true, orders: validOrders });
   } catch (error) {
-    console.error(`❌ Get orders error:`, error);
+    console.log(`Get orders error: ${error}`);
     return c.json({ 
-      success: true,
+      success: false,
+      error: `Failed to get orders: ${error}`,
       orders: []
-    });
+    }, 500);
   }
 });
 
@@ -3422,8 +2635,39 @@ app.post("/make-server-05aa3c8a/orders/:orderId/confirm", async (c) => {
     await kv.set(`order:${orderId}`, order);
     await kv.set(`order:user:${order.покупательId}:${orderId}`, order);
     
-    // 🆕 Используем единую функцию для создания earnings
-    await createEarningsFromOrder(order);
+    // Process payouts from комиссии
+    if (order.комиссии) {
+      for (const [userId, amount] of Object.entries(order.комиссии)) {
+        if (amount > 0) {
+          // Update user balance
+          const user = await kv.get(`user:id:${userId}`);
+          if (user) {
+            user.баланс = (user.баланс || 0) + amount;
+            await kv.set(`user:id:${userId}`, user);
+            
+            if (user.telegramId) {
+              await kv.set(`user:tg:${user.telegramId}`, user);
+            }
+            
+            // Create earning record
+            const earningId = `earning:${Date.now()}-${userId}`;
+            const earning = {
+              id: earningId,
+              userId: userId,
+              orderId: orderId,
+              amount: amount,
+              level: order.комиссииУровни?.[userId] || 'L0',
+              fromUserId: order.покупательId,
+              createdAt: new Date().toISOString()
+            };
+            await kv.set(earningId, earning);
+            await kv.set(`earning:user:${userId}:${earningId}`, earning);
+            
+            console.log(`Payout processed: ${amount} to ${user.имя} (${order.комиссииУровни?.[userId] || 'L0'})`);
+          }
+        }
+      }
+    }
     
     // ✨ АВТОМАТИЧЕСКИЙ ПЕРЕСЧЁТ РАНГОВ после оплаты заказа
     console.log(`🏆 [/orders/${orderId}/confirm] Auto-updating ranks for buyer and upline...`);
@@ -3449,378 +2693,91 @@ app.post("/make-server-05aa3c8a/orders/:orderId/confirm", async (c) => {
 // EARNINGS & BALANCE
 // ======================
 
-// Get earnings - 🆕 ИСПРАВЛЕНО: Использует X-User-Id НАПРЯМУЮ для фильтрации
+// Get earnings
 app.get("/make-server-05aa3c8a/earnings", async (c) => {
   try {
-    // 🆕 Берём ID НАПРЯМУЮ из заголовка (например, "004", "seo")
-    const targetUserId = c.req.header('X-User-Id');
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
     
-    if (!targetUserId) {
-      console.error(`❌ GET /earnings: No X-User-Id header provided`);
-      return c.json({ success: false, error: "User ID required", earnings: [] }, 400);
-    }
+    const earnings = await kv.getByPrefix(`earning:user:${currentUser.id}:`);
+    const earningsArray = Array.isArray(earnings) ? earnings : [];
     
-    // Проверяем что пользователь существует (но используем ID из заголовка для запроса)
-    await verifyUser(targetUserId);
-    
-    console.log(`📊 GET /earnings for user: "${targetUserId}" (using X-User-Id directly)`);
-    
-    // 🆕 DEBUG: Сначала проверим общее количество записей в таблице
-    const { data: allEarnings, error: countError } = await supabase
-      .from('earnings')
-      .select('user_id, amount');
-    
-    console.log(`📊 DEBUG: Total earnings in SQL table: ${allEarnings?.length || 0}, error: ${countError?.message || 'none'}`);
-    if (countError) {
-      console.error(`❌ DEBUG: Count error details:`, JSON.stringify(countError));
-    }
-    console.log(`📊 DEBUG: All user_ids: ${[...new Set(allEarnings?.map((e: any) => e.user_id) || [])].join(', ')}`);
-    console.log(`📊 DEBUG: First 3 records:`, JSON.stringify(allEarnings?.slice(0, 3)));
-    
-    // 🆕 Загружаем из SQL таблицы earnings СТРОГО по ID из заголовка
-    const { data: earningsData, error: earningsError } = await supabase
-      .from('earnings')
-      .select('*')
-      .eq('user_id', targetUserId)  // <--- КЛЮЧЕВОЙ МОМЕНТ: используем targetUserId напрямую
-      .order('created_at', { ascending: false });
-    
-    console.log(`📊 DEBUG: Earnings for user "${targetUserId}": ${earningsData?.length || 0}, error: ${earningsError?.message || 'none'}`);
-    if (earningsError) {
-      console.error(`❌ DEBUG: Earnings error details:`, JSON.stringify(earningsError));
-    }
-    
-    if (earningsError) {
-      console.error(`❌ SQL earnings error for user "${targetUserId}":`, earningsError);
-      return c.json({ success: true, earnings: [] });
-    }
-    
-    // Получаем все уникальные order_id для поиска названий товаров
-    const orderIds = [...new Set((earningsData || []).map((e: any) => e.order_id).filter(Boolean))];
-    
-    // Загружаем информацию о заказах для получения названий товаров
-    let orderTitlesMap = new Map<string, string>();
-    if (orderIds.length > 0) {
-      const { data: ordersData } = await supabase
-        .from('orders')
-        .select('id, items, description')
-        .in('id', orderIds);
-      
-      (ordersData || []).forEach((order: any) => {
-        let title = 'Бонус за покупку';
-        if (order.items && Array.isArray(order.items) && order.items.length > 0) {
-          title = order.items.map((item: any) => item.name || item.название || 'Товар').join(', ');
-        } else if (order.description) {
-          title = order.description;
-        }
-        orderTitlesMap.set(order.id, title);
-      });
-    }
-    
-    // Преобразуем в формат, ожидаемый фронтендом
-    // Supabase schema: id, user_id, amount, source_user_id, level (int), created_at, order_type
-    const earnings = (earningsData || []).map((e: any) => {
-      // level может быть integer (0,1,2,3) или string ('L0','L1','L2','L3')
-      const levelNum = typeof e.level === 'number' ? e.level : parseInt(String(e.level).replace('L', '') || '0');
-      const levelStr = typeof e.level === 'string' && e.level.startsWith('L') ? e.level : `L${levelNum}`;
-      
-      return {
-        id: e.id,
-        orderId: e.order_id || e.source_user_id || '',
-        userId: e.user_id,
-        amount: parseFloat(e.amount) || 0,
-        сумма: parseFloat(e.amount) || 0,
-        level: levelStr,
-        линия: levelNum,
-        дата: e.created_at,
-        createdAt: e.created_at,
-        description: e.description || '',
-        sku: e.product_sku || e.sku || '',
-        isPartner: e.order_type === 'partner' || e.order_type === 'personal',
-        title: orderTitlesMap.get(e.order_id) || 'Бонус за покупку',
-        название: orderTitlesMap.get(e.order_id) || 'Бонус за покупку',
-        sourceUserId: e.source_user_id || ''
-      };
-    });
-    
-    console.log(`✅ Loaded ${earnings.length} earnings from SQL for user "${targetUserId}"`);
-    
-    return c.json({ success: true, earnings });
+    return c.json({ success: true, earnings: earningsArray });
   } catch (error) {
-    console.error(`❌ Get earnings error:`, error);
+    console.log(`Get earnings error: ${error}`);
     return c.json({ 
-      success: true,
+      success: false,
+      error: `Failed to get earnings: ${error}`,
       earnings: []
-    });
+    }, 500);
   }
 });
 
-// 💰 Get user balance (SINGLE SOURCE OF TRUTH for UI)
-app.get("/make-server-05aa3c8a/balance", async (c) => {
-  try {
-    const targetUserId = c.req.header('X-User-Id');
-    
-    if (!targetUserId) {
-      return c.json({ success: false, error: "User ID required" }, 400);
-    }
-    
-    await verifyUser(targetUserId);
-    
-    // Use unified balance calculation
-    const balanceInfo = await getAvailableBalance(targetUserId);
-    
-    return c.json({
-      success: true,
-      balance: balanceInfo.available,
-      totalEarned: balanceInfo.totalEarned,
-      totalWithdrawn: balanceInfo.paidAmount,
-      pendingWithdrawals: balanceInfo.pendingAmount,
-      blockedAmount: balanceInfo.blockedAmount,
-      availableBalance: balanceInfo.available
-    });
-  } catch (error) {
-    console.error(`❌ Get balance error:`, error);
-    return c.json({ success: false, error: String(error) }, 500);
-  }
-});
-
-// 📢 Get admin notifications (pending withdrawal requests)
-app.get("/make-server-05aa3c8a/admin/notifications", async (c) => {
-  try {
-    const currentUser = await verifyUser(c.req.header('X-User-Id'));
-    
-    if (!isUserAdmin(currentUser)) {
-      return c.json({ success: false, error: "Admin access required" }, 403);
-    }
-    
-    const statusFilter = c.req.query('status'); // 'unread', 'read', or undefined for all
-    
-    let query = supabase
-      .from('admin_notifications')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(100);
-    
-    if (statusFilter) {
-      query = query.eq('status', statusFilter);
-    }
-    
-    const { data: notifications, error } = await query;
-    
-    if (error) {
-      console.error(`❌ Failed to get admin notifications:`, error);
-      return c.json({ success: false, error: error.message, notifications: [] }, 500);
-    }
-    
-    // Get user names for requester_user_id
-    const enrichedNotifications = await Promise.all((notifications || []).map(async (n: any) => {
-      let userName = n.requester_user_id;
-      if (n.requester_user_id) {
-        const user = await kv.get(`user:id:${n.requester_user_id}`);
-        if (user) {
-          userName = user.имя || user.first_name || n.requester_user_id;
-        }
-      }
-      return {
-        ...n,
-        userName
-      };
-    }));
-    
-    const unreadCount = (notifications || []).filter((n: any) => n.status === 'unread').length;
-    
-    return c.json({
-      success: true,
-      notifications: enrichedNotifications,
-      unreadCount
-    });
-  } catch (error) {
-    console.error(`❌ Get admin notifications error:`, error);
-    return c.json({ success: false, error: String(error), notifications: [] }, 500);
-  }
-});
-
-// 📢 Mark admin notification as read
-app.post("/make-server-05aa3c8a/admin/notifications/:id/read", async (c) => {
-  try {
-    const currentUser = await verifyUser(c.req.header('X-User-Id'));
-    
-    if (!isUserAdmin(currentUser)) {
-      return c.json({ success: false, error: "Admin access required" }, 403);
-    }
-    
-    const notificationId = c.req.param('id');
-    
-    const { error } = await supabase
-      .from('admin_notifications')
-      .update({ status: 'read' })
-      .eq('id', notificationId);
-    
-    if (error) {
-      return c.json({ success: false, error: error.message }, 500);
-    }
-    
-    return c.json({ success: true });
-  } catch (error) {
-    return c.json({ success: false, error: String(error) }, 500);
-  }
-});
-
-// Request withdrawal (SQL payouts table)
-// 🔐 ATOMIC: Uses Postgres RPC function create_withdrawal_if_sufficient()
-// This prevents race conditions by using advisory lock + atomic check+insert
+// Request withdrawal
 app.post("/make-server-05aa3c8a/withdrawal", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     const { amount, method, details } = await c.req.json();
     
-    // Use Number() for NUMERIC type safety
-    const requestAmount = Number(amount);
-    if (!requestAmount || requestAmount <= 0 || !Number.isFinite(requestAmount)) {
+    if (!amount || amount <= 0) {
       return c.json({ error: "Invalid amount" }, 400);
     }
     
-    // Round to 2 decimal places for NUMERIC(12,2)
-    const amountNumeric = Math.round(requestAmount * 100) / 100;
-    
-    // 🔄 Build details as JSONB object (not string)
-    let detailsObj: Record<string, unknown> | null = null;
-    if (details) {
-      if (typeof details === 'object') {
-        detailsObj = details;
-      } else if (typeof details === 'string' && details.trim()) {
-        // Wrap plain text in {raw: "..."} for consistency
-        detailsObj = { raw: details };
-      }
+    if (currentUser.баланс < amount) {
+      return c.json({ error: "Insufficient balance" }, 400);
     }
     
-    console.log(`💸 Withdrawal request: ${amountNumeric}₽ from ${currentUser.имя} (${currentUser.id})`);
+    // 🆕 Create withdrawal request - ID без префикса, префикс только в ключе
+    const withdrawalId = `${Date.now()}`;
+    const withdrawal = {
+      id: withdrawalId,
+      userId: currentUser.id,
+      userEmail: currentUser.email || null,
+      userName: `${currentUser.имя || ''} ${currentUser.фамилия || ''}`.trim() || currentUser.id,
+      amount,
+      method, // USDT, bank, etc.
+      details, // wallet address, bank account, etc.
+      status: 'pending', // pending, processing, completed, rejected
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
     
-    // 🔐 ATOMIC: Call RPC function (lock + check + insert in single transaction)
-    // RPC now accepts JSONB directly (no string conversion)
-    const { data: rpcResult, error: rpcError } = await supabase
-      .rpc('create_withdrawal_if_sufficient', {
-        p_user_id: currentUser.id,
-        p_amount: amountNumeric,
-        p_method: method || 'bank',
-        p_details: detailsObj
-      });
+    // Сохраняем с префиксом в ключе
+    await kv.set(`withdrawal:${withdrawalId}`, withdrawal);
+    await kv.set(`withdrawal:user:${currentUser.id}:${withdrawalId}`, withdrawal);
     
-    if (rpcError) {
-      console.error(`❌ RPC error:`, rpcError);
-      return c.json({ error: `Failed to process withdrawal: ${rpcError.message}` }, 500);
+    // Deduct from balance (will be refunded if rejected)
+    currentUser.баланс -= amount;
+    await kv.set(`user:id:${currentUser.id}`, currentUser);
+    if (currentUser.telegramId) {
+      await kv.set(`user:tg:${currentUser.telegramId}`, currentUser);
     }
     
-    // RPC returns array with single row
-    const result = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
+    console.log(`💸 Withdrawal requested: ₽${amount} by ${currentUser.имя} (ID: ${withdrawalId})`);
     
-    if (!result || !result.success) {
-      const available = result?.available_balance || 0;
-      return c.json({ 
-        error: "Insufficient balance", 
-        message: `Недостаточно средств. Доступно: ${available.toFixed(2)}₽`,
-        available: available 
-      }, 400);
-    }
-    
-    const withdrawalId = result.withdrawal_id;
-    const newAvailable = result.available_balance;
-    
-    // 📢 INSERT ADMIN NOTIFICATION
-    const { error: notifyError } = await supabase
-      .from('admin_notifications')
-      .insert({
-        type: 'withdrawal_request',
-        withdrawal_id: withdrawalId,
-        requester_user_id: currentUser.id,
-        amount: amountNumeric,
-        status: 'unread',
-        message: `Заявка на вывод ${amountNumeric}₽ от ${currentUser.имя || currentUser.id}`
-      });
-    
-    if (notifyError) {
-      console.warn(`⚠️ Failed to create admin notification:`, notifyError);
-      // Don't fail the withdrawal - notification is secondary
-    }
-    
-    // Get full payout details
-    const { data: payout } = await supabase
-      .from('payouts')
-      .select('*')
-      .eq('id', withdrawalId)
-      .single();
-    
-    console.log(`✅ Withdrawal created atomically: ${amountNumeric}₽ by ${currentUser.имя} (id: ${withdrawalId})`);
-    
-    return c.json({ 
-      success: true, 
-      withdrawal: {
-        id: withdrawalId,
-        oderId: withdrawalId,
-        userId: currentUser.id,
-        amount: amountNumeric,
-        method: payout?.method || method || 'bank',
-        details: payout?.details || detailsObj,
-        status: 'pending',
-        createdAt: payout?.created_at || new Date().toISOString()
-      },
-      availableBalance: newAvailable
-    });
+    return c.json({ success: true, withdrawal });
     
   } catch (error) {
-    console.error(`❌ Withdrawal error:`, error);
+    console.log(`Withdrawal error: ${error}`);
     return c.json({ error: `Failed to process withdrawal: ${error}` }, 500);
   }
 });
 
-// Get withdrawal history (SQL payouts table) - 🆕 ИСПРАВЛЕНО: Использует X-User-Id НАПРЯМУЮ
+// Get withdrawal history
 app.get("/make-server-05aa3c8a/withdrawals", async (c) => {
   try {
-    // 🆕 Берём ID НАПРЯМУЮ из заголовка
-    const targetUserId = c.req.header('X-User-Id');
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
     
-    if (!targetUserId) {
-      console.error(`❌ GET /withdrawals: No X-User-Id header provided`);
-      return c.json({ success: false, error: "User ID required", withdrawals: [] }, 400);
-    }
+    const withdrawals = await kv.getByPrefix(`withdrawal:user:${currentUser.id}:`);
+    const withdrawalsArray = Array.isArray(withdrawals) ? withdrawals : [];
     
-    // Проверяем что пользователь существует
-    await verifyUser(targetUserId);
-    
-    console.log(`💸 GET /withdrawals for user: "${targetUserId}" (using X-User-Id directly)`);
-    
-    const { data: payouts, error: selectError } = await supabase
-      .from('payouts')
-      .select('*')
-      .eq('user_id', targetUserId)  // <--- КЛЮЧЕВОЙ МОМЕНТ
-      .order('created_at', { ascending: false });
-    
-    if (selectError) {
-      console.error(`❌ SQL payouts error for user "${targetUserId}":`, selectError);
-      return c.json({ success: true, withdrawals: [] });
-    }
-    
-    const withdrawals = (payouts || []).map((p: any) => ({
-      id: p.id,
-      oderId: p.id,
-      userId: p.user_id,
-      amount: p.amount,
-      method: p.method,
-      details: p.details,
-      status: p.status,
-      createdAt: p.created_at,
-      processedAt: p.processed_at,
-      adminComment: p.admin_comment
-    }));
-    
-    console.log(`✅ Loaded ${withdrawals.length} withdrawals from SQL for user "${targetUserId}"`);
-    
-    return c.json({ success: true, withdrawals });
+    return c.json({ success: true, withdrawals: withdrawalsArray });
   } catch (error) {
-    console.error(`❌ Get withdrawals error:`, error);
+    console.log(`Get withdrawals error: ${error}`);
     return c.json({ 
-      success: true,
+      success: false,
+      error: `Failed to get withdrawals: ${error}`,
       withdrawals: []
-    });
+    }, 500);
   }
 });
 
@@ -3843,90 +2800,87 @@ app.get("/make-server-05aa3c8a/payment/methods", (c) => {
   }
 });
 
-// Create payment for order - 🆕 ИСПРАВЛЕНО: Загружает заказы из SQL
+// Create payment for order
 app.post("/make-server-05aa3c8a/payment/create", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     const { orderId, method } = await c.req.json();
     
-    console.log(`💳 Payment create for orderId: ${orderId}, method: ${method}`);
+    const order = await kv.get(`order:${orderId}`);
     
-    // 🆕 Загружаем заказ из SQL таблицы orders
-    const { data: orderData, error: orderError } = await supabase
-      .from('orders')
-      .select('*')
-      .eq('id', orderId)
-      .single();
-    
-    if (orderError || !orderData) {
-      console.error(`❌ Order not found in SQL: ${orderId}`, orderError);
+    if (!order) {
       return c.json({ error: "Order not found" }, 404);
     }
     
-    const order = orderData;
-    
-    if (order.user_id !== currentUser.id) {
+    if (order.покупательId !== currentUser.id) {
       return c.json({ error: "Unauthorized" }, 403);
     }
     
-    if (order.status === 'paid') {
+    if (order.статус === 'paid') {
       return c.json({ error: "Order already paid" }, 400);
     }
     
     let paymentData;
     
     if (method === 'yookassa') {
+      // TODO: Implement YooKassa payment integration
       return c.json({ error: 'YooKassa not yet configured' }, 501);
     } else if (method === 'usdt') {
+      // TODO: Implement crypto payment integration
       return c.json({ error: 'Crypto payments not yet configured' }, 501);
     } else if (method === 'demo') {
       // Demo payment - auto confirm after 2 seconds
       setTimeout(async () => {
         try {
-          // 🆕 Обновляем статус заказа в SQL
-          const { error: updateError } = await supabase
-            .from('orders')
-            .update({ status: 'paid', updated_at: new Date().toISOString() })
-            .eq('id', orderId);
-          
-          if (updateError) {
-            console.error(`❌ Failed to update order status:`, updateError);
-            return;
-          }
-          
-          console.log(`✅ Order ${orderId} marked as paid in SQL`);
-          
-          // Получаем обновленный заказ для earnings
-          const { data: paidOrder } = await supabase
-            .from('orders')
-            .select('*')
-            .eq('id', orderId)
-            .single();
-          
-          if (paidOrder) {
-            // Преобразуем в формат для createEarningsFromOrder
-            const orderForEarnings = {
-              id: paidOrder.id,
-              покупательId: paidOrder.user_id,
-              userId: paidOrder.user_id,
-              цена: paidOrder.total_amount,
-              items: paidOrder.items,
-              статус: 'paid'
-            };
+          const confirmOrder = await kv.get(`order:${orderId}`);
+          if (confirmOrder && confirmOrder.статус !== 'paid') {
+            // Update order status
+            confirmOrder.статус = 'paid';
+            confirmOrder.paidAt = new Date().toISOString();
+            await kv.set(`order:${orderId}`, confirmOrder);
+            await kv.set(`order:user:${confirmOrder.покупательId}:${orderId}`, confirmOrder);
             
-            await createEarningsFromOrder(orderForEarnings);
-            
-            // Пересчёт рангов
-            console.log(`🏆 [demo-payment] Auto-updating ranks...`);
-            try {
-              await updateUplineRanks(paidOrder.user_id);
-              console.log(`✅ Ranks updated successfully`);
-            } catch (rankError) {
-              console.error(`⚠️ Failed to update ranks:`, rankError);
+            // Process payouts from комиссии
+            if (confirmOrder.комиссии) {
+              for (const [userId, amount] of Object.entries(confirmOrder.комиссии)) {
+                if (amount > 0) {
+                  const user = await kv.get(`user:id:${userId}`);
+                  if (user) {
+                    user.баланс = (user.баланс || 0) + amount;
+                    await kv.set(`user:id:${userId}`, user);
+                    
+                    if (user.telegramId) {
+                      await kv.set(`user:tg:${user.telegramId}`, user);
+                    }
+                    
+                    const earningId = `earning:${Date.now()}-${userId}`;
+                    const earning = {
+                      id: earningId,
+                      userId: userId,
+                      orderId: orderId,
+                      amount: amount,
+                      level: confirmOrder.комиссииУровни?.[userId] || 'L0',
+                      fromUserId: confirmOrder.покупательId,
+                      createdAt: new Date().toISOString()
+                    };
+                    await kv.set(earningId, earning);
+                    await kv.set(`earning:user:${userId}:${earningId}`, earning);
+                  }
+                }
+              }
             }
+            
+            // ✨ АВТОМАТИЧЕСКИЙ ПЕРЕСЧЁТ РАНГОВ после демо-оплаты
+            console.log(`🏆 [demo-payment] Auto-updating ranks for buyer and upline...`);
+            try {
+              await updateUplineRanks(confirmOrder.покупательId);
+              console.log(`✅ Ranks updated successfully after demo payment`);
+            } catch (rankError) {
+              console.error(`⚠️ Failed to update ranks after demo payment:`, rankError);
+            }
+            
+            console.log(`Demo payment auto-confirmed for ${orderId}`);
           }
-          
-          console.log(`Demo payment auto-confirmed for ${orderId}`);
         } catch (err) {
           console.error(`Demo payment confirmation error: ${err}`);
         }
@@ -3936,7 +2890,7 @@ app.post("/make-server-05aa3c8a/payment/create", async (c) => {
         paymentId: `demo-${orderId}`,
         paymentUrl: null,
         status: 'processing',
-        message: 'Демо-оплата будет подтверждена автоматически через 2 секунды'
+        message: 'Демо-оплата будет подтверждена автоматически ч��рез 2 секунды'
       };
     } else {
       return c.json({ error: "Invalid payment method" }, 400);
@@ -3948,7 +2902,7 @@ app.post("/make-server-05aa3c8a/payment/create", async (c) => {
       orderId,
       userId: currentUser.id,
       method,
-      amount: order.total_amount,
+      amount: order.цена,
       status: paymentData.status || 'pending',
       createdAt: new Date().toISOString(),
       ...paymentData
@@ -3957,12 +2911,12 @@ app.post("/make-server-05aa3c8a/payment/create", async (c) => {
     await kv.set(`payment:${payment.id}`, payment);
     await kv.set(`payment:order:${orderId}`, payment);
     
-    console.log(`✅ Payment created: ${payment.id} for order ${orderId} (${method})`);
+    console.log(`Payment created: ${payment.id} for order ${orderId} (${method})`);
     
     return c.json({ success: true, payment });
     
   } catch (error) {
-    console.error(`❌ Create payment error:`, error);
+    console.log(`Create payment error: ${error}`);
     return c.json({ error: `Failed to create payment: ${error}` }, 500);
   }
 });
@@ -3988,44 +2942,31 @@ app.post("/make-server-05aa3c8a/webhook/yookassa", async (c) => {
         order.статус = 'paid';
         order.paidAt = new Date().toISOString();
         await kv.set(`order:${orderId}`, order);
-        await kv.set(`order:user:${order.покупательId || order.продавецId}:${orderId}`, order);
+        await kv.set(`order:user:${order.продавецId}:${orderId}`, order);
         
-        // 🆕 Используем единую функцию для создания earnings
-        // Если есть order.комиссии (новый формат) - используем helper
-        // Если нет - fallback на старый формат order.выплаты
-        if (order.комиссии) {
-          await createEarningsFromOrder(order);
-        } else if (order.выплаты) {
-          // Старый формат для совместимости
-          for (const payout of order.выплаты) {
-            const user = await kv.get(`user:id:${payout.userId}`);
-            if (user) {
-              user.баланс = (user.баланс || 0) + payout.amount;
-              await kv.set(`user:id:${payout.userId}`, user);
-              
-              if (user.telegramId) {
-                await kv.set(`user:tg:${user.telegramId}`, user);
-              }
-              
-              const earningId = `earning:${Date.now()}-${payout.userId}`;
-              const level = payout.level || 'L0';
-              const lineIndex = typeof level === 'string' ? Number(level.replace('L', '')) : 0;
-              const earning = {
-                id: earningId,
-                userId: payout.userId,
-                orderId: orderId,
-                amount: payout.amount,
-                сумма: payout.amount,
-                level: level,
-                линия: lineIndex,
-                fromUserId: order.покупательId || order.продавецId,
-                sku: order.sku,
-                isPartner: order.партнёрскаяПокупка,
-                createdAt: new Date().toISOString()
-              };
-              await kv.set(earningId, earning);
-              await kv.set(`earning:user:${payout.userId}:${earningId}`, earning);
+        // Process payouts
+        for (const payout of order.выплаты) {
+          const user = await kv.get(`user:id:${payout.userId}`);
+          if (user) {
+            user.баланс = (user.баланс || 0) + payout.amount;
+            await kv.set(`user:id:${payout.userId}`, user);
+            
+            if (user.telegramId) {
+              await kv.set(`user:tg:${user.telegramId}`, user);
             }
+            
+            const earningId = `earning:${Date.now()}-${payout.userId}`;
+            const earning = {
+              id: earningId,
+              userId: payout.userId,
+              orderId: orderId,
+              amount: payout.amount,
+              level: payout.level,
+              fromUserId: order.продавецId,
+              createdAt: new Date().toISOString()
+            };
+            await kv.set(earningId, earning);
+            await kv.set(`earning:user:${payout.userId}:${earningId}`, earning);
           }
         }
         
@@ -4055,6 +2996,7 @@ app.get("/make-server-05aa3c8a/admin/stats", async (c) => {
     const allUsers = await kv.getByPrefix('user:id:');
     const allOrders = await kv.getByPrefix('order:');
     const allWithdrawals = await kv.getByPrefix('withdrawal:');
+    const allEarnings = await kv.getByPrefix('earnings:');
     
     // 📊 Расширенная статистика для дашборда
     const now = new Date();
@@ -4104,14 +3046,68 @@ app.get("/make-server-05aa3c8a/admin/stats", async (c) => {
       sum + (u.баланс || 0), 0
     );
     
-    // Базовая статистика
-    const totalOrders = validOrders.length;
-    const totalRevenue = validOrders
-      .filter((o: any) => o.статус === 'paid')
-      .reduce((sum: number, o: any) => sum + (o.цена || 0), 0);
-    const pendingWithdrawals = allWithdrawals
-      .filter((w: any) => w.status === 'pending')
-      .reduce((sum: number, w: any) => sum + (w.amount || 0), 0);
+    // 🗑️ Auto-cleanup: Delete invalid orders with future dates
+    let autoDeletedCount = 0;
+    const cleanOrders: any[] = [];
+    
+    for (const order of validOrders) {
+      let isValid = true;
+      
+      if (order.дата) {
+        try {
+          const orderDate = new Date(order.дата);
+          if (isNaN(orderDate.getTime()) || orderDate > now) {
+            console.log(`  🗑️ AUTO-DELETING invalid order ${order.id} (date: ${order.дата})`);
+            await kv.del(`order:${order.id}`);
+            if (order.покупательId) {
+              await kv.del(`order:user:${order.покупательId}:${order.id}`);
+            }
+            autoDeletedCount++;
+            isValid = false;
+          }
+        } catch (e) {
+          console.log(`  🗑️ AUTO-DELETING order ${order.id} with unparseable date`);
+          await kv.del(`order:${order.id}`);
+          if (order.покупательId) {
+            await kv.del(`order:user:${order.покупательId}:${order.id}`);
+          }
+          autoDeletedCount++;
+          isValid = false;
+        }
+      }
+      
+      if (isValid) {
+        cleanOrders.push(order);
+      }
+    }
+    
+    if (autoDeletedCount > 0) {
+      console.log(`  🗑️ Auto-deleted ${autoDeletedCount} invalid orders`);
+    }
+    
+    // Базовая статистика заказов
+    const totalOrders = cleanOrders.length;
+    const completedOrders = cleanOrders.filter((o: any) => 
+      o.статус === 'выполнен' || o.статус === 'completed'
+    );
+    const totalRevenue = completedOrders
+      .reduce((sum: number, o: any) => sum + (o.итого || o.totalPrice || o.цена || 0), 0);
+    
+    // Финансовая статистика для Finance Dashboard
+    const pendingWithdrawals = allWithdrawals.filter((w: any) => w.status === 'pending');
+    const completedWithdrawals = allWithdrawals.filter((w: any) => w.status === 'completed');
+    const rejectedWithdrawals = allWithdrawals.filter((w: any) => w.status === 'rejected');
+    
+    const totalPayouts = completedWithdrawals.reduce((sum: number, w: any) => 
+      sum + (w.amount || 0), 0
+    );
+    const pendingPayoutsSum = pendingWithdrawals.reduce((sum: number, w: any) => 
+      sum + (w.amount || 0), 0
+    );
+    const totalEarningsDistributed = allEarnings.reduce((sum: number, e: any) => 
+      sum + (e.сумма || e.amount || 0), 0
+    );
+    const netProfit = totalRevenue - totalEarningsDistributed;
     
     const stats = {
       revenue: {
@@ -4129,12 +3125,26 @@ app.get("/make-server-05aa3c8a/admin/stats", async (c) => {
       },
       orders: {
         total: totalOrders,
-        pending: validOrders.filter((o: any) => o.статус === 'pending').length,
-        paid: validOrders.filter((o: any) => o.статус === 'paid').length,
+        pending: cleanOrders.filter((o: any) => o.статус === 'pending').length,
+        paid: completedOrders.length,
       },
       finance: {
         totalBalance,
-        pendingWithdrawals,
+        pendingWithdrawals: pendingPayoutsSum,
+        // Дополнительные поля для Finance Dashboard
+        total_revenue: totalRevenue,
+        users_balance_total: totalBalance,
+        pending_payouts_sum: pendingPayoutsSum,
+        pending_payouts_count: pendingWithdrawals.length,
+        net_profit: netProfit,
+        total_earnings_distributed: totalEarningsDistributed,
+        completed_payouts_sum: totalPayouts,
+        total_orders: totalOrders,
+        completed_orders: completedOrders.length,
+        total_users: users.length,
+        // Распределение по статусам
+        approved_payouts_sum: totalPayouts,
+        rejected_payouts_sum: rejectedWithdrawals.reduce((sum: number, w: any) => sum + (w.amount || 0), 0),
       }
     };
     
@@ -4143,7 +3153,9 @@ app.get("/make-server-05aa3c8a/admin/stats", async (c) => {
       newToday,
       newThisMonth,
       activePartners,
-      activeByPurchases
+      activeByPurchases,
+      totalRevenue,
+      netProfit
     });
     
     return c.json({ success: true, stats });
@@ -4186,61 +3198,20 @@ app.get("/make-server-05aa3c8a/admin/users", async (c) => {
 });
 
 // 🌳 Alias для древовидного режима - возвращает ВСЕ пользователей (включая админов для полной структуры)
-// 🔥 HOTFIX: Add ledger balances from SQL
 app.get("/make-server-05aa3c8a/admin/users/all", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    console.log('🌳 Getting ALL users for tree view with ledger balances...');
+    console.log('🌳 Getting ALL users for tree view...');
     
     // Get ALL users including admins for complete tree structure
     const users = await kv.getByPrefix('user:id:');
     const userArray = Array.isArray(users) ? users : [];
     
-    // 🔥 GET LEDGER BALANCES FROM SQL
-    const userIds = userArray.map((u: any) => u.id).filter(Boolean);
+    console.log(`🌳 Found ${userArray.length} total users for tree`);
     
-    const [{ data: earningsData }, { data: payoutsData }] = await Promise.all([
-      supabase.from('earnings').select('user_id, amount').in('user_id', userIds),
-      supabase.from('payouts').select('user_id, amount, status').in('user_id', userIds)
-    ]);
-    
-    // Calculate ledger balances: earnings - locked - paid
-    const earningsByUser = new Map<string, number>();
-    const lockedByUser = new Map<string, number>();
-    const paidByUser = new Map<string, number>();
-    
-    (earningsData || []).forEach((e: any) => {
-      earningsByUser.set(e.user_id, (earningsByUser.get(e.user_id) || 0) + Number(e.amount));
-    });
-    
-    (payoutsData || []).forEach((p: any) => {
-      const status = p.status;
-      if (['pending', 'approved', 'processing'].includes(status)) {
-        lockedByUser.set(p.user_id, (lockedByUser.get(p.user_id) || 0) + Number(p.amount));
-      } else if (['paid', 'completed'].includes(status)) {
-        paidByUser.set(p.user_id, (paidByUser.get(p.user_id) || 0) + Number(p.amount));
-      }
-    });
-    
-    // Augment users with ledger balance
-    const usersWithBalance = userArray.map((u: any) => {
-      const rb = Math.round(((earningsByUser.get(u.id) || 0) - (lockedByUser.get(u.id) || 0) - (paidByUser.get(u.id) || 0)) * 100) / 100;
-      return {
-        ...u,
-        real_balance: rb,
-        balance: rb,
-        available_balance: rb,
-        balance_source: "ledger",
-        баланс: rb,
-        доступныйБаланс: rb
-      };
-    });
-    
-    console.log(`🌳 Found ${userArray.length} total users for tree with ledger balances`);
-    
-    return c.json({ success: true, users: usersWithBalance });
+    return c.json({ success: true, users: userArray });
   } catch (error) {
     console.log(`Admin get all users error: ${error}`);
     return c.json({ 
@@ -4592,21 +3563,6 @@ app.get("/make-server-05aa3c8a/admin/users/paginated", async (c) => {
     // Passive users = didn't make purchases this month
     const passiveUsersCount = partners.filter((u: any) => !activeUserBuyersIds.has(u.id)).length;
     
-    // 📊 Get ledger-based total balance from SQL (NOT profiles.balance)
-    // available = SUM(earnings) - SUM(payouts where status IN pending/approved/processing/paid/completed)
-    let ledgerTotalBalance = 0;
-    try {
-      const { data: ledgerData, error: ledgerError } = await supabase.rpc('get_admin_finance_stats');
-      if (!ledgerError && ledgerData) {
-        // partners_balance = total_earnings - payouts_locked (pending+approved+processing)
-        // This is the sum of all partners' available balances
-        ledgerTotalBalance = Number(ledgerData.partners_balance ?? 0);
-        console.log(`📊 Ledger-based total balance: ${ledgerTotalBalance}`);
-      }
-    } catch (e) {
-      console.error('Error getting ledger balance:', e);
-    }
-    
     const stats = {
       totalUsers: userArray.length,
       newToday: userArray.filter((u: any) => {
@@ -4622,7 +3578,7 @@ app.get("/make-server-05aa3c8a/admin/users/paginated", async (c) => {
       activeUsers: activeUsersCount,
       passiveUsers: passiveUsersCount,
       withTeam: userArray.filter((u: any) => (u.команда?.length || 0) > 0).length,
-      totalBalance: ledgerTotalBalance, // 🔥 Ledger-based, NOT profiles.balance sum
+      totalBalance: userArray.reduce((sum: number, u: any) => sum + (u.баланс || 0), 0),
       orphans: userArray.filter((u: any) => !u.спонсорId || u.спонсорId === '').length
     };
     
@@ -4761,199 +3717,16 @@ app.post("/make-server-05aa3c8a/admin/orders/:orderId/status", async (c) => {
   }
 });
 
-// 💰 Admin Finance Stats - Global company metrics (SQL RPC)
-app.get("/make-server-05aa3c8a/admin/finance/stats", async (c) => {
-  try {
-    const currentUser = await verifyUser(c.req.header('X-User-Id'));
-    await requireAdmin(c, currentUser);
-    
-    // 🔥 Call Supabase RPC function for accurate stats (SQL ONLY - NO KV FALLBACK)
-    const { data: rpcStats, error: rpcError } = await supabase.rpc('get_admin_finance_stats');
-    
-    console.log(`📊 RPC get_admin_finance_stats RAW result:`, JSON.stringify(rpcStats));
-    
-    if (rpcError) {
-      console.error(`❌ RPC get_admin_finance_stats error: ${rpcError.message}`);
-      return c.json({ 
-        success: false, 
-        error: `RPC failed: ${rpcError.message}`,
-        stats: {},
-        pendingWithdrawals: [],
-        recentOperations: []
-      }, 500);
-    }
-    
-    // Use RPC data ONLY - CORRECT MATH from SQL
-    // RPC now returns: turnover, payouts_paid, payouts_locked, payouts_locked_count, net_profit, partners_balance
-    const totalRevenue = Number(rpcStats?.turnover ?? 0);
-    const payoutsPaid = Number(rpcStats?.payouts_paid ?? 0);
-    const payoutsLocked = Number(rpcStats?.payouts_locked ?? 0);
-    const payoutsLockedCount = Number(rpcStats?.payouts_locked_count ?? 0);
-    const netProfit = Number(rpcStats?.net_profit ?? 0); // turnover - payouts_paid (STRICT)
-    const partnersBalance = Number(rpcStats?.partners_balance ?? 0); // earnings - locked payouts
-    const totalEarnings = Number(rpcStats?.total_earnings ?? 0);
-    
-    console.log(`📊 Finance RPC: turnover=${totalRevenue}, paid=${payoutsPaid}, locked=${payoutsLocked}(${payoutsLockedCount}), netProfit=${netProfit}, partnersBalance=${partnersBalance}`);
-    
-    // Awaiting Payouts list (SQL) - includes pending, approved, processing (BLOCKING statuses)
-    const AWAITING_STATUSES = ['pending', 'approved', 'processing'];
-    const { data: awaitingPayoutsData, error: awaitingError } = await supabase
-      .from('payouts')
-      .select('*')
-      .in('status', AWAITING_STATUSES)
-      .order('created_at', { ascending: false });
-    
-    if (awaitingError) {
-      console.error(`❌ Awaiting payouts query error: ${awaitingError.message}`);
-    }
-    console.log(`📋 Awaiting payouts from SQL: ${awaitingPayoutsData?.length || 0} items (statuses: ${AWAITING_STATUSES.join(',')})`);
-    
-    const pendingWithdrawals = awaitingPayoutsData || [];
-    
-    // All payouts for history (SQL) - NO JOIN
-    const { data: allPayoutsData, error: allPayoutsError } = await supabase
-      .from('payouts')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(20);
-    
-    if (allPayoutsError) {
-      console.error(`❌ All payouts query error: ${allPayoutsError.message}`);
-    }
-    
-    // Recent orders from SQL for history
-    const { data: ordersData, error: ordersError } = await supabase
-      .from('orders')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(20);
-    
-    if (ordersError) {
-      console.error(`❌ Orders query error: ${ordersError.message}`);
-    }
-    console.log(`📋 Orders from SQL: ${ordersData?.length || 0} items`);
-    
-    // Earnings from SQL for history
-    const { data: earningsData, error: earningsError } = await supabase
-      .from('earnings')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(20);
-    
-    if (earningsError) {
-      console.error(`❌ Earnings query error: ${earningsError.message}`);
-    }
-    console.log(`📋 Earnings from SQL: ${earningsData?.length || 0} items`);
-    
-    // Recent operations for history (ALL FROM SQL)
-    const recentOperations = [
-      ...(ordersData || []).map((o: any) => ({
-        type: 'order',
-        date: o.created_at,
-        amount: o.total || 0,
-        description: `Заказ #${o.id || 'N/A'}`,
-        user: o.user_id
-      })),
-      ...(earningsData || []).map((e: any) => ({
-        type: 'earning',
-        date: e.created_at,
-        amount: e.amount || 0,
-        description: `Начисление L${e.level || 0}`,
-        user: e.user_id
-      })),
-      ...(allPayoutsData || []).map((p: any) => ({
-        type: 'withdrawal',
-        date: p.created_at,
-        amount: p.amount || 0,
-        status: p.status,
-        description: `Вывод ${p.status === 'approved' ? '✓' : p.status === 'pending' ? '⏳' : '✗'}`,
-        user: p.user_id
-      }))
-    ].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()).slice(0, 20);
-    
-    console.log(`📊 Admin finance stats (RPC): turnover=${totalRevenue}, paid=${payoutsPaid}, locked=${payoutsLocked}, netProfit=${netProfit}`);
-    
-    return c.json({
-      success: true,
-      stats: {
-        totalRevenue,                              // Оборот (turnover)
-        usersBalanceTotal: partnersBalance,        // Баланс партнёров (earnings - locked payouts)
-        pendingPayoutsSum: payoutsLocked,          // Ожидающие выплаты (pending/approved/processing)
-        pendingPayoutsCount: payoutsLockedCount,   // Количество ожидающих заявок
-        totalEarnings,                             // Всего начислено
-        netProfit,                                 // Чистая прибыль = turnover - paid
-        totalPaidOut: payoutsPaid                  // Выплачено (paid/completed)
-      },
-      pendingWithdrawals: pendingWithdrawals.map((p: any) => ({
-        id: p.id,
-        oderId: p.id,
-        userId: p.user_id,
-        userName: p.user_id,
-        amount: p.amount || 0,
-        details: p.details,
-        method: p.method,
-        createdAt: p.created_at,
-        status: p.status
-      })),
-      recentOperations
-    });
-  } catch (error) {
-    console.log(`Admin finance stats error: ${error}`);
-    return c.json({ 
-      success: false,
-      error: `${error}`,
-      stats: {},
-      pendingWithdrawals: [],
-      recentOperations: []
-    }, (error as any).message?.includes('Admin') ? 403 : 500);
-  }
-});
-
-// Get all withdrawals (SQL payouts table) - supports ?status=awaiting|paid|all
+// Get all withdrawals
 app.get("/make-server-05aa3c8a/admin/withdrawals", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    const statusFilter = c.req.query('status') || 'all';
+    const withdrawals = await kv.getByPrefix('withdrawal:');
+    const withdrawalsArray = Array.isArray(withdrawals) ? withdrawals : [];
     
-    // Status groups
-    const AWAITING_STATUSES = ['pending', 'approved', 'processing'];
-    const PAID_STATUSES = ['paid', 'completed'];
-    
-    let query = supabase.from('payouts').select('*');
-    
-    if (statusFilter === 'awaiting') {
-      query = query.in('status', AWAITING_STATUSES);
-    } else if (statusFilter === 'paid') {
-      query = query.in('status', PAID_STATUSES);
-    }
-    // 'all' - no filter
-    
-    const { data: payouts, error: selectError } = await query.order('created_at', { ascending: false });
-    
-    if (selectError) {
-      console.log(`Supabase select error: ${selectError.message}`);
-      return c.json({ success: false, error: selectError.message, withdrawals: [] }, 500);
-    }
-    
-    console.log(`📋 Admin withdrawals (filter=${statusFilter}): ${payouts?.length || 0} items`);
-    
-    const withdrawals = (payouts || []).map((p: any) => ({
-      id: p.id,
-      oderId: p.id,
-      userId: p.user_id,
-      userName: p.user_id,
-      amount: p.amount,
-      method: p.method,
-      details: p.details,
-      status: p.status,
-      createdAt: p.created_at,
-      processedAt: p.processed_at,
-      adminComment: p.admin_comment
-    }));
-    
-    return c.json({ success: true, withdrawals });
+    return c.json({ success: true, withdrawals: withdrawalsArray });
   } catch (error) {
     console.log(`Admin get withdrawals error: ${error}`);
     return c.json({ 
@@ -4964,173 +3737,37 @@ app.get("/make-server-05aa3c8a/admin/withdrawals", async (c) => {
   }
 });
 
-// Update withdrawal status - STRICT STATE MACHINE with UUID validation
-// 
-// TIMESTAMP SEMANTICS:
-// - processed_at = cashflow date (when money left the system)
-// - ONLY set when status becomes 'paid' or 'completed'
-// - All other statuses have processed_at = NULL
-//
-// MANUAL SQL CLEANUP REQUIRED (run once after deployment):
-//   UPDATE public.payouts SET processed_at = NULL WHERE status NOT IN ('paid','completed');
-//
+// Update withdrawal status
 app.post("/make-server-05aa3c8a/admin/withdrawals/:withdrawalId/status", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    const payoutId = c.req.param('withdrawalId');
-    const { status: requestedStatus, adminComment } = await c.req.json();
+    const withdrawalId = c.req.param('withdrawalId');
+    const { status, note } = await c.req.json();
     
-    // 1️⃣ UUID VALIDATION (Critical)
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(payoutId)) {
-      console.error(`❌ Invalid UUID format: "${payoutId}"`);
-      return c.json({ success: false, error: 'Invalid payout ID format' }, 400);
+    if (!['pending', 'processing', 'completed', 'rejected'].includes(status)) {
+      return c.json({ error: 'Invalid status' }, 400);
     }
     
-    // 2️⃣ VALID STATUSES
-    const VALID_STATUSES = ['pending', 'approved', 'processing', 'paid', 'completed', 'rejected', 'failed', 'canceled'];
-    if (!VALID_STATUSES.includes(requestedStatus)) {
-      return c.json({ 
-        success: false, 
-        error: `Invalid status. Valid: ${VALID_STATUSES.join(', ')}` 
-      }, 400);
+    const withdrawal = await kv.get(`withdrawal:${withdrawalId}`);
+    if (!withdrawal) {
+      return c.json({ error: 'Withdrawal not found' }, 404);
     }
     
-    // 3️⃣ GET CURRENT STATUS FROM DB (with explicit UUID cast via RPC or raw SQL)
-    const { data: payout, error: getError } = await supabase
-      .from('payouts')
-      .select('*')
-      .eq('id', payoutId)
-      .single();
+    withdrawal.status = status;
+    withdrawal.note = note || withdrawal.note;
+    withdrawal.updatedAt = new Date().toISOString();
     
-    if (getError || !payout) {
-      console.error(`❌ Payout not found: ${payoutId}, error: ${getError?.message}`);
-      return c.json({ success: false, error: 'Payout not found' }, 404);
-    }
+    await kv.set(`withdrawal:${withdrawalId}`, withdrawal);
+    await kv.set(`withdrawal:user:${withdrawal.userId}:${withdrawalId}`, withdrawal);
     
-    const currentStatus = payout.status;
-    console.log(`🔄 Payout ${payoutId}: ${currentStatus} -> ${requestedStatus} (requested by admin ${currentUser.id})`);
+    console.log(`Admin updated withdrawal ${withdrawalId} to ${status}`);
     
-    // 4️⃣ STRICT STATE MACHINE
-    // Terminal states: paid, completed - no further transitions allowed
-    if (currentStatus === 'paid' || currentStatus === 'completed') {
-      console.log(`⚠️ Payout ${payoutId} already in terminal state: ${currentStatus}`);
-      return c.json({ 
-        success: false, 
-        error: 'Already processed (terminal state)',
-        payout: {
-          id: payout.id,
-          status: payout.status,
-          amount: payout.amount
-        }
-      }, 409);
-    }
-    
-    // Valid transitions:
-    // pending -> approved, rejected
-    // approved/processing -> paid, rejected
-    const ALLOWED_TRANSITIONS: Record<string, string[]> = {
-      'pending': ['approved', 'rejected'],
-      'approved': ['paid', 'completed', 'rejected', 'failed'],
-      'processing': ['paid', 'completed', 'rejected', 'failed']
-    };
-    
-    const allowedNext = ALLOWED_TRANSITIONS[currentStatus] || [];
-    if (!allowedNext.includes(requestedStatus)) {
-      console.error(`❌ Invalid transition: ${currentStatus} -> ${requestedStatus}`);
-      return c.json({ 
-        success: false, 
-        error: `Invalid transition: ${currentStatus} -> ${requestedStatus}. Allowed: ${allowedNext.join(', ') || 'none'}` 
-      }, 400);
-    }
-    
-    // 5️⃣ ATOMIC UPDATE with processed_at semantics:
-    // - paid/completed: processed_at = now() (cashflow date)
-    // - any other status: processed_at = NULL
-    // Uses raw SQL with UUID cast for atomicity
-    const finalComment = adminComment || payout.admin_comment || null;
-    
-    const { data: updateResult, error: updateError } = await supabase.rpc('exec_sql', {
-      query: `
-        UPDATE public.payouts
-        SET status = $1,
-            admin_comment = $2,
-            processed_at = CASE WHEN $1 IN ('paid','completed') THEN now() ELSE NULL END
-        WHERE id = $3::uuid
-        RETURNING *;
-      `,
-      params: [requestedStatus, finalComment, payoutId]
-    });
-    
-    // Fallback to Supabase client if RPC doesn't exist
-    let updatedPayout: any = null;
-    if (updateError?.message?.includes('function') || updateError?.code === '42883') {
-      // RPC not available, use regular update with explicit NULL
-      const updatePayload: any = {
-        status: requestedStatus,
-        admin_comment: finalComment,
-        processed_at: ['paid', 'completed'].includes(requestedStatus) ? new Date().toISOString() : null
-      };
-      
-      const { data, error } = await supabase
-        .from('payouts')
-        .update(updatePayload)
-        .eq('id', payoutId)
-        .select()
-        .single();
-      
-      if (error) {
-        console.error(`❌ Update failed for ${payoutId}: ${error.message}`);
-        return c.json({ success: false, error: `Update failed: ${error.message}` }, 500);
-      }
-      updatedPayout = data;
-    } else if (updateError) {
-      console.error(`❌ Update failed for ${payoutId}: ${updateError.message}`);
-      return c.json({ success: false, error: `Update failed: ${updateError.message}` }, 500);
-    } else {
-      updatedPayout = updateResult?.[0] || null;
-    }
-    
-    // 404 if no rows updated (should not happen after SELECT check, but defensive)
-    if (!updatedPayout) {
-      console.error(`❌ Payout ${payoutId} not found during update`);
-      return c.json({ success: false, error: 'Payout not found' }, 404);
-    }
-    
-    console.log(`✅ Payout ${payoutId} updated: ${currentStatus} -> ${updatedPayout.status}`);
-    
-    // 6️⃣ SIDE EFFECTS
-    // If rejected from pending/approved - funds are returned automatically (balance recalculated from SQL)
-    if (requestedStatus === 'rejected') {
-      console.log(`💸 Payout ${payoutId} rejected - funds released back to available balance`);
-    }
-    
-    if (requestedStatus === 'paid' || requestedStatus === 'completed') {
-      console.log(`💰 Payout ${payoutId} PAID: ${payout.amount}₽ to ${payout.user_id}`);
-    }
-    
-    // 7️⃣ RESPONSE with debug info
-    return c.json({ 
-      success: true,
-      previous_status: currentStatus,
-      requested_status: requestedStatus,
-      payout: {
-        id: updatedPayout.id,
-        userId: updatedPayout.user_id,
-        amount: updatedPayout.amount,
-        method: updatedPayout.method,
-        details: updatedPayout.details,
-        status: updatedPayout.status,
-        createdAt: updatedPayout.created_at,
-        processedAt: updatedPayout.processed_at,
-        adminComment: updatedPayout.admin_comment
-      }
-    });
+    return c.json({ success: true, withdrawal });
   } catch (error) {
-    console.error(`❌ Admin update payout error:`, error);
-    return c.json({ success: false, error: `${error}` }, 500);
+    console.log(`Admin update withdrawal error: ${error}`);
+    return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
   }
 });
 
@@ -5281,51 +3918,20 @@ app.delete("/make-server-05aa3c8a/admin/users/:userId", async (c) => {
       }
     }
     
-    // 🔓 Free ALL user IDs (primary + additional codes) for reuse
-    const freedCodes: string[] = [];
-    
-    // 1. Free the primary ID
+    // Free the ID for reuse
+    // Determine if it's a 3-digit partner ID or regular ID
     if (userId.length === 3 && /^\d+$/.test(userId)) {
       await freePartnerId(userId);
     } else {
       await freeUserId(userId);
     }
-    freedCodes.push(userId);
-    
-    // 2. Delete global mapping for primary ID
-    await kv.del(`id:code:${userId}`);
-    
-    // 3. Free all additional codes from user.codes[] array
-    if (user.codes && Array.isArray(user.codes)) {
-      for (const code of user.codes) {
-        const codeValue = code.value || code;
-        if (codeValue && codeValue !== userId) {
-          // Delete global mapping
-          await kv.del(`id:code:${codeValue}`);
-          
-          // Free numeric codes for reuse
-          if (/^\d+$/.test(codeValue)) {
-            if (codeValue.length === 3) {
-              await freePartnerId(codeValue);
-            } else {
-              await freeUserId(codeValue);
-            }
-          }
-          freedCodes.push(codeValue);
-        }
-      }
-    }
     
     // 🗑️ Инвалидация кэша
     await invalidateUsersCache();
     
-    console.log(`✅ User ${userId} deleted. Freed codes: [${freedCodes.join(', ')}]`);
+    console.log(`✅ User ${userId} deleted and ID freed for reuse`);
     
-    return c.json({ 
-      success: true, 
-      message: `Пользователь удалён, освобождено ${freedCodes.length} ID: ${freedCodes.join(', ')}`,
-      freedCodes 
-    });
+    return c.json({ success: true, message: 'Пользователь удалён, ID освобождён для повторного использования' });
   } catch (error) {
     console.log(`Admin delete user error: ${error}`);
     return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
@@ -5614,7 +4220,7 @@ app.get("/make-server-05aa3c8a/admin/products", async (c) => {
   }
 });
 
-// Create product (SQL only - NO KV fallback)
+// Create product
 app.post("/make-server-05aa3c8a/admin/products", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
@@ -5626,69 +4232,47 @@ app.post("/make-server-05aa3c8a/admin/products", async (c) => {
       return c.json({ error: 'Название и SKU обязательны' }, 400);
     }
     
-    const productId = `prod_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    // Map prices: цена_розница→price_retail, цена1→price_partner, цена2→price_l2, цена3→price_l3, цена4→price_company
-    const priceRetail = Number(цена_розница) || Number(цена1) || 0;
-    const pricePartner = Number(цена1) || Number(цена2) || 0;
-    const priceL2 = Number(цена2) || Number(цена3) || 0;
-    const priceL3 = Number(цена3) || Number(цена4) || 0;
-    const priceCompany = Number(цена4) || Math.round(priceL3 * 0.9) || 0;
-    
-    const productData = {
-      id: productId,
-      name: название || '',
-      description: описание || '',
-      sku: sku,
-      image_url: изображение || '',
-      price_retail: priceRetail,
-      price_partner: pricePartner,
-      price_l2: priceL2,
-      price_l3: priceL3,
-      price_company: priceCompany,
-      category: категория || 'general',
-      is_archived: в_архиве === true,
-      is_active: true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
-    
-    console.log(`💾 [SQL] Creating product: ${productId}, SKU: ${sku}`);
-    console.log(`📋 Product data:`, productData);
-    
-    // 🔥 SQL INSERT - NO FALLBACK
-    const { data: insertedProduct, error: insertError } = await supabase
-      .from('products')
-      .insert(productData)
-      .select()
-      .single();
-    
-    if (insertError) {
-      console.error(`❌ [SQL ERROR] Product insert failed:`);
-      console.error(`   message: ${insertError.message}`);
-      console.error(`   details: ${insertError.details}`);
-      console.error(`   hint: ${insertError.hint}`);
-      console.error(`   code: ${insertError.code}`);
-      
-      return c.json({ 
-        success: false,
-        error: `SQL Error: ${insertError.message}`,
-        details: insertError.details || null,
-        hint: insertError.hint || null,
-        code: insertError.code || null
-      }, 500);
+    // Check if SKU already exists
+    const existingProduct = await kv.get(`product:sku:${sku}`);
+    if (existingProduct) {
+      return c.json({ error: 'Продукт с таким SKU уже существует' }, 400);
     }
     
-    console.log(`✅ [SQL] Product created successfully: ${productId}`);
+    const productId = `prod_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    return c.json({ success: true, product: insertedProduct });
+    const product = {
+      id: productId,
+      название: название || '',
+      описание: описание || '',
+      sku: sku,
+      изображение: изображение || '',
+      цена1: Number(цена1) || 0,
+      цена2: Number(цена2) || 0,
+      цена3: Number(цена3) || 0,
+      цена4: Number(цена4) || 0,
+      цена_розница: Number(цена_розница) || 0,
+      категория: категория || 'general',
+      в_архиве: в_архиве === true,  // false = активен, true = в архиве
+      archived: в_архиве === true,   // для совместимости
+      создан: new Date().toISOString(),
+      обновлён: new Date().toISOString()
+    };
+    
+    console.log(`💾 Saving product with ID: ${productId}, SKU: ${sku}`);
+    await kv.set(`product:${productId}`, product);
+    await kv.set(`product:sku:${sku}`, product);
+    
+    console.log(`✅ Product created: ${productId}, SKU: ${sku}`);
+    console.log(`📋 Product data:`, { id: product.id, название: product.название, sku: product.sku });
+    
+    return c.json({ success: true, product });
   } catch (error) {
-    console.error(`❌ Admin create product exception: ${error}`);
+    console.log(`Admin create product error: ${error}`);
     return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
   }
 });
 
-// Update product (SQL only - NO KV fallback)
+// Update product
 app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
@@ -5697,108 +4281,37 @@ app.put("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
     const productId = c.req.param('productId');
     const updates = await c.req.json();
     
-    // Build update object with field mapping (Russian → English SQL columns)
-    const updateData: any = {};
-    
-    // Text fields mapping
-    if (updates.название !== undefined || updates.name !== undefined) {
-      updateData.name = updates.название || updates.name || '';
-    }
-    if (updates.описание !== undefined || updates.description !== undefined) {
-      updateData.description = updates.описание || updates.description || '';
-    }
-    if (updates.sku !== undefined || updates.articul !== undefined) {
-      updateData.sku = updates.sku || updates.articul || '';
-    }
-    if (updates.изображение !== undefined || updates.image_url !== undefined || updates.imageUrl !== undefined) {
-      updateData.image_url = updates.изображение || updates.image_url || updates.imageUrl || '';
-    }
-    if (updates.категория !== undefined || updates.category !== undefined) {
-      updateData.category = updates.категория || updates.category || 'general';
+    const product = await kv.get(`product:${productId}`);
+    if (!product) {
+      return c.json({ error: 'Продукт не найден' }, 404);
     }
     
-    // Price fields mapping (цена_розница→price_retail, цена1→price_partner, цена2→price_l2, цена3→price_l3, цена4→price_company)
-    if (updates.цена_розница !== undefined || updates.price_retail !== undefined || updates.price1 !== undefined) {
-      updateData.price_retail = Number(updates.цена_розница ?? updates.price_retail ?? updates.price1) || 0;
-    }
-    if (updates.цена1 !== undefined || updates.price_partner !== undefined || updates.price2 !== undefined) {
-      updateData.price_partner = Number(updates.цена1 ?? updates.price_partner ?? updates.price2) || 0;
-    }
-    if (updates.цена2 !== undefined || updates.price_l2 !== undefined || updates.price3 !== undefined) {
-      updateData.price_l2 = Number(updates.цена2 ?? updates.price_l2 ?? updates.price3) || 0;
-    }
-    if (updates.цена3 !== undefined || updates.price_l3 !== undefined || updates.price4 !== undefined) {
-      updateData.price_l3 = Number(updates.цена3 ?? updates.price_l3 ?? updates.price4) || 0;
-    }
-    if (updates.цена4 !== undefined || updates.price_company !== undefined || updates.price5 !== undefined) {
-      updateData.price_company = Number(updates.цена4 ?? updates.price_company ?? updates.price5) || 0;
+    const oldSku = product.sku;
+    
+    // Update product fields
+    Object.keys(updates).forEach(key => {
+      if (key !== 'id' && key !== 'создан') {
+        product[key] = updates[key];
+      }
+    });
+    
+    product.обновлён = new Date().toISOString();
+    
+    await kv.set(`product:${productId}`, product);
+    
+    // Update SKU index if changed
+    if (updates.sku && updates.sku !== oldSku) {
+      await kv.del(`product:sku:${oldSku}`);
+      await kv.set(`product:sku:${updates.sku}`, product);
+    } else {
+      await kv.set(`product:sku:${oldSku}`, product);
     }
     
-    // Boolean fields mapping
-    if (updates.в_архиве !== undefined || updates.isArchived !== undefined || updates.is_archived !== undefined) {
-      updateData.is_archived = updates.в_архиве === true || updates.isArchived === true || updates.is_archived === true;
-    }
-    if (updates.активен !== undefined || updates.isActive !== undefined || updates.is_active !== undefined) {
-      updateData.is_active = updates.активен !== false && updates.isActive !== false && updates.is_active !== false;
-    }
-    if (updates.в_наличии !== undefined || updates.inStock !== undefined || updates.in_stock !== undefined) {
-      updateData.in_stock = updates.в_наличии !== false && updates.inStock !== false && updates.in_stock !== false;
-    }
+    console.log(`Product updated: ${productId}`);
     
-    updateData.updated_at = new Date().toISOString();
-    
-    // Add id explicitly for upsert
-    updateData.id = productId;
-    
-    // Set defaults for new products (upsert may create)
-    if (!updateData.created_at) {
-      updateData.created_at = new Date().toISOString();
-    }
-    if (updateData.is_active === undefined) {
-      updateData.is_active = true;
-    }
-    if (updateData.in_stock === undefined) {
-      updateData.in_stock = true;
-    }
-    if (updateData.is_archived === undefined) {
-      updateData.is_archived = false;
-    }
-    
-    console.log(`💾 [SQL] Upserting product: ${productId}`);
-    console.log(`📋 Upsert data:`, updateData);
-    
-    // 🔥 SQL UPSERT - creates if not exists, updates if exists
-    const { data: updatedProduct, error: updateError } = await supabase
-      .from('products')
-      .upsert(updateData, { onConflict: 'id' })
-      .select()
-      .single();
-    
-    if (updateError) {
-      console.error(`❌ [SQL ERROR] Product upsert failed:`);
-      console.error(`   message: ${updateError.message}`);
-      console.error(`   details: ${updateError.details}`);
-      console.error(`   hint: ${updateError.hint}`);
-      console.error(`   code: ${updateError.code}`);
-      
-      return c.json({ 
-        success: false,
-        error: `SQL Error: ${updateError.message}`,
-        details: updateError.details || null,
-        hint: updateError.hint || null,
-        code: updateError.code || null
-      }, 500);
-    }
-    
-    if (!updatedProduct) {
-      return c.json({ error: 'Не удалось сохранить продукт' }, 500);
-    }
-    
-    console.log(`✅ [SQL] Product upserted successfully: ${productId}`);
-    
-    return c.json({ success: true, product: updatedProduct });
+    return c.json({ success: true, product });
   } catch (error) {
-    console.error(`❌ Admin update product exception: ${error}`);
+    console.log(`Admin update product error: ${error}`);
     return c.json({ error: `${error}` }, (error as any).message?.includes('Admin') ? 403 : 500);
   }
 });
@@ -5845,43 +4358,16 @@ app.delete("/make-server-05aa3c8a/admin/products/:productId", async (c) => {
     await requireAdmin(c, currentUser);
     
     const productId = c.req.param('productId');
-    let deleted = false;
     
-    // 1. Try to delete from SQL first
-    const { data: sqlProduct, error: sqlSelectError } = await supabase
-      .from('products')
-      .select('id, sku')
-      .eq('id', productId)
-      .single();
-    
-    if (sqlProduct) {
-      const { error: sqlDeleteError } = await supabase
-        .from('products')
-        .delete()
-        .eq('id', productId);
-      
-      if (!sqlDeleteError) {
-        console.log(`✅ Product deleted from SQL: ${productId}`);
-        deleted = true;
-      } else {
-        console.error(`❌ SQL delete error: ${sqlDeleteError.message}`);
-      }
-    }
-    
-    // 2. Also try to delete from KV (legacy)
-    const kvProduct = await kv.get(`product:${productId}`);
-    if (kvProduct) {
-      await kv.del(`product:${productId}`);
-      if (kvProduct.sku) {
-        await kv.del(`product:sku:${kvProduct.sku}`);
-      }
-      console.log(`✅ Product deleted from KV: ${productId}`);
-      deleted = true;
-    }
-    
-    if (!deleted) {
+    const product = await kv.get(`product:${productId}`);
+    if (!product) {
       return c.json({ error: 'Продукт не найден' }, 404);
     }
+    
+    await kv.del(`product:${productId}`);
+    await kv.del(`product:sku:${product.sku}`);
+    
+    console.log(`Product deleted: ${productId}`);
     
     return c.json({ success: true, message: 'Товар удалён' });
   } catch (error) {
@@ -7855,16 +6341,6 @@ app.post("/make-server-05aa3c8a/debug/check-auth", async (c) => {
   }
 });
 
-// OPTIONS handler for /admin/delete-user/:userId (CORS preflight)
-app.options("/make-server-05aa3c8a/admin/delete-user/:userId", (c) => {
-  return c.text('', 204, {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id',
-    'Access-Control-Max-Age': '86400',
-  });
-});
-
 // Admin endpoint: Delete user (only for testing/cleanup)
 app.delete("/make-server-05aa3c8a/admin/delete-user/:userId", async (c) => {
   try {
@@ -7913,52 +6389,20 @@ app.delete("/make-server-05aa3c8a/admin/delete-user/:userId", async (c) => {
       }
     }
     
-    // 🔓 Free ALL user IDs (primary + additional codes) for reuse
-    const freedCodes: string[] = [];
+    // Free the user ID for reuse
+    await freeUserId(userId);
+    console.log(`♻️ Freed user ID ${userId} for reuse`);
     
-    // 1. Free the primary ID
-    if (userId.length === 3 && /^\d+$/.test(userId)) {
-      await freePartnerId(userId);
-    } else {
-      await freeUserId(userId);
-    }
-    freedCodes.push(userId);
-    
-    // 2. Delete global mapping for primary ID
-    await kv.del(`id:code:${userId}`);
-    
-    // 3. Free all additional codes from user.codes[] array
-    if (user.codes && Array.isArray(user.codes)) {
-      for (const code of user.codes) {
-        const codeValue = code.value || code;
-        if (codeValue && codeValue !== userId) {
-          // Delete global mapping
-          await kv.del(`id:code:${codeValue}`);
-          
-          // Free numeric codes for reuse
-          if (/^\d+$/.test(codeValue)) {
-            if (codeValue.length === 3) {
-              await freePartnerId(codeValue);
-            } else {
-              await freeUserId(codeValue);
-            }
-          }
-          freedCodes.push(codeValue);
-        }
-      }
-    }
-    
-    console.log(`✅ User deleted: ${userId}. Freed codes: [${freedCodes.join(', ')}]`);
+    console.log(`✅ User deleted: ${userId}`);
     
     return c.json({ 
       success: true, 
-      message: `User ${userId} deleted successfully. Freed ${freedCodes.length} codes.`,
+      message: `User ${userId} deleted successfully`,
       deletedUser: {
         id: userId,
         email: user.email,
         name: `${user.имя} ${user.фамилия || ''}`
-      },
-      freedCodes
+      }
     });
     
   } catch (error) {
@@ -8339,294 +6783,6 @@ app.post('/make-server-05aa3c8a/admin/debug-user', async (c) => {
   }
 });
 
-// ==============================================
-// 🆕 MULTIPLE CODES MANAGEMENT API
-// ==============================================
-
-// Получить все коды пользователя
-app.get('/make-server-05aa3c8a/admin/user/:userId/codes', async (c) => {
-  try {
-    const currentUser = await verifyUser(c.req.header('X-User-Id'));
-    await requireAdmin(c, currentUser);
-    
-    const userId = c.req.param('userId');
-    const codes = await getUserCodes(userId);
-    
-    return c.json({
-      success: true,
-      userId,
-      codes,
-      primaryId: userId // Основной ID пользователя
-    });
-  } catch (error) {
-    console.error('❌ Get user codes error:', error);
-    return c.json({ success: false, error: String(error) }, 500);
-  }
-});
-
-// Добавить код пользователю
-app.post('/make-server-05aa3c8a/admin/user/:userId/codes', async (c) => {
-  try {
-    const currentUser = await verifyUser(c.req.header('X-User-Id'));
-    await requireAdmin(c, currentUser);
-    
-    const userId = c.req.param('userId');
-    const { code, makePrimary } = await c.req.json();
-    
-    if (!code) {
-      return c.json({ success: false, error: 'Код не указан' }, 400);
-    }
-    
-    const result = await addCodeToUser(userId, code, {
-      makePrimary: makePrimary || false,
-      assignedBy: currentUser.id
-    });
-    
-    if (!result.success) {
-      return c.json({ success: false, error: result.error }, 400);
-    }
-    
-    // Получаем обновленный список кодов
-    const codes = await getUserCodes(userId);
-    
-    return c.json({
-      success: true,
-      message: `Код "${code.toUpperCase()}" добавлен пользователю ${userId}`,
-      codes
-    });
-  } catch (error) {
-    console.error('❌ Add user code error:', error);
-    return c.json({ success: false, error: String(error) }, 500);
-  }
-});
-
-// Установить код как основной
-app.post('/make-server-05aa3c8a/admin/user/:userId/codes/set-primary', async (c) => {
-  try {
-    const currentUser = await verifyUser(c.req.header('X-User-Id'));
-    await requireAdmin(c, currentUser);
-    
-    const userId = c.req.param('userId');
-    const { code } = await c.req.json();
-    
-    if (!code) {
-      return c.json({ success: false, error: 'Код не указан' }, 400);
-    }
-    
-    const result = await setCodeAsPrimary(userId, code);
-    
-    if (!result.success) {
-      return c.json({ success: false, error: result.error }, 400);
-    }
-    
-    const codes = await getUserCodes(userId);
-    
-    return c.json({
-      success: true,
-      message: `Код "${code.toUpperCase()}" установлен как основной`,
-      codes
-    });
-  } catch (error) {
-    console.error('❌ Set primary code error:', error);
-    return c.json({ success: false, error: String(error) }, 500);
-  }
-});
-
-// Деактивировать код
-app.post('/make-server-05aa3c8a/admin/user/:userId/codes/deactivate', async (c) => {
-  try {
-    const currentUser = await verifyUser(c.req.header('X-User-Id'));
-    await requireAdmin(c, currentUser);
-    
-    const userId = c.req.param('userId');
-    const { code } = await c.req.json();
-    
-    if (!code) {
-      return c.json({ success: false, error: 'Код не указан' }, 400);
-    }
-    
-    const result = await deactivateCode(userId, code);
-    
-    if (!result.success) {
-      return c.json({ success: false, error: result.error }, 400);
-    }
-    
-    const codes = await getUserCodes(userId);
-    
-    return c.json({
-      success: true,
-      message: `Код "${code.toUpperCase()}" деактивирован`,
-      codes
-    });
-  } catch (error) {
-    console.error('❌ Deactivate code error:', error);
-    return c.json({ success: false, error: String(error) }, 500);
-  }
-});
-
-// Активировать код
-app.post('/make-server-05aa3c8a/admin/user/:userId/codes/activate', async (c) => {
-  try {
-    const currentUser = await verifyUser(c.req.header('X-User-Id'));
-    await requireAdmin(c, currentUser);
-    
-    const userId = c.req.param('userId');
-    const { code } = await c.req.json();
-    
-    if (!code) {
-      return c.json({ success: false, error: 'Код не указан' }, 400);
-    }
-    
-    const result = await activateCode(userId, code);
-    
-    if (!result.success) {
-      return c.json({ success: false, error: result.error }, 400);
-    }
-    
-    const codes = await getUserCodes(userId);
-    
-    return c.json({
-      success: true,
-      message: `Код "${code.toUpperCase()}" активирован`,
-      codes
-    });
-  } catch (error) {
-    console.error('❌ Activate code error:', error);
-    return c.json({ success: false, error: String(error) }, 500);
-  }
-});
-
-// Проверить доступность кода
-app.get('/make-server-05aa3c8a/admin/codes/check/:code', async (c) => {
-  try {
-    const currentUser = await verifyUser(c.req.header('X-User-Id'));
-    await requireAdmin(c, currentUser);
-    
-    const code = c.req.param('code');
-    const availability = await isCodeAvailable(code);
-    
-    return c.json({
-      success: true,
-      code: code.toUpperCase(),
-      ...availability
-    });
-  } catch (error) {
-    console.error('❌ Check code availability error:', error);
-    return c.json({ success: false, error: String(error) }, 500);
-  }
-});
-
-// Найти пользователя по коду
-app.get('/make-server-05aa3c8a/admin/codes/resolve/:code', async (c) => {
-  try {
-    const currentUser = await verifyUser(c.req.header('X-User-Id'));
-    await requireAdmin(c, currentUser);
-    
-    const code = c.req.param('code');
-    const userId = await resolveCodeToUserId(code);
-    
-    if (!userId) {
-      return c.json({
-        success: false,
-        error: `Код "${code}" не найден или неактивен`
-      }, 404);
-    }
-    
-    const user = await kv.get(`user:id:${userId}`);
-    
-    // Find the specific code info from user's codes array or global mapping
-    let codeInfo = {
-      primary: false,
-      isActive: true,
-      createdAt: ''
-    };
-    
-    if (user && user.codes) {
-      const foundCode = user.codes.find((c: any) => 
-        c.value?.toLowerCase() === code.toLowerCase() || 
-        c.value === code
-      );
-      if (foundCode) {
-        codeInfo = {
-          primary: foundCode.primary || false,
-          isActive: foundCode.isActive !== false,
-          createdAt: foundCode.createdAt || ''
-        };
-      }
-    }
-    
-    // Also check global code mapping for additional info
-    const globalCodeInfo = await kv.get(`id:code:${code.toUpperCase()}`) || await kv.get(`id:code:${code}`);
-    if (globalCodeInfo) {
-      codeInfo.primary = globalCodeInfo.primary || codeInfo.primary;
-      codeInfo.isActive = globalCodeInfo.isActive !== false;
-      codeInfo.createdAt = globalCodeInfo.createdAt || codeInfo.createdAt;
-    }
-    
-    return c.json({
-      success: true,
-      code: code.toUpperCase(),
-      userId,
-      primary: codeInfo.primary,
-      isActive: codeInfo.isActive,
-      createdAt: codeInfo.createdAt,
-      user: user ? {
-        id: user.id,
-        имя: user.имя,
-        фамилия: user.фамилия,
-        email: user.email,
-        codes: user.codes || []
-      } : null
-    });
-  } catch (error) {
-    console.error('❌ Resolve code error:', error);
-    return c.json({ success: false, error: String(error) }, 500);
-  }
-});
-
-// Миграция всех пользователей на новую систему кодов
-app.post('/make-server-05aa3c8a/admin/codes/migrate-all', async (c) => {
-  try {
-    const currentUser = await verifyUser(c.req.header('X-User-Id'));
-    await requireAdmin(c, currentUser);
-    
-    console.log('🔄 Starting migration to new code system...');
-    
-    const allUsers = await kv.getByPrefix('user:id:');
-    let migrated = 0;
-    let skipped = 0;
-    let errors: string[] = [];
-    
-    for (const user of allUsers) {
-      if (!user || !user.id) continue;
-      
-      try {
-        const result = await migrateUserToNewCodeSystem(user.id);
-        if (result.migrated) {
-          migrated++;
-        } else {
-          skipped++;
-        }
-      } catch (e) {
-        errors.push(`User ${user.id}: ${String(e)}`);
-      }
-    }
-    
-    console.log(`✅ Migration complete: ${migrated} migrated, ${skipped} skipped, ${errors.length} errors`);
-    
-    return c.json({
-      success: true,
-      message: `Миграция завершена: ${migrated} мигрировано, ${skipped} пропущено`,
-      migrated,
-      skipped,
-      errors: errors.length > 0 ? errors.slice(0, 10) : []
-    });
-  } catch (error) {
-    console.error('❌ Migration error:', error);
-    return c.json({ success: false, error: String(error) }, 500);
-  }
-});
-
 // Assign reserved ID to user
 app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
   try {
@@ -8706,64 +6862,22 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
     }
 
     const oldId = targetUser.id;
-    const timestamp = new Date().toISOString();
 
-    // 🔒 IMPORTANT: Add codes BEFORE saving user to ensure codes are persisted
-    // Initialize codes array if not exists
-    if (!targetUser.codes) {
-      targetUser.codes = [];
-    }
-    
-    // Add old ID as additional code (if not already present)
-    const oldIdExists = targetUser.codes.some((c: any) => c.value === oldId);
-    if (!oldIdExists) {
-      targetUser.codes.push({
-        value: oldId,
-        type: /^\d+$/.test(oldId) ? 'numeric' : 'alphanumeric',
-        primary: false,
-        isActive: true,
-        createdAt: timestamp,
-        assignedBy: 'system-id-change'
-      });
-      console.log(`🔒 Old ID ${oldId} preserved as additional code`);
-    }
-    
-    // Add new ID as primary code (if not already present)
-    const newIdExists = targetUser.codes.some((c: any) => c.value === cleanNewId);
-    if (!newIdExists) {
-      targetUser.codes.push({
-        value: cleanNewId,
-        type: /^\d+$/.test(cleanNewId) ? 'numeric' : 'alphanumeric',
-        primary: true,
-        isActive: true,
-        createdAt: timestamp,
-        assignedBy: 'system-id-change'
-      });
-    }
-    
-    // Ensure new ID is marked as primary
-    targetUser.codes = targetUser.codes.map((c: any) => ({
-      ...c,
-      primary: c.value === cleanNewId
-    }));
-
-    // Update user ID and refCode
+    // Update user ID
     targetUser.id = cleanNewId;
     targetUser.рефКод = cleanNewId; // refCode = ID
 
     console.log(`🔄 Assigning ID: ${oldId} → ${cleanNewId} for user ${targetUser.имя} ${targetUser.фамилия}`);
-    console.log(`🔒 User now has ${targetUser.codes.length} codes:`, targetUser.codes.map((c: any) => c.value).join(', '));
 
-    // Save user with new ID (includes codes array)
+    // Save user with new ID
     await kv.set(`user:id:${cleanNewId}`, targetUser);
 
     // Delete old ID key
     await kv.del(`user:id:${oldId}`);
 
-    // Update ref code mapping for new ID
+    // Update ref code mapping
     await kv.set(`user:refcode:${cleanNewId}`, { id: cleanNewId });
-    // Keep old refcode mapping pointing to new ID (for backwards compatibility)
-    await kv.set(`user:refcode:${oldId}`, { id: cleanNewId });
+    await kv.del(`user:refcode:${oldId}`);
 
     // Update email mapping
     if (targetUser.email) {
@@ -8885,28 +6999,9 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
     const newReserved = reserved.filter((rid: number) => rid !== numericNewId);
     await kv.set('reserved:user:ids', newReserved);
 
-    // Create global code mappings for both old and new IDs with full metadata
-    await kv.set(`id:code:${oldId}`, {
-      value: oldId,
-      userId: cleanNewId,
-      type: /^\d+$/.test(oldId) ? 'numeric' : 'alphanumeric',
-      primary: false,
-      isActive: true,
-      createdAt: timestamp,
-      assignedBy: 'system-id-change'
-    });
-    
-    await kv.set(`id:code:${cleanNewId}`, {
-      value: cleanNewId,
-      userId: cleanNewId,
-      type: /^\d+$/.test(cleanNewId) ? 'numeric' : 'alphanumeric',
-      primary: true,
-      isActive: true,
-      createdAt: timestamp,
-      assignedBy: 'system-id-change'
-    });
-    
-    console.log(`🔒 ID ${oldId} permanently assigned to user ${cleanNewId} (never freed)`);
+    // Add old ID to freed IDs for reuse (using freeUserId helper)
+    await freeUserId(oldId);
+    console.log(`♻️ Old user ID ${oldId} freed for reuse`);
 
     return c.json({
       success: true,
@@ -8994,98 +7089,6 @@ app.post('/make-server-05aa3c8a/admin/clean-broken-refs', async (c) => {
     });
   } catch (error) {
     console.error('Error cleaning broken references:', error);
-    return c.json({ success: false, error: String(error) }, 500);
-  }
-});
-
-// Rebuild team relationships based on sponsorId (fix missing team members)
-app.post('/make-server-05aa3c8a/admin/rebuild-relationships', async (c) => {
-  try {
-    const userId = c.req.header('X-User-Id');
-    if (!userId) {
-      return c.json({ success: false, error: 'Не авторизован' }, 401);
-    }
-
-    const currentUser = await kv.get(`user:id:${userId}`);
-    if (!currentUser?.isAdmin) {
-      return c.json({ success: false, error: 'Доступ запрещён' }, 403);
-    }
-
-    console.log('🔧 Starting relationship rebuild...');
-
-    // Get all users
-    const allUsers = await kv.getByPrefix('user:id:');
-    console.log(`📋 Loaded ${allUsers.length} users from database`);
-
-    // Create maps for fast lookup
-    const userById = new Map();
-    const usersBySponsorId = new Map(); // sponsorId -> list of children
-    
-    for (const user of allUsers) {
-      userById.set(user.id, user);
-      
-      // Group users by their sponsor
-      const sponsorId = user.спонсорId;
-      if (sponsorId) {
-        if (!usersBySponsorId.has(sponsorId)) {
-          usersBySponsorId.set(sponsorId, []);
-        }
-        usersBySponsorId.get(sponsorId).push(user.id);
-      }
-    }
-    
-    console.log(`📋 Found ${usersBySponsorId.size} sponsors with children`);
-
-    let fixedUsers = 0;
-    let addedReferences = 0;
-    const repairLog: string[] = [];
-
-    // For each user, ensure their команда array contains all children who have them as sponsor
-    for (const [sponsorId, childIds] of usersBySponsorId.entries()) {
-      const sponsor = userById.get(sponsorId);
-      
-      if (!sponsor) {
-        console.log(`⚠️ Sponsor ${sponsorId} not found, but has children: ${childIds.join(', ')}`);
-        repairLog.push(`⚠️ Спонсор ${sponsorId} не найден, но на него ссылаются: ${childIds.join(', ')}`);
-        continue;
-      }
-      
-      // Initialize команда if not exists
-      if (!Array.isArray(sponsor.команда)) {
-        sponsor.команда = [];
-      }
-      
-      let needsUpdate = false;
-      const originalTeam = [...sponsor.команда];
-      
-      for (const childId of childIds) {
-        if (!sponsor.команда.includes(childId)) {
-          sponsor.команда.push(childId);
-          needsUpdate = true;
-          addedReferences++;
-          console.log(`   ✅ Added ${childId} to ${sponsorId}'s team`);
-        }
-      }
-      
-      if (needsUpdate) {
-        await kv.set(`user:id:${sponsorId}`, sponsor);
-        fixedUsers++;
-        repairLog.push(`✅ ${sponsor.имя || sponsorId}: добавлено ${sponsor.команда.length - originalTeam.length} участников (было: ${originalTeam.length}, стало: ${sponsor.команда.length})`);
-        console.log(`   🔧 Fixed ${sponsor.id}: [${originalTeam.join(', ')}] → [${sponsor.команда.join(', ')}]`);
-      }
-    }
-
-    console.log(`✅ Rebuild complete: ${fixedUsers} users fixed, ${addedReferences} references added`);
-
-    return c.json({
-      success: true,
-      message: `Восстановление завершено: обновлено ${fixedUsers} пользователей, добавлено ${addedReferences} связей`,
-      fixedUsers,
-      addedReferences,
-      log: repairLog
-    });
-  } catch (error) {
-    console.error('Error rebuilding relationships:', error);
     return c.json({ success: false, error: String(error) }, 500);
   }
 });
@@ -9516,37 +7519,6 @@ app.post('/make-server-05aa3c8a/admin/change-user-id', async (c) => {
 
     // 🔧 STEP 3: Update the user's own ID record
     oldUser.id = newId;
-    
-    // 🆕 НОВАЯ ЛОГИКА: Инициализируем массив codes и добавляем старый ID
-    if (!oldUser.codes) {
-      oldUser.codes = [];
-    }
-    
-    // Добавляем старый ID в массив кодов (если его там нет)
-    const hasOldCode = oldUser.codes.some((c: any) => c.value === actualOldId);
-    if (!hasOldCode) {
-      oldUser.codes.push({
-        value: actualOldId,
-        type: /^\d+$/.test(actualOldId) ? "numeric" : "alphanumeric",
-        primary: false, // Старый ID больше не основной
-        isActive: true, // Но остается активным!
-        createdAt: oldUser.датаРегистрации || new Date().toISOString(),
-        note: 'Сохранён при смене ID'
-      });
-    }
-    
-    // Добавляем новый ID в массив кодов как основной
-    const hasNewCode = oldUser.codes.some((c: any) => c.value === newId);
-    if (!hasNewCode) {
-      oldUser.codes.push({
-        value: newId,
-        type: /^\d+$/.test(newId) ? "numeric" : "alphanumeric",
-        primary: true,
-        isActive: true,
-        createdAt: new Date().toISOString()
-      });
-    }
-    
     await kv.set(`user:id:${newId}`, oldUser);
     console.log(`✅ Created new user record: user:id:${newId}`);
     
@@ -9554,32 +7526,14 @@ app.post('/make-server-05aa3c8a/admin/change-user-id', async (c) => {
     await kv.del(`user:id:${actualOldId}`);
     console.log(`🗑️ Deleted old user record: user:id:${actualOldId}`);
     
-    // 🆕 STEP 5: Создаём mapping для старого ID (НЕ освобождаем его!)
-    // Старый ID теперь навсегда привязан к этому пользователю
-    const oldIdMapping: CodeMapping = {
-      userId: newId, // Теперь указываем на новый ID пользователя
-      primary: false,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      type: /^\d+$/.test(actualOldId) ? "numeric" : "alphanumeric"
-    };
-    await kv.set(`id:code:${actualOldId}`, oldIdMapping);
-    console.log(`🔒 Created permanent mapping for old ID: ${actualOldId} → ${newId}`);
-    
-    // Создаём mapping для нового ID
-    const newIdMapping: CodeMapping = {
-      userId: newId,
-      primary: true,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      type: /^\d+$/.test(newId) ? "numeric" : "alphanumeric"
-    };
-    await kv.set(`id:code:${newId}`, newIdMapping);
-    console.log(`🔒 Created mapping for new ID: ${newId}`);
-    
-    // ⚠️ ВАЖНО: НЕ освобождаем старый ID для повторного использования!
-    // Старый ID остаётся привязанным к этому пользователю навсегда
-    console.log(`🔐 Old ID ${actualOldId} is permanently linked to user ${newId} (NOT freed for reuse)`);
+    // 🔧 STEP 5: Free the old ID for reuse (use actual ID from database)
+    if (actualOldId.length === 3 && /^\d+$/.test(actualOldId)) {
+      await freePartnerId(actualOldId);
+      console.log(`♻️ Freed old partner ID ${actualOldId}`);
+    } else {
+      await freeUserId(actualOldId);
+      console.log(`♻️ Freed old user ID ${actualOldId}`);
+    }
 
     // 🔍 STEP 6: VALIDATION - Check data integrity after changes
     const validationErrors: string[] = [];
@@ -9799,111 +7753,6 @@ app.post("/make-server-05aa3c8a/admin/migrate-activity", async (c) => {
   }
 });
 
-// 🔄 Migrate KV earnings to SQL table
-app.post("/make-server-05aa3c8a/admin/migrate-earnings-to-sql", async (c) => {
-  try {
-    const currentUser = await verifyUser(c.req.header('X-User-Id'));
-    await requireAdmin(c, currentUser);
-    
-    console.log('🔄 Starting KV→SQL earnings migration...');
-    
-    // Get all earnings from KV
-    const kvEarnings = await kv.getByPrefix('earning:');
-    const earningsArray = Array.isArray(kvEarnings) ? kvEarnings : [];
-    
-    // Filter out duplicates (some are stored with user prefix)
-    const uniqueEarnings = new Map();
-    for (const e of earningsArray) {
-      if (e.id && e.userId && e.amount) {
-        uniqueEarnings.set(e.id, e);
-      }
-    }
-    
-    console.log(`📊 Found ${uniqueEarnings.size} unique earnings in KV`);
-    
-    let migratedCount = 0;
-    let errorCount = 0;
-    
-    for (const [id, earning] of uniqueEarnings) {
-      try {
-        // Check if already exists in SQL (use maybeSingle to avoid error on no match)
-        const { data: existingRecords } = await supabase
-          .from('earnings')
-          .select('id')
-          .eq('order_id', earning.orderId || earning.id)
-          .eq('user_id', earning.userId)
-          .eq('level', earning.level || 'L0');  // Must match unique constraint
-        
-        if (existingRecords && existingRecords.length > 0) {
-          console.log(`⏭️ Skipping ${earning.userId}: already exists for order ${earning.orderId}`);
-          continue;
-        }
-        
-        // Insert into SQL
-        const { error: insertError } = await supabase
-          .from('earnings')
-          .insert({
-            user_id: earning.userId,
-            order_id: earning.orderId || earning.id,
-            amount: earning.amount || earning.сумма || 0,
-            level: earning.level || 'L0',
-            order_type: earning.isPartner ? 'partner' : 'guest',  // 🔥 Required field!
-            product_sku: earning.sku || null,
-            status: 'paid',
-            created_at: earning.createdAt || new Date().toISOString()
-          });
-        
-        if (insertError) {
-          console.error(`❌ Failed to insert earning for ${earning.userId}:`, insertError.message, JSON.stringify({
-            user_id: earning.userId,
-            order_id: earning.orderId || earning.id,
-            amount: earning.amount || earning.сумма || 0,
-            level: earning.level || 'L0',
-            order_type: earning.isPartner ? 'partner' : 'guest'
-          }));
-          errorCount++;
-        } else {
-          migratedCount++;
-          console.log(`✅ Migrated earning: ${earning.amount}₽ → ${earning.userId} (order: ${earning.orderId})`);
-        }
-      } catch (e) {
-        console.error(`❌ Error processing earning ${id}:`, e, JSON.stringify(earning));
-        errorCount++;
-      }
-    }
-    
-    console.log(`🎉 Migration complete: ${migratedCount} migrated, ${errorCount} errors`);
-    
-    // Collect first 5 samples for debugging
-    const sampleEarnings: any[] = [];
-    let i = 0;
-    for (const [id, earning] of uniqueEarnings) {
-      if (i++ < 5) {
-        sampleEarnings.push({
-          id: earning.id,
-          userId: earning.userId,
-          orderId: earning.orderId,
-          amount: earning.amount,
-          level: earning.level,
-          isPartner: earning.isPartner
-        });
-      }
-    }
-    
-    return c.json({ 
-      success: true, 
-      message: `Migration complete: ${migratedCount} earnings migrated, ${errorCount} errors`,
-      totalKvEarnings: uniqueEarnings.size,
-      migratedCount,
-      errorCount,
-      sampleEarnings
-    });
-  } catch (error) {
-    console.error('❌ Earnings migration error:', error);
-    return c.json({ error: `Migration failed: ${error}` }, 500);
-  }
-});
-
 // Recalculate all ranks (admin only)
 app.post("/make-server-05aa3c8a/admin/recalculate-ranks", async (c) => {
   try {
@@ -10014,220 +7863,355 @@ app.post("/make-server-05aa3c8a/admin/recalculate-ranks", async (c) => {
 // ======================
 
 /**
- * 🚀 DUAL-QUERY LEDGER ARCHITECTURE for /users/optimized
- * 
- * KEY FEATURES:
- * - Two SQL queries: one for rows (paginated), one for stats (totals)
- * - Real balance calculated from earnings - locked_payouts - paid_payouts
- * - No legacy profiles.balance or u.баланс - SQL ledger is the SINGLE SOURCE OF TRUTH
- * - UUID MODE: Fast exact match using B-Tree indexes
- * - TEXT MODE: Hybrid prefix/substring - short queries (<3 chars) use 'term%', longer use '%term%'
- * - Parameterized queries for security and index optimization
- */
-
-/**
- * 🚀 USERS/OPTIMIZED - KV Store + SQL Ledger Balance
- * 
- * ARCHITECTURE:
- * - User profiles from KV store (user:id:*) - the source of truth for user data
- * - Ledger balances from SQL (earnings - locked_payouts - paid_payouts)
- * - Combines both to return users with accurate ledger-based balances
+ * 🚀 Оптимизированная загрузка пользователей с кэшированными метриками
+ * Используется новым компонентом UsersManagementOptimized
  */
 app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
-  c.header('Cache-Control', 'no-store, no-cache, must-revalidate');
-  
   try {
-    // === STEP 1: AUTH & PARAMS ===
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
-    
-    // Params
-    const q = (c.req.query('search') ?? '').trim().toLowerCase();
-    const limitParam = c.req.query('limit');
-    const pageParam = c.req.query('page');
-    const limit = Math.min(Math.max(Number(limitParam) || 50, 1), 200);
-    const page = Math.max(Number(pageParam) || 1, 1);
-    const offset = (page - 1) * limit;
-    
+
+    const page = parseInt(c.req.query('page') || '1');
+    const limit = parseInt(c.req.query('limit') || '50');
+    const search = c.req.query('search') || '';
     const sortBy = c.req.query('sortBy') || 'created';
     const sortOrder = c.req.query('sortOrder') || 'desc';
-    const statsFilter = c.req.query('statsFilter') || '';
+    const statsFilter = c.req.query('statsFilter') || ''; // 🆕 Фильтр из виджетов
+
+    // Проверяем кэш страницы (включая statsFilter)
+    const cacheKey = `users_page:${page}:${limit}:${search}:${sortBy}:${sortOrder}:${statsFilter}`;
+    const cached = await kv.get(cacheKey);
     
-    console.log(`📊 KV+LEDGER: page=${page}, limit=${limit}, search="${q}", sortBy=${sortBy}, statsFilter=${statsFilter}`);
-    
-    // === STEP 2: GET USERS FROM KV STORE ===
-    const kvUsers = await kv.getByPrefix('user:id:');
-    const userArray = Array.isArray(kvUsers) ? kvUsers : [];
-    
-    // Filter out admins
-    let allUsers = userArray.filter((u: any) => !isUserAdmin(u));
-    
-    console.log(`📊 Found ${allUsers.length} non-admin users in KV store`);
-    
-    // === STEP 3: GET LEDGER BALANCES FROM SQL ===
-    const userIds = allUsers.map((u: any) => u.id).filter(Boolean);
-    
-    // Fetch earnings and payouts for all users (with error handling)
-    let earningsData: any[] = [];
-    let payoutsData: any[] = [];
-    
-    try {
-      const [earningsRes, payoutsRes] = await Promise.all([
-        supabase.from('earnings').select('user_id, amount').in('user_id', userIds),
-        supabase.from('payouts').select('user_id, amount, status').in('user_id', userIds)
-      ]);
-      earningsData = earningsRes.data || [];
-      payoutsData = payoutsRes.data || [];
-      console.log(`📊 SQL LEDGER: ${earningsData.length} earnings, ${payoutsData.length} payouts`);
-    } catch (sqlErr) {
-      console.error('❌ SQL LEDGER ERROR:', sqlErr);
-      // Continue with empty arrays - balances will be 0
-    }
-    
-    // Calculate ledger balances: earnings - locked - paid
-    const earningsByUser = new Map<string, number>();
-    const lockedByUser = new Map<string, number>();
-    const paidByUser = new Map<string, number>();
-    
-    earningsData.forEach((e: any) => {
-      earningsByUser.set(e.user_id, (earningsByUser.get(e.user_id) || 0) + Number(e.amount));
-    });
-    
-    payoutsData.forEach((p: any) => {
-      const status = p.status;
-      if (['pending', 'approved', 'processing'].includes(status)) {
-        lockedByUser.set(p.user_id, (lockedByUser.get(p.user_id) || 0) + Number(p.amount));
-      } else if (['paid', 'completed'].includes(status)) {
-        paidByUser.set(p.user_id, (paidByUser.get(p.user_id) || 0) + Number(p.amount));
+    if (cached && cached.timestamp) {
+      const cacheAge = Date.now() - new Date(cached.timestamp).getTime();
+      if (cacheAge < 5 * 60 * 1000) { // 5 минут
+        console.log(`✅ Cache hit for page ${page}`);
+        return c.json(cached.data);
       }
-    });
+    }
+
+    console.log(`📊 Loading optimized users page ${page} with statsFilter: ${statsFilter}...`);
+
+    // 🎯 КРИТИЧЕСКАЯ ОПТИМИЗАЦИЯ #1: Кэш списка всех пользователей (2 минуты)
+    const ALL_USERS_CACHE_KEY = 'cache:all_users_list';
+    const ALL_USERS_CACHE_TTL = 2 * 60 * 1000;
     
-    console.log(`📊 LEDGER MAPS: ${earningsByUser.size} users with earnings, ${lockedByUser.size} locked, ${paidByUser.size} paid`);
+    let allUsersCache = await kv.get(ALL_USERS_CACHE_KEY);
+    let users: any[];
     
-    // === STEP 4: AUGMENT USERS WITH LEDGER BALANCE ===
-    let users = allUsers.map((u: any) => {
-      const rb = Math.round(((earningsByUser.get(u.id) || 0) - (lockedByUser.get(u.id) || 0) - (paidByUser.get(u.id) || 0)) * 100) / 100;
-      return {
-        ...u,
-        // Ledger Balances (single source of truth) - OVERWRITE legacy
-        real_balance: rb,
-        balance: rb,
-        available_balance: rb,
-        balance_source: "ledger",
-        баланс: rb,
-        доступныйБаланс: rb
-      };
-    });
-    
-    // === STEP 5: APPLY SEARCH FILTER ===
-    if (q.length > 0) {
-      users = users.filter((u: any) => {
-        const id = (u.id || '').toLowerCase();
-        const email = (u.email || u.почта || '').toLowerCase();
-        const firstName = (u.first_name || u.имя || '').toLowerCase();
-        const lastName = (u.last_name || u.фамилия || '').toLowerCase();
-        const phone = (u.phone || u.телефон || '').toLowerCase();
+    if (allUsersCache && allUsersCache.timestamp) {
+      const cacheAge = Date.now() - new Date(allUsersCache.timestamp).getTime();
+      if (cacheAge < ALL_USERS_CACHE_TTL) {
+        console.log(`✅ Using cached all users (age: ${Math.round(cacheAge/1000)}s)`);
+        users = allUsersCache.users;
+      } else {
+        const allUsers = await kv.getByPrefix('user:id:');
+        users = allUsers.filter((u: any) => !isUserAdmin(u));
+        await kv.set(ALL_USERS_CACHE_KEY, { users, timestamp: new Date().toISOString() });
+      }
+    } else {
+      const allUsers = await kv.getByPrefix('user:id:');
+      users = allUsers.filter((u: any) => !isUserAdmin(u));
+      await kv.set(ALL_USERS_CACHE_KEY, { users, timestamp: new Date().toISOString() });
+    }
+
+    // Применяем поиск
+    let filteredUsers = users;
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filteredUsers = users.filter((u: any) => 
+        u.имя?.toLowerCase().includes(searchLower) ||
+        u.фамилия?.toLowerCase().includes(searchLower) ||
+        u.email?.toLowerCase().includes(searchLower) ||
+        u.телефон?.includes(search) ||
+        u.id?.includes(search)
+      );
+    }
+
+    // 🎯 Применяем фильтр из виджетов статистики
+    if (statsFilter && statsFilter !== 'all') {
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      
+      // Для фильтров по заказам загружаем их один раз
+      let allOrders: any[] = [];
+      if (statsFilter === 'activeUsers' || statsFilter === 'passiveUsers') {
+        allOrders = await kv.getByPrefix('order:');
+      }
+      
+      switch (statsFilter) {
+        case 'newToday':
+          filteredUsers = filteredUsers.filter((u: any) => {
+            const regDate = new Date(u.зарегистрирован || u.createdAt || 0);
+            return regDate >= todayStart;
+          });
+          break;
+          
+        case 'newThisMonth':
+          filteredUsers = filteredUsers.filter((u: any) => {
+            const regDate = new Date(u.зарегистрирован || u.createdAt || 0);
+            return regDate >= monthStart;
+          });
+          break;
+          
+        case 'activePartners':
+          // Те, кто подключил хотя бы 1 реферала в текущем месяце
+          filteredUsers = filteredUsers.filter((u: any) => {
+            if (!u.команда || u.команда.length === 0) return false;
+            // Считаем рефералов, зарегистрированных в текущем месяце
+            const newRefsThisMonth = u.команда.filter((refId: string) => {
+              const ref = users.find((usr: any) => usr.id === refId);
+              if (!ref) return false;
+              const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
+              return refDate >= monthStart;
+            });
+            return newRefsThisMonth.length > 0;
+          });
+          break;
+          
+        case 'passivePartners':
+          // Те, кто НЕ подключил ни одного реферала в текущем месяце
+          filteredUsers = filteredUsers.filter((u: any) => {
+            if (!u.команда || u.команда.length === 0) return true;
+            // Считаем рефералов, зарегистрированных в текущем месяце
+            const newRefsThisMonth = u.команда.filter((refId: string) => {
+              const ref = users.find((usr: any) => usr.id === refId);
+              if (!ref) return false;
+              const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
+              return refDate >= monthStart;
+            });
+            return newRefsThisMonth.length === 0;
+          });
+          break;
+          
+        case 'activeUsers':
+          // Сделали хотя бы 1 заказ в текущем месяце
+          const ordersThisMonth = allOrders.filter((o: any) => {
+            const orderDate = new Date(o.датаЗаказа || o.дата || o.createdAt || 0);
+            return orderDate >= monthStart;
+          });
+          const activeUserIds = new Set(ordersThisMonth.map((o: any) => o.продавецId).filter(Boolean));
+          filteredUsers = filteredUsers.filter((u: any) => activeUserIds.has(u.id));
+          break;
+          
+        case 'passiveUsers':
+          // НЕ сделали ни одного заказа в текущем месяце
+          const ordersThisMonth2 = allOrders.filter((o: any) => {
+            const orderDate = new Date(o.датаЗаказа || o.дата || o.createdAt || 0);
+            return orderDate >= monthStart;
+          });
+          const activeUserIds2 = new Set(ordersThisMonth2.map((o: any) => o.продавецId).filter(Boolean));
+          filteredUsers = filteredUsers.filter((u: any) => !activeUserIds2.has(u.id));
+          break;
+          
+        case 'totalBalance':
+          // Для totalBalance просто сортируем по балансу, не фильтруем
+          break;
+      }
+    }
+
+    // 🎯 ОПТИМИЗАЦИЯ #2: Если сортировка не требует метрик - пагинируем СНАЧАЛА
+    if (sortBy === 'name' || sortBy === 'balance' || sortBy === 'created') {
+      // 🎯 Применяем специальную сортировку для фильтров виджетов
+      if (statsFilter && statsFilter !== 'all') {
+        const now = new Date();
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
         
-        return id.includes(q) || email.includes(q) || firstName.includes(q) || lastName.includes(q) || phone.includes(q);
+        switch (statsFilter) {
+          case 'newThisMonth':
+            // От новых к старым (позже зарегистрированных к началу месяца)
+            filteredUsers.sort((a: any, b: any) => {
+              const dateA = new Date(a.зарегистрирован || a.createdAt || 0).getTime();
+              const dateB = new Date(b.зарегистрирован || b.createdAt || 0).getTime();
+              return dateB - dateA; // DESC (новые первые)
+            });
+            break;
+            
+          case 'totalBalance':
+            // От большего баланса к меньшему
+            filteredUsers.sort((a: any, b: any) => (b.баланс || 0) - (a.баланс || 0));
+            break;
+            
+          case 'activePartners':
+            // От большего количества новых рефералов к меньшему
+            filteredUsers.sort((a: any, b: any) => {
+              const countA = (a.команда || []).filter((refId: string) => {
+                const ref = users.find((u: any) => u.id === refId);
+                if (!ref) return false;
+                const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
+                return refDate >= monthStart;
+              }).length;
+              const countB = (b.команда || []).filter((refId: string) => {
+                const ref = users.find((u: any) => u.id === refId);
+                if (!ref) return false;
+                const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
+                return refDate >= monthStart;
+              }).length;
+              return countB - countA;
+            });
+            break;
+            
+          case 'activeUsers':
+            // От большего количества покупок к меньшему
+            {
+              const allOrders = await kv.getByPrefix('order:');
+              const ordersThisMonth = allOrders.filter((o: any) => {
+                const orderDate = new Date(o.датаЗаказа || o.дата || o.createdAt || 0);
+                return orderDate >= monthStart;
+              });
+              
+              filteredUsers.sort((a: any, b: any) => {
+                const ordersA = ordersThisMonth.filter((o: any) => o.продавецId === a.id).length;
+                const ordersB = ordersThisMonth.filter((o: any) => o.продавецId === b.id).length;
+                return ordersB - ordersA;
+              });
+            }
+            break;
+            
+          default:
+            // Для остальных фильтров - обычная сортировка
+            filteredUsers.sort((a: any, b: any) => {
+              let comparison = 0;
+              switch (sortBy) {
+                case 'name':
+                  comparison = (a.имя || '').localeCompare(b.имя || '');
+                  break;
+                case 'balance':
+                  comparison = (b.баланс || 0) - (a.баланс || 0);
+                  break;
+                case 'created':
+                default:
+                  comparison = new Date(b.зарегистрирован || 0).getTime() - new Date(a.зарегистрирован || 0).getTime();
+              }
+              return sortOrder === 'asc' ? -comparison : comparison;
+            });
+        }
+      } else {
+        // Обычная сортировка без фильтра
+        filteredUsers.sort((a: any, b: any) => {
+          let comparison = 0;
+          switch (sortBy) {
+            case 'name':
+              comparison = (a.имя || '').localeCompare(b.имя || '');
+              break;
+            case 'balance':
+              comparison = (b.баланс || 0) - (a.баланс || 0);
+              break;
+            case 'created':
+            default:
+              comparison = new Date(b.зарегистрирован || 0).getTime() - new Date(a.зарегистрирован || 0).getTime();
+          }
+          return sortOrder === 'asc' ? -comparison : comparison;
+        });
+      }
+      
+      // Пагинируем ДО загрузки метрик
+      const total = filteredUsers.length;
+      const totalPages = Math.ceil(total / limit);
+      const start = (page - 1) * limit;
+      const end = start + limit;
+      const paginatedUsers = filteredUsers.slice(start, end);
+      
+      // ⚡ КРИТИЧЕСКОЕ УСКОРЕНИЕ: НЕ загружаем метрики на быстром пути
+      // Клиент сам догрузит ранги через getUserRank API
+      // Это экономит ~500-1000ms на страницу
+      
+      // 📊 Рассчитываем статистику
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      
+      // Для активных/пассивных по покупкам
+      const allOrders = await kv.getByPrefix('order:');
+      const ordersThisMonth = allOrders.filter((o: any) => {
+        const orderDate = new Date(o.датаЗаказа || o.дата || o.createdAt || 0);
+        return orderDate >= thisMonth;
+      });
+      const activeUserIdsSet = new Set(ordersThisMonth.map((o: any) => o.продавецId).filter(Boolean));
+      
+      // Активные партнёры - кто подключил хотя бы 1 реферала в текущем месяце
+      const activePartners = users.filter((u: any) => {
+        if (!u.команда || u.команда.length === 0) return false;
+        return u.команда.some((refId: string) => {
+          const ref = users.find((usr: any) => usr.id === refId);
+          if (!ref) return false;
+          const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
+          return refDate >= thisMonth;
+        });
+      }).length;
+      
+      // Пассивные партнёры - кто не подключил ни одного реферала в текущем месяце
+      const passivePartners = users.filter((u: any) => {
+        if (!u.команда || u.команда.length === 0) return true;
+        return !u.команда.some((refId: string) => {
+          const ref = users.find((usr: any) => usr.id === refId);
+          if (!ref) return false;
+          const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
+          return refDate >= thisMonth;
+        });
+      }).length;
+      
+      const stats = {
+        totalUsers: users.length,
+        newToday: users.filter((u: any) => new Date(u.зарегистрирован || u.createdAt) >= today).length,
+        newThisMonth: users.filter((u: any) => new Date(u.зарегистрирован || u.createdAt) >= thisMonth).length,
+        activePartners,
+        passivePartners,
+        activeUsers: users.filter((u: any) => activeUserIdsSet.has(u.id)).length,
+        passiveUsers: users.filter((u: any) => !activeUserIdsSet.has(u.id)).length,
+        totalBalance: users.reduce((sum: number, u: any) => sum + (u.баланс || 0), 0),
+      };
+      
+      console.log(`⚡ ULTRA-FAST path: ${paginatedUsers.length} users (page ${page}/${totalPages}) - NO METRICS LOADED`);
+      
+      return c.json({
+        success: true,
+        users: paginatedUsers, // Возвращаем без метрик для максимальной скорости
+        pagination: { page, limit, total, totalPages, hasMore: page < totalPages },
+        stats
       });
     }
     
-    // === STEP 6: APPLY STATS FILTER ===
+    // Медленный путь: сортировка по метрикам
+    console.log(`⚠️ Loading metrics for ${filteredUsers.length} users (sorting by ${sortBy})`);
+    
+    const usersWithMetrics = await Promise.all(
+      filteredUsers.map(async (user: any) => {
+        const metrics = await metricsCache.getUserMetrics(user.id);
+        return { ...user, _metrics: metrics };
+      })
+    );
+
+    // Сортировка по метрикам
+    usersWithMetrics.sort((a: any, b: any) => {
+      let comparison = 0;
+      switch (sortBy) {
+        case 'rank':
+          comparison = (b._metrics?.rank || 0) - (a._metrics?.rank || 0);
+          break;
+        case 'teamSize':
+          comparison = (b._metrics?.totalTeamSize || 0) - (a._metrics?.totalTeamSize || 0);
+          break;
+        default:
+          comparison = 0;
+      }
+      return sortOrder === 'asc' ? -comparison : comparison;
+    });
+
+    // Пагинация
+    const total = usersWithMetrics.length;
+    const totalPages = Math.ceil(total / limit);
+    const start = (page - 1) * limit;
+    const end = start + limit;
+    const paginatedUsers = usersWithMetrics.slice(start, end);
+
+    // 📊 Рассчитываем статистику
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     
-    if (statsFilter) {
-      switch (statsFilter) {
-        case 'newToday':
-          users = users.filter((u: any) => new Date(u.зарегистрирован || u.createdAt || u.created_at) >= today);
-          break;
-        case 'newThisMonth':
-          users = users.filter((u: any) => new Date(u.зарегистрирован || u.createdAt || u.created_at) >= thisMonth);
-          break;
-        case 'activePartners':
-          users = users.filter((u: any) => {
-            if (!u.команда || u.команда.length === 0) return false;
-            return u.команда.some((refId: string) => {
-              const ref = allUsers.find((usr: any) => usr.id === refId);
-              if (!ref) return false;
-              const refDate = new Date(ref.зарегистрирован || ref.createdAt || ref.created_at || 0);
-              return refDate >= thisMonth;
-            });
-          });
-          break;
-        case 'passivePartners':
-          users = users.filter((u: any) => {
-            if (!u.команда || u.команда.length === 0) return true;
-            return !u.команда.some((refId: string) => {
-              const ref = allUsers.find((usr: any) => usr.id === refId);
-              if (!ref) return false;
-              const refDate = new Date(ref.зарегистрирован || ref.createdAt || ref.created_at || 0);
-              return refDate >= thisMonth;
-            });
-          });
-          break;
-      }
-    }
-    
-    // === STEP 7: APPLY SORTING ===
-    const ascending = sortOrder === 'asc';
-    switch (sortBy) {
-      case 'name':
-        users.sort((a, b) => {
-          const nameA = (a.first_name || a.имя || '').toLowerCase();
-          const nameB = (b.first_name || b.имя || '').toLowerCase();
-          return ascending ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
-        });
-        break;
-      case 'balance':
-        users.sort((a, b) => ascending ? a.real_balance - b.real_balance : b.real_balance - a.real_balance);
-        break;
-      case 'teamSize':
-        // Сортировка по количеству приглашённых в ЭТОМ МЕСЯЦЕ
-        users.sort((a, b) => {
-          const thisMonthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-          const countThisMonthA = Array.isArray(a.команда) ? a.команда.filter((refId: string) => {
-            const ref = allUsers.find((usr: any) => usr.id === refId);
-            if (!ref) return false;
-            const refDate = new Date(ref.зарегистрирован || ref.createdAt || ref.created_at || 0);
-            return refDate >= thisMonthStart;
-          }).length : 0;
-          const countThisMonthB = Array.isArray(b.команда) ? b.команда.filter((refId: string) => {
-            const ref = allUsers.find((usr: any) => usr.id === refId);
-            if (!ref) return false;
-            const refDate = new Date(ref.зарегистрирован || ref.createdAt || ref.created_at || 0);
-            return refDate >= thisMonthStart;
-          }).length : 0;
-          return ascending ? countThisMonthA - countThisMonthB : countThisMonthB - countThisMonthA;
-        });
-        break;
-      case 'rank':
-        users.sort((a, b) => {
-          const rankA = a.rank || a.ранг || 0;
-          const rankB = b.rank || b.ранг || 0;
-          return ascending ? rankA - rankB : rankB - rankA;
-        });
-        break;
-      case 'created':
-      default:
-        users.sort((a, b) => {
-          const dateA = new Date(a.зарегистрирован || a.createdAt || a.created_at || 0).getTime();
-          const dateB = new Date(b.зарегистрирован || b.createdAt || b.created_at || 0).getTime();
-          return ascending ? dateA - dateB : dateB - dateA;
-        });
-        break;
-    }
-    
-    // === STEP 8: CALCULATE STATS ===
-    const totalBalance = users.reduce((sum: number, u: any) => sum + (u.real_balance || 0), 0);
-    const totalFiltered = users.length;
-    
-    // === STEP 9: APPLY PAGINATION ===
-    const paginatedUsers = users.slice(offset, offset + limit);
-    const totalPages = Math.ceil(totalFiltered / limit);
-    
-    // === STEP 10: CALCULATE ADDITIONAL STATS ===
+    // Для активных/пассивных по покупкам
     const allOrders = await kv.getByPrefix('order:');
     const ordersThisMonth = allOrders.filter((o: any) => {
       const orderDate = new Date(o.датаЗаказа || o.дата || o.createdAt || 0);
@@ -10235,48 +8219,51 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
     });
     const activeUserIdsSet = new Set(ordersThisMonth.map((o: any) => o.продавецId).filter(Boolean));
     
-    const activePartners = allUsers.filter((u: any) => {
+    // Активные партнёры - кто подключил хотя бы 1 реферала в текущем месяце
+    const activePartners = users.filter((u: any) => {
       if (!u.команда || u.команда.length === 0) return false;
       return u.команда.some((refId: string) => {
-        const ref = allUsers.find((usr: any) => usr.id === refId);
+        const ref = users.find((usr: any) => usr.id === refId);
         if (!ref) return false;
-        const refDate = new Date(ref.зарегистрирован || ref.createdAt || ref.created_at || 0);
+        const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
         return refDate >= thisMonth;
       });
     }).length;
     
-    const passivePartners = allUsers.filter((u: any) => {
+    // Пассивные партнёры - кто не подключил ни одного реферала в текущем месяце
+    const passivePartners = users.filter((u: any) => {
       if (!u.команда || u.команда.length === 0) return true;
       return !u.команда.some((refId: string) => {
-        const ref = allUsers.find((usr: any) => usr.id === refId);
+        const ref = users.find((usr: any) => usr.id === refId);
         if (!ref) return false;
-        const refDate = new Date(ref.зарегистрирован || ref.createdAt || ref.created_at || 0);
+        const refDate = new Date(ref.зарегистрирован || ref.createdAt || 0);
         return refDate >= thisMonth;
       });
     }).length;
     
     const stats = {
-      totalUsers: allUsers.length,
-      newToday: allUsers.filter((u: any) => new Date(u.зарегистрирован || u.createdAt || u.created_at) >= today).length,
-      newThisMonth: allUsers.filter((u: any) => new Date(u.зарегистрирован || u.createdAt || u.created_at) >= thisMonth).length,
+      totalUsers: users.length,
+      newToday: users.filter((u: any) => new Date(u.зарегистрирован || u.createdAt) >= today).length,
+      newThisMonth: users.filter((u: any) => new Date(u.зарегистрирован || u.createdAt) >= thisMonth).length,
       activePartners,
       passivePartners,
-      activeUsers: allUsers.filter((u: any) => activeUserIdsSet.has(u.id)).length,
-      passiveUsers: allUsers.filter((u: any) => !activeUserIdsSet.has(u.id)).length,
-      totalBalance: Math.round(totalBalance * 100) / 100, // 🔥 FROM SQL LEDGER
+      activeUsers: users.filter((u: any) => activeUserIdsSet.has(u.id)).length,
+      passiveUsers: users.filter((u: any) => !activeUserIdsSet.has(u.id)).length,
+      totalBalance: users.reduce((sum: number, u: any) => sum + (u.баланс || 0), 0),
     };
-    
-    console.log(`✅ KV+LEDGER: ${paginatedUsers.length}/${totalFiltered} users, totalBalance=${stats.totalBalance}₽`);
-    
-    return c.json({
+
+    const result = {
       success: true,
       users: paginatedUsers,
-      pagination: { page, limit, total: totalFiltered, totalPages, hasMore: page < totalPages },
+      pagination: { page, limit, total, totalPages, hasMore: page < totalPages },
       stats
-    });
-    
+    };
+
+    console.log(`✅ Loaded ${paginatedUsers.length} users (page ${page}/${totalPages})`);
+
+    return c.json(result);
   } catch (error) {
-    console.error('❌ KV+LEDGER error:', error);
+    console.error('❌ Optimized users load error:', error);
     return c.json({ error: `${error}` }, 500);
   }
 });
@@ -10641,22 +8628,19 @@ app.post("/make-server-05aa3c8a/admin/recalculate-all-ranks", async (c) => {
       calculateRank(user.id);
     }
     
-    // Обновляем в БД и кэш
+    // Обновляем в БД
     const updates = [];
     
     for (const user of users) {
       const correctRank = calculatedRanks.get(user.id) || 0;
       const oldRank = user.уровень || 0;
       
-      // ✅ ВСЕГДА обновляем кэш ранга (даже если user.уровень уже правильный)
-      // Это исправляет ситуацию, когда кэш rank:user:{id} содержит устаревшее значение
-      await kv.set(`rank:user:${user.id}`, correctRank);
-      
       if (oldRank !== correctRank) {
         user.уровень = correctRank;
         await kv.set(`user:id:${user.id}`, user);
         
-        // Очищаем кэш метрик (они будут пересчитаны)
+        // Очищаем кэш
+        await kv.del(`rank:user:${user.id}`);
         await kv.del(`user_metrics:${user.id}`);
         
         updates.push({
@@ -10669,8 +8653,6 @@ app.post("/make-server-05aa3c8a/admin/recalculate-all-ranks", async (c) => {
         console.log(`✅ Updated ${user.id} (${user.имя}): ${oldRank} → ${correctRank}`);
       }
     }
-    
-    console.log(`✅ Rank cache updated for all ${users.length} users`);
     
     console.log('\n' + '='.repeat(100));
     console.log(`✅ ПЕРЕСЧЕТ ЗАВЕРШЕН:`);
@@ -10688,112 +8670,6 @@ app.post("/make-server-05aa3c8a/admin/recalculate-all-ranks", async (c) => {
     console.error('❌ Recalculation error:', error);
     return c.json({ error: `${error}` }, 500);
   }
-});
-
-/**
- * 🧪 ТЕСТ: Проверка логики рангов (без изменения данных)
- * Показывает примеры правильного расчёта для понимания логики
- */
-app.get("/make-server-05aa3c8a/admin/test-rank-logic", async (c) => {
-  console.log('\n' + '='.repeat(80));
-  console.log('🧪 ТЕСТ ЛОГИКИ РАНГОВ');
-  console.log('='.repeat(80) + '\n');
-  
-  const examples = [
-    {
-      scenario: 'C: Новый пользователь без партнёров',
-      expected: 0,
-      explanation: 'команда = [] → ранг = 0'
-    },
-    {
-      scenario: 'B: Пользователь с одним партнёром C (без структуры)',
-      expected: 1,
-      explanation: 'команда = [C], C.ранг = 0 → ранг = max(0) + 1 = 1'
-    },
-    {
-      scenario: 'A: Пользователь с партнёром B, у B есть партнёр C',
-      expected: 2,
-      explanation: 'A.команда = [B], B.ранг = 1 → ранг = max(1) + 1 = 2'
-    },
-    {
-      scenario: 'TOP: A → B → C → D (цепочка из 4 уровней)',
-      expected: 3,
-      explanation: 'D=0, C=1, B=2, A=3 (глубина структуры вниз)'
-    }
-  ];
-  
-  console.log('📋 ПРАВИЛА РАСЧЁТА РАНГА:');
-  console.log('   1. Ранг = максимальная глубина структуры ВНИЗ от пользователя');
-  console.log('   2. Сам пользователь НЕ входит в расчёт глубины');
-  console.log('   3. Если потомков нет → ранг = 0');
-  console.log('   4. Если есть прямые партнёры → ранг = max(ранги партнёров) + 1');
-  console.log('\n📊 ПРИМЕРЫ:\n');
-  
-  for (const ex of examples) {
-    console.log(`   ${ex.scenario}`);
-    console.log(`   Ожидаемый ранг: ${ex.expected}`);
-    console.log(`   Логика: ${ex.explanation}`);
-    console.log('');
-  }
-  
-  // Находим реальные примеры в базе
-  const allUsers = await kv.getByPrefix('user:id:');
-  const users = allUsers.filter((u: any) => u.__type !== 'admin' && !u.isAdmin);
-  
-  const noTeamUsers = users.filter((u: any) => !u.команда || u.команда.length === 0);
-  const withTeamUsers = users.filter((u: any) => u.команда && u.команда.length > 0);
-  
-  console.log('📦 РЕАЛЬНЫЕ ДАННЫЕ В БАЗЕ:');
-  console.log(`   Всего пользователей: ${users.length}`);
-  console.log(`   Без команды (ожидается ранг 0): ${noTeamUsers.length}`);
-  console.log(`   С командой: ${withTeamUsers.length}`);
-  
-  // Проверяем несколько пользователей
-  const samples = [];
-  
-  // Берём 3 пользователя без команды
-  for (const user of noTeamUsers.slice(0, 3)) {
-    samples.push({
-      id: user.id,
-      name: `${user.имя} ${user.фамилия || ''}`,
-      teamSize: 0,
-      currentRank: user.уровень || 0,
-      expectedRank: 0,
-      isCorrect: (user.уровень || 0) === 0
-    });
-  }
-  
-  // Берём 3 пользователя с командой
-  for (const user of withTeamUsers.slice(0, 3)) {
-    samples.push({
-      id: user.id,
-      name: `${user.имя} ${user.фамилия || ''}`,
-      teamSize: user.команда.length,
-      currentRank: user.уровень || 0,
-      expectedRank: 'requires calculation'
-    });
-  }
-  
-  return c.json({
-    success: true,
-    rules: {
-      formula: 'ранг = max(ранги прямых партнёров) + 1',
-      noTeam: 'если команда пуста → ранг = 0',
-      withTeam: 'если есть партнёры → min ранг = 1'
-    },
-    examples,
-    realData: {
-      totalUsers: users.length,
-      noTeamUsers: noTeamUsers.length,
-      withTeamUsers: withTeamUsers.length,
-      samples
-    },
-    howToTest: {
-      step1: 'GET /admin/diagnose-ranks — покажет все проблемы с рангами',
-      step2: 'POST /admin/recalculate-all-ranks — пересчитает все ранги',
-      step3: 'GET /debug/user-rank/:userId — детальная диагностика для пользователя'
-    }
-  });
 });
 
 /**
@@ -10878,13 +8754,13 @@ app.post("/make-server-05aa3c8a/metrics/clear-cache", async (c) => {
     }
 
     // Очищаем кэш рангов
-    // Сначала получаем все ключи с префиксом rank:user:
-    const allUsers = await kv.getByPrefix('user:id:');
-    const users = allUsers.filter((u: any) => u.__type !== 'admin' && !u.isAdmin);
+    const rankKeys = await kv.getByPrefix('rank:user:');
     let ranksCleared = 0;
-    for (const user of users) {
-      await kv.del(`rank:user:${user.id}`);
-      ranksCleared++;
+    for (const item of rankKeys) {
+      if (item && typeof item === 'object' && 'userId' in item) {
+        await kv.del(`rank:user:${item.userId}`);
+        ranksCleared++;
+      }
     }
 
     // Очищаем кэш страниц
@@ -10929,307 +8805,264 @@ app.get("/make-server-05aa3c8a/users/:userId/metrics", async (c) => {
   }
 });
 
-/**
- * 🧪 DEBUG MLM TEST - Автотест математики комиссий
- * 
- * Создаёт тестовую структуру пользователей и прогоняет 3 сценария:
- * A) Гостевая продажа через партнёра
- * B) Партнёрская покупка 
- * C) Покупка через корзину (аналогично B)
- * 
- * Использование: POST /admin/debug-mlm-test
- */
-app.post("/make-server-05aa3c8a/admin/debug-mlm-test", async (c) => {
+// 💰 ADMIN FINANCE STATS - Алиас для /admin/stats с извлечением finance данных
+// DEPRECATED: Используйте /admin/stats вместо этого эндпоинта
+app.get("/make-server-05aa3c8a/admin/finance-stats", async (c) => {
+  try {
+    console.log('💰 Admin finance stats request received (using /admin/stats)');
+    
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    // Получаем данные из основного эндпоинта /admin/stats
+    const allUsers = await kv.getByPrefix('user:id:');
+    const allOrders = await kv.getByPrefix('order:');
+    const allWithdrawals = await kv.getByPrefix('withdrawal:');
+    const allEarnings = await kv.getByPrefix('earnings:');
+    
+    const now = new Date();
+    const users = allUsers.filter((u: any) => 
+      u.__type !== 'admin' && u.isAdmin !== true && u.роль !== 'admin'
+    );
+    
+    // Очистка невалидных заказов
+    let autoDeletedCount = 0;
+    const cleanOrders: any[] = [];
+    
+    for (const order of allOrders) {
+      let isValid = true;
+      if (order.дата) {
+        try {
+          const orderDate = new Date(order.дата);
+          if (isNaN(orderDate.getTime()) || orderDate > now) {
+            await kv.del(`order:${order.id}`);
+            if (order.покупательId) {
+              await kv.del(`order:user:${order.покупательId}:${order.id}`);
+            }
+            autoDeletedCount++;
+            isValid = false;
+          }
+        } catch (e) {
+          await kv.del(`order:${order.id}`);
+          if (order.покупательId) {
+            await kv.del(`order:user:${order.покупательId}:${order.id}`);
+          }
+          autoDeletedCount++;
+          isValid = false;
+        }
+      }
+      if (isValid) {
+        cleanOrders.push(order);
+      }
+    }
+    
+    const completedOrders = cleanOrders.filter((o: any) => 
+      o.статус === 'выполнен' || o.статус === 'completed'
+    );
+    const total_revenue = completedOrders.reduce((sum: number, o: any) => 
+      sum + (o.итого || o.totalPrice || 0), 0
+    );
+    
+    const users_balance_total = users.reduce((sum: number, u: any) => 
+      sum + (u.баланс || 0), 0
+    );
+    
+    const pendingWithdrawals = allWithdrawals.filter((w: any) => w.status === 'pending');
+    const completedWithdrawals = allWithdrawals.filter((w: any) => w.status === 'completed');
+    
+    const pending_payouts_sum = pendingWithdrawals.reduce((sum: number, w: any) => 
+      sum + (w.amount || 0), 0
+    );
+    const completed_payouts_sum = completedWithdrawals.reduce((sum: number, w: any) => 
+      sum + (w.amount || 0), 0
+    );
+    const total_earnings_distributed = allEarnings.reduce((sum: number, e: any) => 
+      sum + (e.сумма || e.amount || 0), 0
+    );
+    const net_profit = total_revenue - total_earnings_distributed;
+    
+    return c.json({
+      success: true,
+      stats: {
+        total_revenue,
+        users_balance_total,
+        pending_payouts_sum,
+        pending_payouts_count: pendingWithdrawals.length,
+        net_profit,
+        total_earnings_distributed,
+        completed_payouts_sum,
+        total_orders: cleanOrders.length,
+        completed_orders: completedOrders.length,
+        total_users: users.length
+      }
+    });
+  } catch (error) {
+    console.error('❌ Admin finance stats error:', error);
+    return c.json({ 
+      success: false,
+      error: `${error}` 
+    }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// 💸 ADMIN PAYOUT ACTION - Подтверждение или отклонение выплаты
+app.post("/make-server-05aa3c8a/admin/payout-action", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    console.log('\n' + '='.repeat(100));
-    console.log('🧪 MLM COMMISSION TEST - ПОЛНЫЙ АВТОТЕСТ');
-    console.log('='.repeat(100) + '\n');
+    const { withdrawalId, action, note } = await c.req.json();
     
-    const testPrefix = 'TEST_';
-    const timestamp = Date.now();
-    
-    // 1. Создаём тестовых пользователей (цепочка U001 → U002 → U003 → U004)
-    console.log('📋 ШАГ 1: Создание тестовой структуры пользователей...');
-    
-    const testUsers = [
-      { id: `${testPrefix}U001_${timestamp}`, имя: 'Тест Верх', спонсорId: null },
-      { id: `${testPrefix}U002_${timestamp}`, имя: 'Тест L1', спонсорId: `${testPrefix}U001_${timestamp}` },
-      { id: `${testPrefix}U003_${timestamp}`, имя: 'Тест L2', спонсорId: `${testPrefix}U002_${timestamp}` },
-      { id: `${testPrefix}U004_${timestamp}`, имя: 'Тест L3', спонсорId: `${testPrefix}U003_${timestamp}` }
-    ];
-    
-    for (const user of testUsers) {
-      const fullUser = {
-        id: user.id,
-        имя: user.имя,
-        фамилия: 'Тестовый',
-        email: `${user.id}@test.local`,
-        спонсорId: user.спонсорId,
-        баланс: 0,
-        уровень: 0,
-        датаРегистрации: new Date().toISOString(),
-        __test: true
-      };
-      await kv.set(`user:id:${user.id}`, fullUser);
-      console.log(`   ✅ Создан: ${user.id} (спонсор: ${user.спонсорId || 'нет'})`);
+    if (!withdrawalId || !action) {
+      return c.json({ success: false, error: 'Missing required fields' }, 400);
     }
     
-    // 2. Создаём тестовый товар H2-TEST
-    console.log('\n📦 ШАГ 2: Создание тестового товара H2-TEST...');
+    if (!['approve', 'reject'].includes(action)) {
+      return c.json({ success: false, error: 'Invalid action' }, 400);
+    }
     
-    const testProduct = {
-      sku: `H2-TEST-${timestamp}`,
-      название: 'Тестовый товар',
-      цена_розница: 10000,
-      цена1: 8000,
-      комиссии: { d0: 1000, d1: 500, d2: 300, d3: 100 },
-      __test: true
-    };
-    await kv.set(`product:id:${testProduct.sku}`, testProduct);
-    console.log(`   ✅ Товар создан: ${testProduct.sku}`);
-    console.log(`   💰 Комиссии: L0=1000, L1=500, L2=300, L3=100`);
+    // Получаем заявку на вывод
+    console.log(`🔍 Looking for withdrawal with ID: ${withdrawalId}`);
+    const withdrawal = await kv.get(`withdrawal:${withdrawalId}`);
     
-    const results: any = {
-      testUsers: testUsers.map(u => u.id),
-      testProduct: testProduct.sku,
-      scenarios: []
-    };
+    if (!withdrawal) {
+      console.error(`❌ Withdrawal not found: withdrawal:${withdrawalId}`);
+      return c.json({ success: false, error: 'Withdrawal not found' }, 404);
+    }
     
-    // 3. СЦЕНАРИЙ A: Гостевая продажа
-    console.log('\n' + '-'.repeat(80));
-    console.log('🧪 СЦЕНАРИЙ A: Гостевая продажа (U004 продаёт гостю)');
-    console.log('-'.repeat(80));
+    if (withdrawal.status !== 'pending') {
+      console.error(`❌ Withdrawal ${withdrawalId} is not pending, status: ${withdrawal.status}`);
+      return c.json({ success: false, error: `Withdrawal is not pending (current status: ${withdrawal.status})` }, 400);
+    }
     
-    const scenarioA = {
-      name: 'Гостевая продажа',
-      seller: testUsers[3].id, // U004
-      expected: {
-        [testUsers[3].id]: { level: 'L0', amount: 1000 },
-        [testUsers[2].id]: { level: 'L1', amount: 500 },
-        [testUsers[1].id]: { level: 'L2', amount: 300 },
-        [testUsers[0].id]: { level: 'L3', amount: 100 }
-      },
-      actual: {} as any,
-      passed: true,
-      errors: [] as string[]
-    };
+    const userId = withdrawal.userId;
+    const amount = withdrawal.amount;
     
-    // Имитируем createOrder + confirmOrder
-    const uplineA = await findUplineChain(testUsers[3].id);
-    console.log(`   📊 Upline chain: u0=${uplineA.u0}, u1=${uplineA.u1}, u2=${uplineA.u2}, u3=${uplineA.u3}`);
-    
-    const { price: priceA, payouts: payoutsA } = await calculatePayouts(0, false, testProduct.sku, uplineA);
-    console.log(`   💰 Payouts calculated:`, payoutsA);
-    
-    const orderIdA = `TEST-ORDER-A-${timestamp}`;
-    const комиссииA: any = {};
-    const комиссииУровниA: any = {};
-    payoutsA.forEach(p => {
-      комиссииA[p.userId] = p.amount;
-      комиссииУровниA[p.userId] = p.level;
-    });
-    
-    const orderA = {
-      id: orderIdA,
-      покупательId: testUsers[3].id,
-      sku: testProduct.sku,
-      цена: priceA,
-      комиссии: комиссииA,
-      комиссииУровни: комиссииУровниA,
-      партнёрскаяПокупка: false,
-      статус: 'paid',
-      __test: true
-    };
-    await kv.set(`order:${orderIdA}`, orderA);
-    
-    // Создаём earnings
-    const earningsA = await createEarningsFromOrder(orderA);
-    console.log(`   ✅ Earnings created: ${earningsA.length}`);
-    
-    // Проверяем результаты
-    for (const [userId, expected] of Object.entries(scenarioA.expected)) {
-      const earning = earningsA.find(e => e.userId === userId);
-      if (!earning) {
-        scenarioA.errors.push(`❌ ${userId}: НЕТ earning (ожидалось ${expected.level}=${expected.amount})`);
-        scenarioA.passed = false;
-      } else {
-        scenarioA.actual[userId] = { level: earning.level, amount: earning.amount };
-        if (earning.level !== expected.level || earning.amount !== expected.amount) {
-          scenarioA.errors.push(`❌ ${userId}: ${earning.level}=${earning.amount} (ожидалось ${expected.level}=${expected.amount})`);
-          scenarioA.passed = false;
-        } else {
-          console.log(`   ✅ ${userId}: ${earning.level}=${earning.amount} - OK`);
+    if (action === 'approve') {
+      // ✅ Подтверждаем выплату
+      withdrawal.status = 'completed';
+      withdrawal.note = note || 'Выплачено администратором';
+      withdrawal.completedAt = new Date().toISOString();
+      withdrawal.completedBy = currentUser.id;
+      withdrawal.processedByName = `${currentUser.имя || ''} ${currentUser.фамилия || ''}`.trim() || currentUser.email || currentUser.id;
+      
+      console.log(`✅ Withdrawal ${withdrawalId} approved: ₽${amount} for user ${userId} by admin ${currentUser.имя}`);
+      
+    } else if (action === 'reject') {
+      // ❌ Отклоняем и возвращаем деньги на баланс
+      withdrawal.status = 'rejected';
+      withdrawal.note = note || 'Отклонено администратором';
+      withdrawal.rejectedAt = new Date().toISOString();
+      withdrawal.rejectedBy = currentUser.id;
+      withdrawal.processedByName = `${currentUser.имя || ''} ${currentUser.фамилия || ''}`.trim() || currentUser.email || currentUser.id;
+      
+      // Возвращаем деньги пользователю
+      const user = await kv.get(`user:id:${userId}`);
+      if (user) {
+        const oldBalance = user.баланс || 0;
+        user.баланс = oldBalance + amount;
+        await kv.set(`user:id:${userId}`, user);
+        if (user.telegramId) {
+          await kv.set(`user:tg:${user.telegramId}`, user);
         }
-      }
-    }
-    
-    results.scenarios.push(scenarioA);
-    
-    // 4. СЦЕНАРИЙ B: Партнёрская покупка
-    console.log('\n' + '-'.repeat(80));
-    console.log('🧪 СЦЕНАРИЙ B: Партнёрская покупка (U004 покупает как партнёр)');
-    console.log('-'.repeat(80));
-    
-    const scenarioB = {
-      name: 'Партнёрская покупка',
-      buyer: testUsers[3].id, // U004
-      expected: {
-        // U004 НЕ получает L0!
-        [testUsers[2].id]: { level: 'L1', amount: 500 },
-        [testUsers[1].id]: { level: 'L2', amount: 300 },
-        [testUsers[0].id]: { level: 'L3', amount: 100 }
-      },
-      notExpected: [testUsers[3].id], // U004 не должен получить L0
-      actual: {} as any,
-      passed: true,
-      errors: [] as string[]
-    };
-    
-    const uplineB = await findUplineChain(testUsers[3].id);
-    const { price: priceB, payouts: payoutsB } = await calculatePayouts(0, true, testProduct.sku, uplineB);
-    console.log(`   💰 Payouts calculated:`, payoutsB);
-    
-    // Проверяем что U004 НЕ получает L0
-    const u004Payout = payoutsB.find(p => p.userId === testUsers[3].id);
-    if (u004Payout) {
-      scenarioB.errors.push(`❌ U004 получил L0=${u004Payout.amount} (НЕ должен!)`);
-      scenarioB.passed = false;
-    } else {
-      console.log(`   ✅ U004 НЕ получает L0 - OK`);
-    }
-    
-    const orderIdB = `TEST-ORDER-B-${timestamp}`;
-    const комиссииB: any = {};
-    const комиссииУровниB: any = {};
-    payoutsB.forEach(p => {
-      комиссииB[p.userId] = p.amount;
-      комиссииУровниB[p.userId] = p.level;
-    });
-    
-    const orderB = {
-      id: orderIdB,
-      покупательId: testUsers[3].id,
-      sku: testProduct.sku,
-      цена: priceB,
-      комиссии: комиссииB,
-      комиссииУровни: комиссииУровниB,
-      партнёрскаяПокупка: true,
-      статус: 'paid',
-      __test: true
-    };
-    await kv.set(`order:${orderIdB}`, orderB);
-    
-    const earningsB = await createEarningsFromOrder(orderB);
-    console.log(`   ✅ Earnings created: ${earningsB.length}`);
-    
-    // Проверяем результаты
-    for (const [userId, expected] of Object.entries(scenarioB.expected)) {
-      const earning = earningsB.find(e => e.userId === userId);
-      if (!earning) {
-        scenarioB.errors.push(`❌ ${userId}: НЕТ earning (ожидалось ${expected.level}=${expected.amount})`);
-        scenarioB.passed = false;
+        console.log(`💰 Returned ₽${amount} to user ${userId} (balance: ₽${oldBalance} → ₽${user.баланс})`);
       } else {
-        scenarioB.actual[userId] = { level: earning.level, amount: earning.amount };
-        if (earning.level !== expected.level || earning.amount !== expected.amount) {
-          scenarioB.errors.push(`❌ ${userId}: ${earning.level}=${earning.amount} (ожидалось ${expected.level}=${expected.amount})`);
-          scenarioB.passed = false;
-        } else {
-          console.log(`   ✅ ${userId}: ${earning.level}=${earning.amount} - OK`);
-        }
+        console.error(`❌ User ${userId} not found when trying to refund ₽${amount}`);
       }
     }
     
-    results.scenarios.push(scenarioB);
+    withdrawal.updatedAt = new Date().toISOString();
     
-    // 5. СЦЕНАРИЙ C: Корзина (аналогично B)
-    console.log('\n' + '-'.repeat(80));
-    console.log('🧪 СЦЕНАРИЙ C: Покупка через корзину (тот же путь что и B)');
-    console.log('-'.repeat(80));
+    // Сохраняем обновлённую заявку в обе локации
+    await kv.set(`withdrawal:${withdrawalId}`, withdrawal);
+    await kv.set(`withdrawal:user:${userId}:${withdrawalId}`, withdrawal);
     
-    const scenarioC = {
-      name: 'Покупка через корзину',
-      buyer: testUsers[3].id,
-      note: 'Использует тот же путь что и партнёрская покупка',
-      expected: scenarioB.expected,
-      passed: true,
-      errors: [] as string[]
-    };
+    console.log(`💾 Saved updated withdrawal ${withdrawalId} with status: ${withdrawal.status}`);
     
-    // Корзина использует тот же calculatePayouts с isPartner=true
-    // Поэтому результат должен быть идентичен сценарию B
-    scenarioC.passed = scenarioB.passed;
-    scenarioC.errors = [...scenarioB.errors];
-    if (scenarioC.passed) {
-      console.log(`   ✅ Логика корзины идентична партнёрской покупке - OK`);
-    }
-    
-    results.scenarios.push(scenarioC);
-    
-    // 6. Очистка тестовых данных
-    console.log('\n🗑️ ШАГ 6: Очистка тестовых данных...');
-    
-    for (const user of testUsers) {
-      await kv.del(`user:id:${user.id}`);
-    }
-    await kv.del(`product:id:${testProduct.sku}`);
-    await kv.del(`order:${orderIdA}`);
-    await kv.del(`order:${orderIdB}`);
-    
-    for (const e of [...earningsA, ...earningsB]) {
-      await kv.del(e.id);
-      await kv.del(`earning:user:${e.userId}:${e.id}`);
-    }
-    
-    console.log('   ✅ Тестовые данные удалены');
-    
-    // 7. Итоговый отчёт
-    console.log('\n' + '='.repeat(100));
-    console.log('📊 ИТОГОВЫЙ ОТЧЁТ');
-    console.log('='.repeat(100));
-    
-    const allPassed = results.scenarios.every((s: any) => s.passed);
-    
-    for (const scenario of results.scenarios) {
-      const status = scenario.passed ? '✅ PASSED' : '❌ FAILED';
-      console.log(`\n${status}: ${scenario.name}`);
-      if (scenario.errors.length > 0) {
-        scenario.errors.forEach((e: string) => console.log(`   ${e}`));
-      }
-    }
-    
-    console.log('\n' + '='.repeat(100));
-    console.log(allPassed ? '✅ ВСЕ ТЕСТЫ ПРОЙДЕНЫ!' : '❌ ЕСТЬ ОШИБКИ - ТРЕБУЕТСЯ ИСПРАВЛЕНИЕ!');
-    console.log('='.repeat(100) + '\n');
-    
-    return c.json({
-      success: true,
-      allPassed,
-      summary: {
-        scenariosTotal: results.scenarios.length,
-        scenariosPassed: results.scenarios.filter((s: any) => s.passed).length,
-        scenariosFailed: results.scenarios.filter((s: any) => !s.passed).length
-      },
-      scenarios: results.scenarios,
-      testDataCleaned: true,
-      commissionRules: {
-        guestSale: 'L0→продавец, L1/L2/L3→спонсоры продавца',
-        partnerPurchase: 'L0=НЕТ (партнёр взял скидку), L1/L2/L3→спонсоры покупателя',
-        cart: 'Идентично партнёрской покупке'
-      }
+    return c.json({ 
+      success: true, 
+      withdrawal,
+      message: action === 'approve' ? 'Выплата подтверждена' : 'Заявка отклонена, средства возвращены'
     });
     
   } catch (error) {
-    console.error('❌ MLM Test error:', error);
-    return c.json({ error: `${error}` }, 500);
+    console.error('❌ Admin payout action error:', error);
+    return c.json({ 
+      success: false,
+      error: `${error}` 
+    }, (error as any).message?.includes('Admin') ? 403 : 500);
   }
 });
 
 console.log('🚀 Server starting...');
 console.log('📍 Base path: /make-server-05aa3c8a');
 console.log('🔧 CORS enabled for all origins');
+// 🗑️ ADMIN: Delete invalid orders (with dates in the future)
+app.delete("/make-server-05aa3c8a/admin/clean-invalid-orders", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    await requireAdmin(c, currentUser);
+    
+    console.log('🗑️ Cleaning invalid orders...');
+    
+    const allOrders = await kv.getByPrefix('order:');
+    const ordersArray = Array.isArray(allOrders) ? allOrders : [];
+    const now = new Date();
+    
+    let deletedCount = 0;
+    const invalidOrders = [];
+    
+    for (const order of ordersArray) {
+      if (order.дата) {
+        try {
+          const orderDate = new Date(order.дата);
+          // Check if date is invalid or in the future
+          if (isNaN(orderDate.getTime()) || orderDate > now) {
+            invalidOrders.push({ id: order.id, date: order.дата });
+            
+            // Delete this invalid order from all locations
+            await kv.del(`order:${order.id}`);
+            if (order.покупательId) {
+              await kv.del(`order:user:${order.покупательId}:${order.id}`);
+            }
+            deletedCount++;
+            console.log(`  ✅ Deleted invalid order: ${order.id} (date: ${order.дата})`);
+          }
+        } catch (e) {
+          console.log(`  ⚠️ Error checking order ${order.id}:`, e);
+        }
+      }
+    }
+    
+    console.log(`🗑️ Cleanup complete: deleted ${deletedCount} invalid orders`);
+    
+    return c.json({
+      success: true,
+      message: `Deleted ${deletedCount} invalid orders`,
+      deletedOrders: invalidOrders,
+      deletedCount
+    });
+  } catch (error) {
+    console.error('❌ Clean invalid orders error:', error);
+    return c.json({ 
+      success: false, 
+      error: `${error}` 
+    }, (error as any).message?.includes('Admin') ? 403 : 500);
+  }
+});
+
+// 404 Handler - catch all неизвестные endpoints
+app.all('*', (c) => {
+  const path = c.req.path;
+  console.log(`❌ 404 Not Found: ${path}`);
+  return c.json({
+    success: false,
+    error: 'Endpoint not found',
+    path: path,
+    hint: 'Check the API documentation for available endpoints'
+  }, 404);
+});
+
 console.log('✅ Server ready!');
 
 Deno.serve(app.fetch);

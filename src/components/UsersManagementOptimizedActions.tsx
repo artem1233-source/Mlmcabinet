@@ -3,7 +3,7 @@
  * Вынесены из основного компонента для уменьшения размера файла
  */
 
-import { toast } from 'sonner';
+import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 /**
@@ -56,10 +56,10 @@ export async function changeLevelUser(
   queryClient: any,
   onRefresh?: () => void
 ) {
-  const newLevel = prompt(`Текущий уровень: ${user.уровень ?? 0}\n\nВведите новый уровень (0, 1, 2 или 3):`, String(user.уровень ?? 0));
+  const newLevel = prompt(`Текущий уровень: ${user.уровень || 1}\n\nВведите новый уровень (1, 2 или 3):`, String(user.уровень || 1));
   
-  if (!newLevel || !['0', '1', '2', '3'].includes(newLevel)) {
-    if (newLevel !== null) toast.error('Допустимые значения: 0, 1, 2, 3');
+  if (!newLevel || !['1', '2', '3'].includes(newLevel)) {
+    if (newLevel !== null) toast.error('Допустимые значения: 1, 2, 3');
     return;
   }
 
@@ -87,7 +87,7 @@ export async function changeLevelUser(
     const data = await response.json();
 
     if (data.success) {
-      toast.success(`Уровень изменён: ${user.уровень ?? 0} → ${level}`);
+      toast.success(`Уровень изменён: ${user.уровень || 1} → ${level}`);
       queryClient.invalidateQueries({ queryKey: ['users-optimized'] });
       if (onRefresh) onRefresh();
     } else {

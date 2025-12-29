@@ -54,11 +54,27 @@ export function UserTreeRenderer({
   const children = allUsers.filter(u => u.спонсорId === user.id);
   const hasChildren = isVirtualized ? (hasChildrenProp ?? false) : children.length > 0;
   const childrenCount = isVirtualized ? (childrenCountProp ?? 0) : children.length;
-  // ✅ ИСПРАВЛЕНО: Берём ранг ТОЛЬКО с бэкенда (userRanks), НЕ пересчитываем на клиенте!
-  // Ранг = максимальная глубина дерева под пользователем
-  // 0 = нет команды, 1 = есть прямые партнёры (ранг 0), 2+ = есть партнёры с командами
   const rank = userRanks.get(user.id) ?? user.уровень ?? 0;
   const totalTeam = calculateTotalTeam(user.id);
+  
+  // 🎯 Расчёт правильного ранга на основе дерева - МАКСИМАЛЬНАЯ ГЛУБИНА!
+  const calculateCorrectRank = (): number => {
+    if (children.length === 0) return 0;
+    
+    // ✅ ПРАВИЛЬНО: Ранг = 1 + максимальный ранг среди детей
+    let maxChildRank = 0;
+    children.forEach(child => {
+      const childRank = userRanks.get(child.id) ?? child.уровень ?? 0;
+      if (childRank > maxChildRank) {
+        maxChildRank = childRank;
+      }
+    });
+    
+    return 1 + maxChildRank;
+  };
+  
+  const correctRank = calculateCorrectRank();
+  const hasRankError = rank !== correctRank;
 
   // 🎨 Пастельные цвета рангов (мягкие градиенты)
   const getRankColor = (rank: number) => {
@@ -104,7 +120,8 @@ export function UserTreeRenderer({
         <div 
           className={`
             group relative bg-white rounded-xl transition-all duration-300
-            border ${getBorderColor(rank)}
+            border ${hasRankError ? 'border-red-200 bg-red-50/20' : getBorderColor(rank)}
+            ${hasRankError ? 'ring-1 ring-red-100' : ''}
             hover:shadow-lg hover:shadow-blue-100/50 hover:border-blue-200 hover:-translate-y-0.5
             ${hasChildren ? 'cursor-pointer hover:bg-blue-50/30 active:scale-[0.99]' : 'cursor-default'}
           `}
@@ -197,6 +214,14 @@ export function UserTreeRenderer({
                   </span>
                 )}
               </div>
+              {/* ⚠️ Индикатор ошибки ранга */}
+              {hasRankError && (
+                <div className="mt-1">
+                  <span className="bg-red-50 text-red-500 px-1.5 py-0.5 rounded text-[9px] font-semibold border border-red-100 animate-pulse inline-flex items-center gap-1">
+                    ⚠️ {rank} → {correctRank}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* 📊 Статистика - пастельная */}

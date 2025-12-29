@@ -10,16 +10,14 @@ import {
   Link,
   XCircle,
   Info,
-  Zap,
-  LinkIcon
+  Zap
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { toast } from 'sonner';
+import { toast } from 'sonner@2.0.3';
 import { useAllUsers, useInvalidateUsers } from '../../hooks/useAllUsers';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
-import * as api from '../../utils/api';
 
 interface DataRecoveryToolProps {
   currentUser: any;
@@ -42,31 +40,9 @@ export function DataRecoveryTool({ currentUser, onSuccess }: DataRecoveryToolPro
   
   const [analyzing, setAnalyzing] = useState(false);
   const [fixing, setFixing] = useState(false);
-  const [rebuilding, setRebuilding] = useState(false);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [fixedIssues, setFixedIssues] = useState<Set<string>>(new Set());
   const [showDetails, setShowDetails] = useState(false);
-
-  // 🔧 Перестроение связей команды
-  const handleRebuildRelationships = async () => {
-    setRebuilding(true);
-    try {
-      const result = await api.rebuildRelationships();
-      if (result.success) {
-        toast.success(result.message || 'Связи восстановлены');
-        await refetch();
-        invalidateUsers();
-        onSuccess?.();
-      } else {
-        toast.error(result.error || 'Ошибка восстановления');
-      }
-    } catch (error: any) {
-      console.error('Rebuild error:', error);
-      toast.error(`Ошибка: ${error.message || 'Неизвестная ошибка'}`);
-    } finally {
-      setRebuilding(false);
-    }
-  };
 
   // 🔍 Анализ данных и поиск проблем
   const analyzeData = async () => {
@@ -577,7 +553,7 @@ export function DataRecoveryTool({ currentUser, onSuccess }: DataRecoveryToolPro
         </div>
 
         {/* Кнопки управления */}
-        <div className="flex flex-wrap gap-3">
+        <div className="flex gap-3">
           <Button
             onClick={analyzeData}
             disabled={analyzing || isLoading}
@@ -592,25 +568,6 @@ export function DataRecoveryTool({ currentUser, onSuccess }: DataRecoveryToolPro
               <>
                 <Search className="w-4 h-4 mr-2" />
                 Начать анализ
-              </>
-            )}
-          </Button>
-
-          <Button
-            onClick={handleRebuildRelationships}
-            disabled={rebuilding || isLoading}
-            variant="outline"
-            className="border-purple-300 text-purple-700 hover:bg-purple-50"
-          >
-            {rebuilding ? (
-              <>
-                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                Восстанавливаю...
-              </>
-            ) : (
-              <>
-                <LinkIcon className="w-4 h-4 mr-2" />
-                Восстановить связи
               </>
             )}
           </Button>
