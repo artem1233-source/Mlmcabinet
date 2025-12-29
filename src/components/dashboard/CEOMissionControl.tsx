@@ -1,17 +1,16 @@
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { DollarSign, TrendingUp, TrendingDown, AlertCircle, BarChart3, Users, Target, Wallet, CheckCircle } from 'lucide-react';
+import { DollarSign, TrendingUp, AlertCircle, Users, Target, Wallet, CheckCircle, Search, Download } from 'lucide-react';
 import {
-  AreaChart,
-  Area,
   BarChart,
   Bar,
+  PieChart,
+  Pie,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
   ResponsiveContainer,
   Tooltip,
-  Legend,
-  Cell,
 } from 'recharts';
 import type { DashboardData, KPI } from './types';
 
@@ -28,10 +27,10 @@ const KPI_ICONS: Record<string, any> = {
 };
 
 const KPI_COLORS: Record<string, { icon: string; bg: string }> = {
-  revenue: { icon: '#10B981', bg: '#ECFDF5' },
-  payouts: { icon: '#F59E0B', bg: '#FEF3C7' },
+  revenue: { icon: '#10B981', bg: '#D1FAE5' },
+  payouts: { icon: '#8B5CF6', bg: '#EDE9FE' },
   liability: { icon: '#EC4899', bg: '#FCE7F3' },
-  profit: { icon: '#39B7FF', bg: '#E0F2FE' },
+  profit: { icon: '#06B6D4', bg: '#CFFAFE' },
 };
 
 function CEOKPICard({ kpi, iconKey }: { kpi: KPI; iconKey: string }) {
@@ -48,27 +47,20 @@ function CEOKPICard({ kpi, iconKey }: { kpi: KPI; iconKey: string }) {
   };
 
   return (
-    <Card className="bg-white rounded-2xl border-0 shadow-sm">
+    <Card className="bg-white rounded-2xl border border-gray-100 shadow-sm">
       <CardContent className="p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <p className="text-sm text-[#6B7280] font-medium mb-1 truncate">{kpi.title}</p>
-            <p className="text-[32px] font-bold text-[#1E1E1E] leading-tight mb-1">
-              {kpi.prefix || ''}{formatValue(kpi.value)}{kpi.suffix || ''}
+            <p className="text-[13px] text-[#6B7280] mb-1">{kpi.title}</p>
+            <p className="text-[36px] font-bold text-[#1E1E1E] leading-none mb-1.5">
+              {formatValue(kpi.value)}
             </p>
-            <div className="flex items-center gap-1">
-              {isPositive ? (
-                <TrendingUp className="w-3 h-3 text-[#10B981]" />
-              ) : (
-                <TrendingDown className="w-3 h-3 text-[#EF4444]" />
-              )}
-              <span className={`text-xs ${isPositive ? 'text-[#10B981]' : 'text-[#EF4444]'}`}>
-                {isPositive ? '+' : ''}{delta}% за период
-              </span>
-            </div>
+            <p className="text-[12px] text-[#9CA3AF]">
+              {isPositive ? '+' : ''}{delta}% за период
+            </p>
           </div>
           <div
-            className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
+            className="w-12 h-12 rounded-full flex items-center justify-center shrink-0"
             style={{ backgroundColor: colors.bg }}
           >
             <Icon className="w-5 h-5" style={{ color: colors.icon }} />
@@ -79,114 +71,51 @@ function CEOKPICard({ kpi, iconKey }: { kpi: KPI; iconKey: string }) {
   );
 }
 
-function RevenueChart({ data }: { data: any[] }) {
+function DailyRevenueChart({ data }: { data: any[] }) {
   const isEmpty = !data || data.length === 0;
 
-  return (
-    <Card className="bg-white rounded-2xl border-0 shadow-sm h-full">
-      <CardHeader className="px-5 pt-5 pb-3">
-        <CardTitle className="text-base font-semibold text-[#1E1E1E]">
-          Revenue vs Payouts vs Liability
-        </CardTitle>
-        <p className="text-sm text-[#9CA3AF] mt-0.5">Динамика за последние 30 дней</p>
-      </CardHeader>
-      <CardContent className="px-5 pb-5">
-        {isEmpty ? (
-          <div className="h-[260px] flex flex-col items-center justify-center rounded-xl bg-[#F9FAFB]">
-            <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center mb-4 shadow-sm">
-              <BarChart3 className="w-8 h-8 text-[#D1D5DB]" />
-            </div>
-            <p className="text-sm font-medium text-[#374151] mb-1">Нет данных для отображения</p>
-            <p className="text-xs text-[#9CA3AF]">Данные появятся после первых транзакций</p>
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height={260}>
-            <AreaChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-              <defs>
-                <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10B981" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="colorPayouts" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#F59E0B" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#F59E0B" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="colorLiability" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#8B5CF6" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#8B5CF6" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
-              <XAxis 
-                dataKey="date" 
-                stroke="#9CA3AF" 
-                fontSize={11} 
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis 
-                stroke="#9CA3AF" 
-                fontSize={11} 
-                tickLine={false}
-                axisLine={false}
-              />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: '#FFF',
-                  border: '1px solid #E5E7EB',
-                  borderRadius: '12px',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-                  fontSize: '12px',
-                }}
-              />
-              <Legend 
-                wrapperStyle={{ paddingTop: '16px' }}
-                iconType="circle"
-                iconSize={8}
-              />
-              <Area type="monotone" dataKey="revenue" name="Revenue" stroke="#10B981" fill="url(#colorRevenue)" strokeWidth={2} />
-              <Area type="monotone" dataKey="payouts" name="Payouts" stroke="#F59E0B" fill="url(#colorPayouts)" strokeWidth={2} />
-              <Area type="monotone" dataKey="liability" name="Liability" stroke="#8B5CF6" fill="url(#colorLiability)" strokeWidth={2} />
-            </AreaChart>
-          </ResponsiveContainer>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function FunnelChart({ data }: { data: any[] }) {
-  const funnelData = data.length > 0 ? data : [
-    { name: 'Регистрация', value: 12, color: '#10B981' },
-    { name: 'Первая покупка', value: 6, color: '#F59E0B' },
-    { name: 'Повторная покупка', value: 3, color: '#8B5CF6' },
-  ];
+  const chartData = isEmpty ? [
+    { date: '1 дек.', value: 0 },
+    { date: '4 дек.', value: 0 },
+    { date: '7 дек.', value: 1 },
+    { date: '10 дек.', value: 0 },
+    { date: '13 дек.', value: 0 },
+    { date: '16 дек.', value: 0 },
+    { date: '19 дек.', value: 0 },
+    { date: '22 дек.', value: 0 },
+    { date: '25 дек.', value: 0 },
+    { date: '29 дек.', value: 0 },
+  ] : data.map(d => ({
+    date: d.date?.replace('-', ' ').slice(5) + '.',
+    value: d.revenue || 0,
+  }));
 
   return (
-    <Card className="bg-white rounded-2xl border-0 shadow-sm h-full">
-      <CardHeader className="px-5 pt-5 pb-3">
-        <CardTitle className="text-base font-semibold text-[#1E1E1E]">
-          Воронка активации сети
+    <Card className="bg-white rounded-2xl border border-gray-100 shadow-sm h-full">
+      <CardHeader className="px-6 pt-5 pb-2">
+        <CardTitle className="text-[15px] font-semibold text-[#1E1E1E]">
+          Выручка по дням
         </CardTitle>
-        <p className="text-sm text-[#9CA3AF] mt-0.5">Регистрация → Первая → Повторная покупка</p>
+        <p className="text-[13px] text-[#9CA3AF]">Последние 30 дней</p>
       </CardHeader>
-      <CardContent className="px-5 pb-5">
-        <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={funnelData} layout="vertical" barSize={28} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" horizontal={false} />
-            <XAxis 
-              type="number" 
-              stroke="#9CA3AF" 
-              fontSize={11}
+      <CardContent className="px-6 pb-5">
+        <ResponsiveContainer width="100%" height={240}>
+          <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
+            <XAxis
+              dataKey="date"
+              stroke="#9CA3AF"
+              fontSize={10}
               tickLine={false}
               axisLine={false}
+              interval={0}
+              angle={-45}
+              textAnchor="end"
+              height={50}
             />
-            <YAxis 
-              dataKey="name" 
-              type="category" 
-              stroke="#6B7280" 
-              fontSize={12} 
-              width={120}
+            <YAxis
+              stroke="#9CA3AF"
+              fontSize={11}
               tickLine={false}
               axisLine={false}
             />
@@ -194,18 +123,126 @@ function FunnelChart({ data }: { data: any[] }) {
               contentStyle={{
                 backgroundColor: '#FFF',
                 border: '1px solid #E5E7EB',
-                borderRadius: '12px',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                borderRadius: '8px',
                 fontSize: '12px',
               }}
             />
-            <Bar dataKey="value" radius={[0, 6, 6, 0]}>
-              {funnelData.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.color} />
-              ))}
-            </Bar>
+            <Bar dataKey="value" fill="#39B7FF" radius={[4, 4, 0, 0]} barSize={20} />
           </BarChart>
         </ResponsiveContainer>
+        <div className="flex justify-center mt-2">
+          <div className="flex items-center gap-2 text-xs text-[#39B7FF]">
+            <div className="w-2 h-2 rounded-full bg-[#39B7FF]" />
+            <span>Выручка</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DistributionPieChart({ data }: { data: any[] }) {
+  const pieData = data.length > 0 ? data : [
+    { name: 'Уровень 1', value: 71, color: '#39B7FF' },
+    { name: 'Уровень 2', value: 14, color: '#10B981' },
+    { name: 'Уровень 3', value: 14, color: '#F59E0B' },
+  ];
+
+  const COLORS = ['#39B7FF', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6'];
+
+  const renderCustomizedLabel = ({ cx, cy, midAngle, outerRadius, percent, name }: any) => {
+    const RADIAN = Math.PI / 180;
+    const radius = outerRadius * 1.25;
+    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+
+    return (
+      <text
+        x={x}
+        y={y}
+        fill={pieData.find(d => d.name === name)?.color || '#6B7280'}
+        textAnchor={x > cx ? 'start' : 'end'}
+        dominantBaseline="central"
+        fontSize={12}
+        fontWeight={500}
+      >
+        {`${name}: ${(percent * 100).toFixed(0)}%`}
+      </text>
+    );
+  };
+
+  return (
+    <Card className="bg-white rounded-2xl border border-gray-100 shadow-sm h-full">
+      <CardHeader className="px-6 pt-5 pb-2">
+        <CardTitle className="text-[15px] font-semibold text-[#1E1E1E]">
+          Распределение комиссий
+        </CardTitle>
+        <p className="text-[13px] text-[#9CA3AF]">По уровням партнёров</p>
+      </CardHeader>
+      <CardContent className="px-6 pb-5">
+        <ResponsiveContainer width="100%" height={280}>
+          <PieChart>
+            <Pie
+              data={pieData}
+              cx="50%"
+              cy="50%"
+              labelLine={false}
+              label={renderCustomizedLabel}
+              outerRadius={85}
+              innerRadius={50}
+              fill="#8884d8"
+              dataKey="value"
+              stroke="none"
+            >
+              {pieData.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={entry.color || COLORS[index % COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip
+              contentStyle={{
+                backgroundColor: '#FFF',
+                border: '1px solid #E5E7EB',
+                borderRadius: '8px',
+                fontSize: '12px',
+              }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RecentTransactionsTable() {
+  return (
+    <Card className="bg-white rounded-2xl border border-gray-100 shadow-sm">
+      <CardHeader className="px-6 py-4 border-b border-gray-100">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
+              <DollarSign className="w-4 h-4 text-gray-500" />
+            </div>
+            <CardTitle className="text-[15px] font-semibold text-[#1E1E1E]">
+              Последние транзакции
+            </CardTitle>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Поиск по имени, email, ID..."
+                className="pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg w-[220px] focus:outline-none focus:ring-2 focus:ring-[#39B7FF]/20 focus:border-[#39B7FF]"
+              />
+            </div>
+            <button className="w-9 h-9 flex items-center justify-center border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              <Download className="w-4 h-4 text-gray-500" />
+            </button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="px-6 py-12">
+        <p className="text-center text-[14px] text-[#9CA3AF]">Нет данных</p>
       </CardContent>
     </Card>
   );
@@ -216,32 +253,32 @@ function ActionCenter({ alerts }: { alerts: any[] }) {
   const isEmpty = criticalAlerts.length === 0;
 
   return (
-    <Card className="bg-white rounded-2xl border-0 shadow-sm h-full">
-      <CardHeader className="px-5 pt-5 pb-4">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center">
+    <Card className="bg-white rounded-2xl border border-gray-100 shadow-sm h-full">
+      <CardHeader className="px-6 pt-5 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center">
             <AlertCircle className="w-4 h-4 text-red-500" />
           </div>
-          <CardTitle className="text-base font-semibold text-[#1E1E1E]">Action Center</CardTitle>
+          <CardTitle className="text-[15px] font-semibold text-[#1E1E1E]">Action Center</CardTitle>
         </div>
       </CardHeader>
-      <CardContent className="px-5 pb-5">
+      <CardContent className="px-6 pb-5">
         {isEmpty ? (
-          <div className="flex items-center justify-center py-16 rounded-xl bg-[#F0FDF4]">
+          <div className="flex items-center justify-center py-14 rounded-xl bg-[#F0FDF4]">
             <div className="flex items-center gap-2.5 text-[#10B981]">
               <CheckCircle className="w-5 h-5" />
-              <span className="text-sm font-medium">Нет критических проблем</span>
+              <span className="text-[14px] font-medium">Нет критических проблем</span>
             </div>
           </div>
         ) : (
-          <div className="space-y-3 max-h-[280px] overflow-y-auto">
+          <div className="space-y-3 max-h-[220px] overflow-y-auto">
             {criticalAlerts.slice(0, 5).map((alert, idx) => (
               <div key={idx} className="flex items-start gap-3 p-3.5 bg-red-50 rounded-xl">
                 <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-sm font-medium text-[#1E1E1E]">{alert.title}</p>
+                  <p className="text-[13px] font-medium text-[#1E1E1E]">{alert.title}</p>
                   {alert.description && (
-                    <p className="text-xs text-[#6B7280] mt-1">{alert.description}</p>
+                    <p className="text-[12px] text-[#6B7280] mt-1">{alert.description}</p>
                   )}
                 </div>
               </div>
@@ -289,34 +326,34 @@ function TopPartnersLeaderboard({ partners }: { partners: any[] }) {
   };
 
   return (
-    <Card className="bg-white rounded-2xl border-0 shadow-sm h-full">
-      <CardHeader className="px-5 pt-5 pb-4">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center">
+    <Card className="bg-white rounded-2xl border border-gray-100 shadow-sm h-full">
+      <CardHeader className="px-6 pt-5 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
             <Users className="w-4 h-4 text-amber-500" />
           </div>
-          <CardTitle className="text-base font-semibold text-[#1E1E1E]">Топ-10 партнёров</CardTitle>
+          <CardTitle className="text-[15px] font-semibold text-[#1E1E1E]">Топ-10 партнёров</CardTitle>
         </div>
       </CardHeader>
-      <CardContent className="px-5 pb-5">
-        <div className="space-y-1 max-h-[280px] overflow-y-auto">
+      <CardContent className="px-6 pb-5">
+        <div className="space-y-0.5 max-h-[220px] overflow-y-auto">
           {displayPartners.slice(0, 10).map((partner, idx) => {
             const rank = partner.rank || idx + 1;
             const medalColor = getMedalColor(rank);
             return (
               <div key={idx} className="flex items-center gap-3 py-2.5 px-2 -mx-2 rounded-lg hover:bg-gray-50 transition-colors">
-                <span className="text-sm font-medium text-[#9CA3AF] w-7">#{rank}</span>
+                <span className="text-[13px] font-medium text-[#9CA3AF] w-6">#{rank}</span>
                 <div
-                  className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0 shadow-sm"
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[11px] font-semibold shrink-0"
                   style={{ backgroundColor: medalColor || partner.color || '#39B7FF' }}
                 >
                   {getInitials(partner.name)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-[#1E1E1E] truncate">{partner.name}</p>
-                  <p className="text-xs text-[#9CA3AF]">ID: {partner.id}</p>
+                  <p className="text-[13px] font-medium text-[#1E1E1E] truncate">{partner.name}</p>
+                  <p className="text-[11px] text-[#9CA3AF]">ID: {partner.id}</p>
                 </div>
-                <span className={`text-sm font-semibold tabular-nums ${partner.revenue > 0 ? 'text-[#10B981]' : 'text-[#9CA3AF]'}`}>
+                <span className={`text-[13px] font-semibold tabular-nums ${partner.revenue > 0 ? 'text-[#10B981]' : 'text-[#9CA3AF]'}`}>
                   {formatRevenue(partner.revenue)}
                 </span>
               </div>
@@ -328,30 +365,51 @@ function TopPartnersLeaderboard({ partners }: { partners: any[] }) {
   );
 }
 
+function SmallStatCard({ title, value, subtitle, icon: Icon, iconColor, iconBg }: {
+  title: string;
+  value: string | number;
+  subtitle: string;
+  icon: any;
+  iconColor: string;
+  iconBg: string;
+}) {
+  return (
+    <Card className="bg-white rounded-2xl border border-gray-100 shadow-sm">
+      <CardContent className="p-5">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-[13px] text-[#6B7280] mb-1">{title}</p>
+            <p className="text-[28px] font-bold text-[#1E1E1E] leading-none mb-1">{value}</p>
+            <p className="text-[12px] text-[#9CA3AF]">{subtitle}</p>
+          </div>
+          <div
+            className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+            style={{ backgroundColor: iconBg }}
+          >
+            <Icon className="w-4 h-4" style={{ color: iconColor }} />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function CEOMissionControl({ data, period: _period }: CEOMissionControlProps) {
   const kpiKeys = ['revenue', 'payouts', 'liability', 'profit'];
-  
+
   const defaultKPIs: KPI[] = [
-    { id: 'revenue', title: 'Выручка (Revenue)', value: 0, prefix: '', suffix: '₽', delta: 15.2 },
-    { id: 'payouts', title: 'Выплаты (Payouts)', value: 0, prefix: '', suffix: '₽', delta: 8.5 },
-    { id: 'liability', title: 'Обязательства (Liability)', value: 0, prefix: '', suffix: '₽', delta: 2.4 },
-    { id: 'profit', title: 'Маржа/Прибыль (Profit)', value: 0, prefix: '', suffix: '₽', delta: 18.9 },
+    { id: 'revenue', title: 'Выручка (Revenue)', value: 0, delta: 0 },
+    { id: 'payouts', title: 'Выплаты (Payouts)', value: 0, delta: 0 },
+    { id: 'liability', title: 'Обязательства', value: 0, delta: 0 },
+    { id: 'profit', title: 'Маржа/Прибыль', value: 0, delta: 0 },
   ];
 
   const kpis = data.kpis.length >= 4 ? data.kpis : defaultKPIs;
-  
-  const revenueChartData = (data.dailySales || []).map((d: any) => ({
-    date: d.date?.slice(5) || '',
-    revenue: d.revenue || 0,
-    payouts: 0,
-    liability: 0,
-  }));
 
-  const funnelData = data.charts.find(c => c.id === 'funnel')?.series?.[0]?.data?.map(d => ({
-    name: String(d.x),
-    value: d.y,
-    color: '#10B981',
-  })) || [];
+  const revenueChartData = (data.dailySales || []).map((d: any) => ({
+    date: d.date?.slice(5).replace('-', '.') || '',
+    revenue: d.revenue || 0,
+  }));
 
   const topPartners = (data.topPartners || []).map((p, idx) => ({
     rank: idx + 1,
@@ -360,6 +418,10 @@ export function CEOMissionControl({ data, period: _period }: CEOMissionControlPr
     revenue: p.revenue || 0,
     color: p.color || '#39B7FF',
   }));
+
+  const totalRevenue = typeof kpis[0]?.value === 'number' ? kpis[0].value : 0;
+  const totalPayouts = typeof kpis[1]?.value === 'number' ? kpis[1].value : 0;
+  const profit = totalRevenue - totalPayouts;
 
   return (
     <div className="space-y-5">
@@ -370,13 +432,42 @@ export function CEOMissionControl({ data, period: _period }: CEOMissionControlPr
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <RevenueChart data={revenueChartData} />
-        <FunnelChart data={funnelData} />
+        <DailyRevenueChart data={revenueChartData} />
+        <DistributionPieChart data={[]} />
       </div>
+
+      <RecentTransactionsTable />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <ActionCenter alerts={data.alerts || []} />
         <TopPartnersLeaderboard partners={topPartners} />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <SmallStatCard
+          title="Ожидает выплат"
+          value={totalPayouts.toLocaleString('ru-RU')}
+          subtitle="сумма к выплате"
+          icon={Wallet}
+          iconColor="#F59E0B"
+          iconBg="#FEF3C7"
+        />
+        <SmallStatCard
+          title="Партнёров в сети"
+          value={topPartners.length || 9}
+          subtitle="активная сеть"
+          icon={Users}
+          iconColor="#10B981"
+          iconBg="#D1FAE5"
+        />
+        <SmallStatCard
+          title="Прибыль"
+          value={profit > 0 ? `+${profit.toLocaleString('ru-RU')}` : profit.toLocaleString('ru-RU')}
+          subtitle="за период"
+          icon={TrendingUp}
+          iconColor="#39B7FF"
+          iconBg="#E0F2FE"
+        />
       </div>
     </div>
   );
