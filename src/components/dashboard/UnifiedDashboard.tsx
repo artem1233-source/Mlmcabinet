@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { DashboardLayout } from './DashboardLayout';
 import { CEOMissionControl } from './CEOMissionControl';
 import { AdminOpsDashboard } from './AdminOpsDashboard';
+import { FinanceDashboard } from './FinanceDashboard';
 import { KPICard } from './KPICard';
 import { ChartContainer } from './ChartContainer';
 import { AlertsList } from './AlertsList';
@@ -178,11 +179,13 @@ export function UnifiedDashboard({ currentUser }: UnifiedDashboardProps) {
           try {
             const financeRes = await api.getAdminStats().catch(() => null);
             if (financeRes?.success) {
+              const stats = financeRes.stats || {};
               payload = {
                 kpis: [
-                  { id: 'total_balance', title: 'Общий баланс', value: financeRes.stats?.totalBalance || 0, prefix: '₽' },
-                  { id: 'total_earnings', title: 'Всего начислений', value: financeRes.stats?.totalEarnings || 0, prefix: '₽' },
-                  { id: 'total_revenue', title: 'Выручка', value: financeRes.stats?.totalRevenue || 0, prefix: '₽' },
+                  { id: 'total_revenue', title: 'Общий доход', value: stats.totalRevenue || 0 },
+                  { id: 'total_paid', title: 'Выплачено', value: stats.totalEarnings || 0 },
+                  { id: 'in_processing', title: 'В обработке', value: stats.totalBalance || 0 },
+                  { id: 'cashflow', title: 'Cashflow', value: (stats.totalRevenue || 0) - (stats.totalEarnings || 0) },
                 ],
                 charts: []
               };
@@ -242,6 +245,10 @@ export function UnifiedDashboard({ currentUser }: UnifiedDashboardProps) {
 
     if (currentMode === 'admin') {
       return <AdminOpsDashboard data={toDashboardData(data)} period={period} />;
+    }
+
+    if (currentMode === 'finance') {
+      return <FinanceDashboard data={toDashboardData(data)} period={period} />;
     }
 
     return (
