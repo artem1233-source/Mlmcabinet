@@ -1183,27 +1183,87 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
     
     // Create user in Supabase Auth
     console.log('Creating user in Supabase Auth...');
-    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-      email: email.trim(),
-      password: password,
-      user_metadata: { 
-        firstName: firstName.trim(),
-        lastName: lastName.trim()
-      },
-      email_confirm: true // Auto-confirm since no email server configured
-    });
     
-    if (authError) {
-      console.log(`Supabase Auth error: ${authError.message}`, authError);
-      return c.json({ error: `Ошибка создания аккаунта: ${authError.message}` }, 400);
+    let supabaseUserId: string;
+    
+    // First, check if user already exists in Supabase Auth
+    const { data: existingAuthUsers, error: listError } = await supabase.auth.admin.listUsers();
+    const existingAuthUser = existingAuthUsers?.users?.find(
+      (u: any) => u.email?.toLowerCase() === email.trim().toLowerCase()
+    );
+    
+    if (existingAuthUser) {
+      // User exists in Supabase Auth but not in KV store - reuse the Supabase user
+      console.log(`Found existing Supabase Auth user: ${existingAuthUser.id}, reusing...`);
+      supabaseUserId = existingAuthUser.id;
+      
+      // Update the password for the existing user
+      const { error: updateError } = await supabase.auth.admin.updateUserById(existingAuthUser.id, {
+        password: password,
+        user_metadata: { 
+          firstName: firstName.trim(),
+          lastName: lastName.trim()
+        }
+      });
+      
+      if (updateError) {
+        console.log(`Error updating existing Supabase user: ${updateError.message}`);
+        // Continue anyway, user can login with existing password
+      }
+    } else {
+      // Create new user in Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+        email: email.trim(),
+        password: password,
+        user_metadata: { 
+          firstName: firstName.trim(),
+          lastName: lastName.trim()
+        },
+        email_confirm: true // Auto-confirm since no email server configured
+      });
+      
+      if (authError) {
+        console.log(`Supabase Auth error: ${authError.message}`, authError);
+        
+        // Check for specific error types and provide better messages
+        if (authError.message.includes('already registered') || authError.message.includes('already exists')) {
+          return c.json({ error: "Email уже зарегистрирован в системе. Попробуйте войти или используйте другой email." }, 400);
+        }
+        
+        if (authError.message.includes('Database error')) {
+          // Database error - might be a temporary issue, retry once
+          console.log('Database error detected, retrying once...');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          const { data: retryData, error: retryError } = await supabase.auth.admin.createUser({
+            email: email.trim(),
+            password: password,
+            user_metadata: { firstName: firstName.trim(), lastName: lastName.trim() },
+            email_confirm: true
+          });
+          
+          if (retryError) {
+            console.log(`Retry also failed: ${retryError.message}`);
+            return c.json({ error: "Временная ошибка сервера. Пожалуйста, попробуйте позже." }, 500);
+          }
+          
+          if (!retryData.user) {
+            return c.json({ error: "Ошибка создания пользователя" }, 500);
+          }
+          
+          supabaseUserId = retryData.user.id;
+          console.log(`Retry successful, Supabase user created: ${supabaseUserId}`);
+        } else {
+          return c.json({ error: `Ошибка создания аккаунта: ${authError.message}` }, 400);
+        }
+      } else if (!authData?.user) {
+        console.log('Supabase Auth returned no user data');
+        return c.json({ error: "Ошибка создания пользователя" }, 500);
+      } else {
+        supabaseUserId = authData.user.id;
+        console.log(`Supabase user created: ${supabaseUserId}`);
+      }
     }
-    
-    if (!authData.user) {
-      console.log('Supabase Auth returned no user data');
-      return c.json({ error: "Ошибка создания пользователя" }, 500);
-    }
-    
-    console.log(`Supabase user created: ${authData.user.id}`);
     
     // Generate partner ID (001, 002, etc.) - reuses freed IDs first
     const partnerId = await getNextPartnerId();
@@ -1240,7 +1300,7 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
     const userKey = `user:id:${partnerId}`;
     const newUser = {
       id: partnerId,
-      supabaseId: authData.user.id,
+      supabaseId: supabaseUserId,
       email: email.trim().toLowerCase(),
       имя: firstName.trim(),
       фамилия: lastName.trim(),
