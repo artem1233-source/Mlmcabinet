@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CheckCircle2, XCircle, AlertCircle, Download, Star } from 'lucide-react';
+import { CheckCircle2, XCircle, AlertCircle, Download as DownloadIcon, Star } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import { Card } from '../../../components/ui/card';
 import { Badge } from '../../../components/ui/badge';
@@ -284,7 +284,7 @@ ${bugs.length > 0 ? bugs.map((b, i) => `${i + 1}. [${b.priority.toUpperCase()}] 
           <p className="text-gray-600 mt-1">Протестируйте админ-панель и варианты заказов</p>
         </div>
         <Button onClick={generateReport} className="gap-2">
-          <Download className="w-4 h-4" />
+          <DownloadIcon className="w-4 h-4" />
           Сгенерировать отчёт
         </Button>
       </div>

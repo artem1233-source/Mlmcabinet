@@ -5,7 +5,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Badge } from './ui/badge';
 import { Textarea } from './ui/textarea';
-import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, DollarSign, ArrowUpRight, AlertCircle, Copy, X, Check, Loader2, Edit3, Download, ArrowDownToLine, CheckCircle } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, DollarSign, ArrowUpRight, AlertCircle, Copy, X, Check, Loader2, Edit3, Download as DownloadIcon, ArrowDownToLine, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { AdminToolbar } from './AdminToolbar';
 import * as api from '../utils/api';
@@ -560,7 +560,7 @@ export function BalanceRu({ currentUser, onRefresh, refreshTrigger }: BalanceRuP
                   }
                 }}
               >
-                <Download size={14} className="mr-1" />
+                <DownloadIcon size={14} className="mr-1" />
                 Экспорт CSV
               </Button>
             )}

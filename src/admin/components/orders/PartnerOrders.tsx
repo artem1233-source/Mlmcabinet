@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ShoppingBag, Package, Download, MessageCircle, RefreshCw, XCircle } from 'lucide-react';
+import { ShoppingBag, Package, Download as DownloadIcon, MessageCircle, RefreshCw, XCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Badge } from '../../../components/ui/badge';
@@ -115,7 +115,7 @@ export function PartnerOrders() {
                     Повторить заказ
                   </Button>
                   <Button size="sm" variant="outline" className="gap-2">
-                    <Download className="w-4 h-4" />
+                    <DownloadIcon className="w-4 h-4" />
                     Скачать чек
                   </Button>
                   <Button size="sm" variant="outline" className="gap-2">

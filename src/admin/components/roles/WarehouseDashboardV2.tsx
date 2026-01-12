@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Package, Clock, CheckCircle, Truck, AlertTriangle, Search, Printer, TrendingDown, TrendingUp, ArrowUpRight, ChevronDown, Timer, Zap, Bell, Flame, X, Info, Filter, Eye, LayoutGrid, List, Download } from 'lucide-react';
+import { Package, Clock, CheckCircle, Truck, AlertTriangle, Search, Printer, TrendingDown, TrendingUp, ArrowUpRight, ChevronDown, Timer, Zap, Bell, Flame, X, Info, Filter, Eye, LayoutGrid, List, Download as DownloadIcon } from 'lucide-react';
 import { KPICard } from '../ui/KPICard';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
@@ -727,7 +727,7 @@ export function WarehouseDashboardV2() {
               Запланировать поставку
             </Button>
             <Button variant="outline" className="border-2 px-6 py-5 font-semibold">
-              <Download className="w-5 h-5 mr-2" />
+              <DownloadIcon className="w-5 h-5 mr-2" />
               Скачать прогноз (Excel)
             </Button>
           </div>

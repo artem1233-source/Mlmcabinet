@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ShoppingBag, Package, CheckCircle2, Clock, XCircle, Loader2, Search, Download, Eye, Calendar, User, Phone, Mail, FileText, TrendingUp } from 'lucide-react';
+import { ShoppingBag, Package, CheckCircle2, Clock, XCircle, Loader2, Search, Download as DownloadIcon, Eye, Calendar, User, Phone, Mail, FileText, TrendingUp } from 'lucide-react';
 import { Card, CardContent } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -144,7 +144,7 @@ export function OrdersVariant1({ currentUser, refreshTrigger }: OrdersVariant1Pr
           </div>
         </div>
         <Button variant="outline" className="gap-2">
-          <Download className="w-4 h-4" />
+          <DownloadIcon className="w-4 h-4" />
           Экспорт PDF
         </Button>
       </div>
@@ -503,7 +503,7 @@ export function OrdersVariant1({ currentUser, refreshTrigger }: OrdersVariant1Pr
               {/* Actions */}
               <div className="flex gap-3">
                 <Button className="flex-1 bg-gradient-to-r from-[#39B7FF] to-[#12C9B6]">
-                  <Download className="w-4 h-4 mr-2" />
+                  <DownloadIcon className="w-4 h-4 mr-2" />
                   Скачать чек
                 </Button>
                 {selectedOrder.статус === 'pending' && (

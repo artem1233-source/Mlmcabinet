@@ -12,7 +12,7 @@ import {
   UserPlus,
   Shield,
   Search,
-  Download,
+  Download as DownloadIcon,
   Calendar,
   UserX,
   TrendingUp,
@@ -431,7 +431,7 @@ export function AdminOpsDashboard({ currentUser, period = '30' }: AdminOpsDashbo
                   toast.success('Данные экспортированы в CSV');
                 }}
               >
-                <Download className="w-4 h-4" />
+                <DownloadIcon className="w-4 h-4" />
               </Button>
             </div>
           </div>

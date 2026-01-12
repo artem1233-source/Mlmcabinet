@@ -39,7 +39,7 @@ import {
   PhoneCall,
   ExternalLink,
   Copy,
-  Download,
+  Download as DownloadIcon,
   Bell,
   Link2,
   BarChart3,
@@ -1584,7 +1584,7 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                         onClick={handleExportToGoogleSheets}
                         className="border-green-200 hover:bg-green-50 text-green-700 hover:border-green-300"
                       >
-                        <Download className="w-4 h-4 mr-2" />
+                        <DownloadIcon className="w-4 h-4 mr-2" />
                         Экспорт в Google Sheets
                       </Button>
                     </div>
@@ -2976,7 +2976,7 @@ export function UsersManagementRu({ currentUser, onRefresh }: UsersManagementRuP
                   className="flex items-center gap-1.5 border-red-200 hover:bg-red-50 text-red-700"
                   onClick={() => handleExportUserToPDF(selectedUserForDetails)}
                 >
-                  <Download className="w-3.5 h-3.5" />
+                  <DownloadIcon className="w-3.5 h-3.5" />
                   Экспорт в PDF
                 </Button>
               </div>

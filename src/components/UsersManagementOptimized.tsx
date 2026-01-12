@@ -48,8 +48,7 @@ import {
   Copy,
   Link2,
   Bell,
-  Download,
-  Download,
+  Download as DownloadIcon,
   PhoneCall,
   TrendingDown,
   DollarSign,
@@ -1609,7 +1608,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                 className="h-9 border-green-200 hover:bg-green-50 text-green-700 hover:border-green-300"
                 title="Экспортировать данные в Google Sheets"
               >
-                <Download className="w-4 h-4 mr-2" />
+                <DownloadIcon className="w-4 h-4 mr-2" />
                 Экспорт в Google Sheets
               </Button>
             </div>
@@ -1752,7 +1751,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                       toast.error('Ошибка экспорта данных');
                     }
                   }}>
-                    <Download className="w-4 h-4 mr-2 text-[#39B7FF]" />
+                    <DownloadIcon className="w-4 h-4 mr-2 text-[#39B7FF]" />
                     <span>📊 Экспорт в CSV</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={async () => {
@@ -2116,7 +2115,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   onClick={() => handleExportUserToPDF(selectedUserForDetails)}
                   className="flex items-center gap-2.5"
                 >
-                  <Download className="w-3.5 h-3.5" />
+                  <DownloadIcon className="w-3.5 h-3.5" />
                   Экспорт PDF
                 </Button>
                 <Button

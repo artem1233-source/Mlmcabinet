@@ -1,4 +1,4 @@
-import { Wallet, TrendingUp, Download, CreditCard, Landmark } from 'lucide-react';
+import { Wallet, TrendingUp, Download as DownloadIcon, CreditCard, Landmark } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -82,7 +82,7 @@ export function BalanceNew({ userBalance, orders, payoutMethod, onPayout, onPayo
                 className="w-full bg-white text-[#39B7FF] hover:bg-gray-100"
                 style={{ fontWeight: '600' }}
               >
-                <Download size={18} className="mr-2" />
+                <DownloadIcon size={18} className="mr-2" />
                 Request Payout (₽1,000)
               </Button>
             </div>

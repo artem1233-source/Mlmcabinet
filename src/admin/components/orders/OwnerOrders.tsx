@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ShoppingBag, Filter, Download, Edit, XCircle, DollarSign } from 'lucide-react';
+import { ShoppingBag, Filter, Download as DownloadIcon, Edit, XCircle, DollarSign } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';

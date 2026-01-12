@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle2, Clock, XCircle, Loader2, Download, Filter, ChevronUp, ChevronDown, Search, Trash2, Check } from 'lucide-react';
+import { CheckCircle2, Clock, XCircle, Loader2, Download as DownloadIcon, Filter, ChevronUp, ChevronDown, Search, Trash2, Check } from 'lucide-react';
 import { Card, CardContent } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -259,7 +259,7 @@ export function OrdersVariant4({ currentUser, refreshTrigger }: OrdersVariant4Pr
                   onClick={() => handleBulkAction('export')}
                   className="gap-2"
                 >
-                  <Download className="w-4 h-4" />
+                  <DownloadIcon className="w-4 h-4" />
                   Экспорт
                 </Button>
                 <Button 
