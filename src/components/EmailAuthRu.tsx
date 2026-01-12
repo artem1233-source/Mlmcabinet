@@ -29,6 +29,16 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
     setError(null);
     setSuccess(null);
 
+    // Обработка режима восстановления пароля
+    if (mode === 'forgot') {
+      return handleForgotPassword();
+    }
+
+    // Обработка режима регистрации администратора
+    if (mode === 'admin-register') {
+      return handleAdminRegister();
+    }
+
     // Валидация
     if (!email.trim() || !password.trim()) {
       console.log('❌ Validation failed: missing email or password');
@@ -392,7 +402,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
         </p>
 
         {/* Toggle Mode */}
-        {mode !== 'forgot' && (
+        {mode !== 'forgot' && mode !== 'admin-register' && (
           <div className="flex gap-2 mb-6 bg-[#F7FAFC] p-1 rounded-xl">
             <button
               type="button"
@@ -526,7 +536,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
         )}
 
         {/* Input Form */}
-        <div className="space-y-4 mb-6">
+        <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="space-y-4 mb-6">
           {(mode === 'register' || mode === 'admin-register') && (
             <div>
               <label className="block text-[#1E1E1E] mb-2" style={{ fontSize: '14px', fontWeight: '600' }}>
@@ -536,6 +546,8 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
                 <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#666] w-5 h-5" />
                 <input
                   type="text"
+                  name="firstName"
+                  autoComplete="given-name"
                   value={firstName}
                   onChange={(e) => setFirstName(e.target.value)}
                   placeholder="Например: Иван"
@@ -555,6 +567,8 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
                 <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#666] w-5 h-5" />
                 <input
                   type="text"
+                  name="lastName"
+                  autoComplete="family-name"
                   value={lastName}
                   onChange={(e) => setLastName(e.target.value)}
                   placeholder="Например: Петров"
@@ -573,12 +587,13 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
               <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#666] w-5 h-5" />
               <input
                 type="email"
+                name="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="example@email.com"
                 className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#39B7FF] focus:border-transparent"
                 disabled={loading}
-                onKeyPress={(e) => mode === 'forgot' && e.key === 'Enter' && handleForgotPassword()}
               />
             </div>
           </div>
@@ -592,9 +607,10 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#666] w-5 h-5" />
                 <input
                   type="password"
+                  name="password"
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
                   placeholder="Минимум 6 символов"
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#39B7FF] focus:border-transparent"
                   disabled={loading}
@@ -643,8 +659,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
 
           {mode === 'forgot' ? (
             <button
-              type="button"
-              onClick={handleForgotPassword}
+              type="submit"
               disabled={loading}
               className="flex items-center justify-center gap-3 w-full py-3 px-6 bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] hover:opacity-90 text-white rounded-xl transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -659,8 +674,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
             </button>
           ) : (
             <button
-              type="button"
-              onClick={mode === 'admin-register' ? handleAdminRegister : handleSubmit}
+              type="submit"
               disabled={loading}
               className="flex items-center justify-center gap-3 w-full py-3 px-6 bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] hover:opacity-90 text-white rounded-xl transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -678,7 +692,7 @@ export function EmailAuthRu({ onAuth }: EmailAuthProps) {
               )}
             </button>
           )}
-        </div>
+        </form>
         
         {/* Forgot Password Link */}
         {mode === 'login' && (

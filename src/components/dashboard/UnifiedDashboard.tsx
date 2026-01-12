@@ -6,44 +6,85 @@ import { WarehouseDashboard } from './WarehouseDashboard';
 import { FinanceDashboard } from './FinanceDashboard';
 import { SEODashboard } from './SEODashboard';
 import { SupportDashboard } from './SupportDashboard';
+import { PartnerDashboard } from './PartnerDashboard'; // 🆕 Дашборд для партнёров
 import { StatusType } from './StatusLight';
 import { toast } from 'sonner';
 import { dashboardExporters } from '../../utils/dashboardExport';
+import { useRole, RoleType } from '../../contexts/RoleContext'; // 🔥 НОВОЕ: импорт контекста
 
 interface UnifiedDashboardProps {
   currentUser: any;
 }
 
+// 🔥 НОВАЯ функция: маппинг RoleType -> DashboardMode
+function roleToDashboardMode(role: RoleType): DashboardMode {
+  const mapping: Record<RoleType, DashboardMode> = {
+    'owner': 'ceo',
+    'adminops': 'admin',
+    'finance': 'finance',
+    'warehouse': 'warehouse',
+    'marketing': 'seo',
+    'support': 'support',
+    'partner': 'partner',
+  };
+  return mapping[role];
+}
+
 export function UnifiedDashboard({ currentUser }: UnifiedDashboardProps) {
-  const [mode, setMode] = useState<DashboardMode>('ceo');
+  const { currentRole } = useRole(); // 🔥 НОВОЕ: получаем currentRole из контекста как source of truth
+  const mode = roleToDashboardMode(currentRole); // 🔥 НОВОЕ: маппинг роли в режим дашборда
+  
   const [status, setStatus] = useState<StatusType>('ok');
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [period, setPeriod] = useState('30');
+  
+  // 🆕 Состояние для activeModule (используется только в режиме CEO)
+  const [activeModule, setActiveModule] = useState<DashboardMode>('ceo');
 
+  // 🔥 URL-SYNC для activeModule (ТОЛЬКО для Owner/ceo режима)
   useEffect(() => {
-    // Определяем начальный режим на основе роли
-    const initialMode = getInitialMode();
-    setMode(initialMode);
-  }, [currentUser]);
+    const validModules: DashboardMode[] = ['ceo', 'admin', 'finance', 'warehouse', 'seo', 'support', 'partner'];
+    
+    if (mode === 'ceo') {
+      // Читаем ?module= из URL при монтировании или смене на ceo режим
+      const params = new URLSearchParams(window.location.search);
+      const moduleFromUrl = params.get('module') as DashboardMode | null;
+      
+      if (moduleFromUrl && validModules.includes(moduleFromUrl)) {
+        setActiveModule(moduleFromUrl);
+        console.log('URL_SYNC_OK', { mode, activeModule: moduleFromUrl, search: window.location.search });
+      } else {
+        setActiveModule('ceo');
+        // Устанавливаем ?module=ceo если параметра нет или он невалидный
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.set('module', 'ceo');
+        window.history.replaceState(null, '', newUrl.toString());
+        console.log('URL_SYNC_OK', { mode, activeModule: 'ceo', search: newUrl.search });
+      }
+    } else {
+      // Если режим НЕ ceo → удаляем ?module= из URL
+      const currentUrl = new URL(window.location.href);
+      if (currentUrl.searchParams.has('module')) {
+        currentUrl.searchParams.delete('module');
+        window.history.replaceState(null, '', currentUrl.toString());
+        console.log('URL_SYNC_OK', { mode, activeModule: 'removed', search: currentUrl.search });
+      }
+    }
+  }, [mode]); // Срабатывает при смене режима
 
-  const getInitialMode = (): DashboardMode => {
-    if (currentUser?.id === 'ceo' || currentUser?.role === 'ceo') {
-      return 'ceo';
+  // 🔥 Синхронизация URL при изменении activeModule (только в ceo режиме)
+  useEffect(() => {
+    if (mode === 'ceo') {
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.set('module', activeModule);
+      window.history.replaceState(null, '', newUrl.toString());
+      console.log('URL_SYNC_OK', { mode, activeModule, search: newUrl.search });
     }
-    if (currentUser?.isAdmin || currentUser?.role === 'admin') {
-      return 'admin';
-    }
-    if (currentUser?.role === 'seo') {
-      return 'seo';
-    }
-    // По умолчанию admin для всех остальных (на случай если попали сюда)
-    return 'admin';
-  };
+  }, [activeModule, mode]);
 
-  const handleModeChange = (newMode: DashboardMode) => {
-    console.log('🔄 Switching mode:', mode, '→', newMode);
-    setMode(newMode);
-  };
+  // 🔥 УДАЛЕНА логика локального state mode и useEffect для currentUser
+
+  console.log('🔥 UnifiedDashboard render:', { currentRole, mode, activeModule }); // 🔥 НОВЫЙ лог для отладки
 
   const handleRefresh = async () => {
     console.log('🔄 Refreshing dashboard...');
@@ -73,9 +114,11 @@ export function UnifiedDashboard({ currentUser }: UnifiedDashboardProps) {
 
   // Рендерим содержимое в зависимости от режима
   const renderContent = () => {
-    console.log('🎨 Rendering mode:', mode); // Отладка
+    // 🆕 В режиме CEO используем activeModule для определения контента
+    const effectiveMode = mode === 'ceo' ? activeModule : mode;
+    console.log('🎨 Rendering mode:', mode, '| effective:', effectiveMode); // Отладка
     
-    switch (mode) {
+    switch (effectiveMode) {
       case 'ceo':
         return <CEOMissionControl currentUser={currentUser} period={period} />;
       
@@ -94,6 +137,9 @@ export function UnifiedDashboard({ currentUser }: UnifiedDashboardProps) {
       case 'support':
         return <SupportDashboard currentUser={currentUser} period={period} />;
       
+      case 'partner':
+        return <PartnerDashboard currentUser={currentUser} period={period} />; // 🆕 Дашборд для партнёров
+      
       default:
         return null;
     }
@@ -102,15 +148,13 @@ export function UnifiedDashboard({ currentUser }: UnifiedDashboardProps) {
   return (
     <DashboardLayout
       mode={mode}
-      onModeChange={handleModeChange}
-      status={status}
-      statusMessage={statusMessage}
+      onModeChange={undefined} // 🔥 УДАЛЕНО: переключение теперь только через TopBarRu
       period={period}
       onPeriodChange={setPeriod}
-      onRefresh={handleRefresh}
       onExport={handleExport}
-      onAudit={handleAudit}
       currentUser={currentUser}
+      activeModule={activeModule}
+      onActiveModuleChange={setActiveModule}
     >
       {renderContent()}
     </DashboardLayout>

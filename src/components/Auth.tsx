@@ -76,7 +76,9 @@ export function Auth({ onLogin }: AuthProps) {
                       <Label htmlFor="name" className="text-[#666]">Full Name</Label>
                       <Input
                         id="name"
+                        name="name"
                         type="text"
+                        autoComplete="name"
                         placeholder="Enter your name"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
@@ -88,7 +90,9 @@ export function Auth({ onLogin }: AuthProps) {
                       <Label htmlFor="phone" className="text-[#666]">Phone Number</Label>
                       <Input
                         id="phone"
+                        name="tel"
                         type="tel"
+                        autoComplete="tel"
                         placeholder="+1 (555) 000-0000"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
@@ -102,7 +106,9 @@ export function Auth({ onLogin }: AuthProps) {
                   <Label htmlFor="email" className="text-[#666]">Email Address</Label>
                   <Input
                     id="email"
+                    name="email"
                     type="email"
+                    autoComplete="email"
                     placeholder="your@email.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -114,7 +120,9 @@ export function Auth({ onLogin }: AuthProps) {
                   <Label htmlFor="password" className="text-[#666]">Password</Label>
                   <Input
                     id="password"
+                    name="password"
                     type="password"
+                    autoComplete={authStep === 'login' ? 'current-password' : 'new-password'}
                     placeholder="Enter password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}

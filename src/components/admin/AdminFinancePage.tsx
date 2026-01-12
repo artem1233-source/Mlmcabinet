@@ -19,18 +19,40 @@ import {
   Search,
   Filter,
   Download,
+  RefreshCw,
+  Eye,
+  CheckCircle,
+  XCircleIcon,
   Calendar,
-  Clock,
-  User,
-  CreditCard,
-  CheckCheck,
-  Ban,
   ChevronDown,
-  Briefcase
+  Briefcase,
+  CheckCheck
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
+
+// 🔧 Функция для безопасного отображения method и details
+const formatPaymentField = (field: any): string => {
+  if (!field) return 'Не указано';
+  if (typeof field === 'string') return field;
+  if (typeof field === 'object') {
+    // Если объект, попробуем извлечь важные поля
+    if (field.type) {
+      if (field.card_last4) {
+        return `${field.type} (**** ${field.card_last4})`;
+      }
+      return field.type;
+    }
+    // Если не удалось извлечь, вернем JSON строку
+    try {
+      return JSON.stringify(field);
+    } catch {
+      return 'Формат не поддерживается';
+    }
+  }
+  return String(field);
+};
 
 interface AdminFinancePageProps {
   currentUser: any;
@@ -152,7 +174,7 @@ export function AdminFinancePage({ currentUser }: AdminFinancePageProps) {
   };
 
   const generateChartData = () => {
-    // Генер��руем данные за последние 30 дней
+    // Генерруем данные за последние 30 дней
     const days = 30;
     const data = [];
     const today = new Date();
@@ -656,7 +678,7 @@ export function AdminFinancePage({ currentUser }: AdminFinancePageProps) {
                       <div className="flex-1 min-w-0 max-w-[300px] px-4">
                         <p className="text-xs text-gray-500 mb-1">Реквизиты:</p>
                         <p className="text-sm font-medium text-gray-900 truncate font-mono">
-                          {withdrawal.details || 'Не указаны'}
+                          {formatPaymentField(withdrawal.details) || 'Не указаны'}
                         </p>
                         <Badge className="bg-gray-100 text-gray-700 text-xs mt-1">
                           {withdrawal.method || 'USDT'}
@@ -881,7 +903,7 @@ export function AdminFinancePage({ currentUser }: AdminFinancePageProps) {
                 <div className="text-sm">
                   <span className="text-gray-600">Реквизиты:</span>
                   <p className="font-mono text-xs text-gray-900 mt-1 break-all">
-                    {actionDialog.withdrawal.details || 'Не указаны'}
+                    {formatPaymentField(actionDialog.withdrawal.details) || 'Не указаны'}
                   </p>
                 </div>
               </div>

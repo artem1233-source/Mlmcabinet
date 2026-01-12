@@ -2,14 +2,13 @@ import { useState, useEffect } from 'react';
 import { LoginRu } from './components/LoginRu';
 import { RegistrationRu } from './components/RegistrationRu';
 import { SidebarRu } from './components/SidebarRu';
-import { DashboardRu } from './components/DashboardRu';
-import { DashboardRuOptimized } from './components/DashboardRuOptimized';
+import { TopBarRu } from './components/TopBarRu'; // 🆕 Импорт TopBar
 import { OrdersRu } from './components/OrdersRu';
 import { BalanceRu } from './components/BalanceRu';
 import { CatalogRu } from './components/CatalogRu';
 import { UsersManagementRu } from './components/UsersManagementRuV2';
 import { UsersManagementOptimized } from './components/UsersManagementOptimized';
-import { StructureDataViz } from './components/StructureDataViz';
+import { StructureWithVersionToggle } from './components/StructureWithVersionToggle';
 import { TrainingRu } from './components/TrainingRu';
 import { ProfileRu } from './components/ProfileRu';
 import { SettingsRu } from './components/SettingsRu';
@@ -22,6 +21,8 @@ import { AdminPanel } from './components/AdminPanel';
 import { AdminFinancePage } from './components/admin/AdminFinancePage'; // Neobank Finance Page
 import { UnifiedDashboard } from './components/dashboard/UnifiedDashboard'; // 🆕 Unified Dashboard
 import { DrilldownProvider } from './components/dashboard/DrilldownProvider'; // 🆕 Drilldown Provider
+import { AdminDashboard } from './admin/AdminDashboard'; // 🆕 H2 Platform Admin Panel
+import { RoleProvider } from './contexts/RoleContext'; // 🆕 Role Context для управления ролями
 import { Menu } from 'lucide-react';
 import { Button } from './components/ui/button';
 import * as api from './utils/api.ts';
@@ -41,14 +42,24 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
   // 🚀 Переключатель между старой и оптимизированной версией управления пользователями
   // ✅ Оптимизированная версия по умолчанию (имеет 100% функционал + лучшая производительность)
   const useOptimizedUsers = true; // Всегда используем новую версию
-  
-  // 🚀 Переключатель между старой и оптимизированной версией дашборда
-  //  Оптимизированная версия по умолчанию (React Query + кэширование + экспорт CSV)
-  const [useOptimizedDashboard, setUseOptimizedDashboard] = useState(true);
 
   const handleRefresh = () => {
     setRefreshTrigger(prev => prev + 1);
   };
+
+  // 🔄 Обработчик навигации из компонентов (например, PartnerDashboard)
+  useEffect(() => {
+    const handleNavigate = (event: any) => {
+      const section = event.detail;
+      if (section) {
+        setActiveSection(section);
+        setMobileMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('navigate', handleNavigate);
+    return () => window.removeEventListener('navigate', handleNavigate);
+  }, []);
 
   // 🚪 Выход из системы
   const handleLogout = () => {
@@ -202,7 +213,7 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
     );
   }
 
-  // Если пользователь не авторизован или данные ещё не загружены
+  // Если пользователь не авторизова или данные ещё не загружены
   if (!userId || !currentUser) {
     if (!userId) {
       // Показываем форму входа/регистрации
@@ -245,59 +256,11 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
     switch (activeSection) {
       case 'дашборд':
       case 'dashboard':
-        // 🚀 Переключатель между версиями дашборда
-        return (
-          <div>
-            {/* Переключатель версий */}
-            <div className="bg-white border-b border-[#E6E9EE] px-6 py-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-[#666]" style={{ fontSize: '14px' }}>Версия дашборда:</span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setUseOptimizedDashboard(false)}
-                    className={`px-4 py-2 rounded-lg transition-all ${
-                      !useOptimizedDashboard 
-                        ? 'bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white shadow-sm' 
-                        : 'bg-gray-100 text-[#666] hover:bg-gray-200'
-                    }`}
-                    style={{ fontSize: '13px', fontWeight: '600' }}
-                  >
-                    Стандартная
-                  </button>
-                  <button
-                    onClick={() => setUseOptimizedDashboard(true)}
-                    className={`px-4 py-2 rounded-lg transition-all ${
-                      useOptimizedDashboard 
-                        ? 'bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white shadow-sm' 
-                        : 'bg-gray-100 text-[#666] hover:bg-gray-200'
-                    }`}
-                    style={{ fontSize: '13px', fontWeight: '600' }}
-                  >
-                    🚀 Оптимизированная
-                  </button>
-                </div>
-              </div>
-              <p className="text-[#999]" style={{ fontSize: '12px' }}>
-                {useOptimizedDashboard ? '⚡ React Query кэширование + экспорт CSV (< 200ms)' : '📋 Обычная загрузка (2-3 сек)'}
-              </p>
-            </div>
-            
-            {/* Рендер выбранной версии */}
-            {useOptimizedDashboard ? (
-              <DashboardRuOptimized currentUser={currentUser} onRefresh={handleRefresh} refreshTrigger={refreshTrigger} />
-            ) : (
-              <DashboardRu 
-                currentUser={currentUser} 
-                onNavigate={setActiveSection}
-                onRefresh={handleRefresh} 
-                refreshTrigger={refreshTrigger} 
-              />
-            )}
-          </div>
-        );
+        // 🚀 Новый Unified Dashboard
+        return <UnifiedDashboard currentUser={currentUser} />;
       case 'структура':
       case 'structure':
-        return <StructureDataViz currentUser={currentUser} refreshTrigger={refreshTrigger} />;
+        return <StructureWithVersionToggle currentUser={currentUser} refreshTrigger={refreshTrigger} />;
       case 'пользователи':
       case 'users':
         // 🚀 Оптимизированная версия управления пользователями
@@ -347,49 +310,66 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
       case 'мишн-контрол':
         // 🚀 Unified Dashboard с CEO Mission Control
         return <UnifiedDashboard currentUser={currentUser} />;
+      case 'h2-admin':
+      case 'админ-h2':
+        // 👑 H2 Platform Admin Panel (Центр управления с ролями)
+        return <AdminDashboard />;
       default:
-        return <DashboardRu 
-          currentUser={currentUser} 
-          onNavigate={setActiveSection}
-          onRefresh={handleRefresh} 
-          refreshTrigger={refreshTrigger} 
-        />;
+        // 🚀 По умолчанию тоже показываем Unified Dashboard
+        return <UnifiedDashboard currentUser={currentUser} />;
     }
   };
 
   return (
-    <div className="flex h-screen bg-[#F7FAFC] overflow-hidden">
-      <SidebarRu 
-        текущаяВкладка={activeSection} 
-        изменитьВкладку={(tab) => {
-          setActiveSection(tab);
-          setMobileMenuOpen(false);
-        }}
-        currentUser={currentUser}
-        mobileMenuOpen={mobileMenuOpen}
-        setMobileMenuOpen={setMobileMenuOpen}
-      />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Mobile Header */}
-        <header className="lg:hidden bg-white border-b border-[#E6E9EE] px-4 py-3 flex items-center justify-between">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setMobileMenuOpen(true)}
-            className="text-[#666]"
-          >
-            <Menu className="w-5 h-5" />
-          </Button>
-          <h1 className="text-[#39B7FF] font-bold">H₂ Платформа</h1>
-          <div className="w-9" /> {/* Spacer for centering */}
-        </header>
-        
-        <main className="flex-1 overflow-y-auto">
-          <div className="max-w-7xl mx-auto w-full">
-            {renderSection()}
+    <RoleProvider>
+      <div className="flex h-screen bg-[#F7FAFC] overflow-hidden">
+        <SidebarRu 
+          текущаяВкладка={activeSection} 
+          изменитьВкладку={(tab) => {
+            setActiveSection(tab);
+            setMobileMenuOpen(false);
+          }}
+          currentUser={currentUser}
+          mobileMenuOpen={mobileMenuOpen}
+          setMobileMenuOpen={setMobileMenuOpen}
+        />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Desktop TopBar */}
+          <div className="hidden lg:block">
+            <TopBarRu
+              имяПользователя={currentUser?.name || currentUser?.username || 'Пользователь'}
+              балансПользователя={currentUser?.balance || 0}
+              cartItemsCount={0}
+              onMenuClick={() => setMobileMenuOpen(true)}
+              onProfileClick={() => setActiveSection('профиль')}
+              onBalanceClick={() => setActiveSection('баланс')}
+              onNotificationsClick={() => setActiveSection('уведомления')}
+              onLogoClick={() => setActiveSection('дашборд')}
+              onCartClick={() => setActiveSection('каталог')}
+            />
           </div>
-        </main>
+          
+          {/* Mobile Header */}
+          <header className="lg:hidden bg-white border-b border-[#E6E9EE] px-4 py-3 flex items-center justify-between">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setMobileMenuOpen(true)}
+              className="text-[#666]"
+            >
+              <Menu className="w-5 h-5" />
+            </Button>
+            <h1 className="text-[#39B7FF] font-bold">H₂ Платформа</h1>
+            <div className="w-9" /> {/* Spacer for centering */}
+          </header>
+          
+          <main className="flex-1 overflow-y-auto pt-0 lg:pt-20">
+            <div className="max-w-7xl mx-auto w-full">
+              {renderSection()}
+            </div>
+          </main>
+        </div>
       </div>
-    </div>
+    </RoleProvider>
   );
 }

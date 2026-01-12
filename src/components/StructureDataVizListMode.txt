@@ -1,0 +1,221 @@
+                  {viewMode === 'list' && (
+                    <div className="space-y-6">
+                      {/* Поиск и фильтры */}
+                      <Card className="p-4">
+                        <div className="flex gap-3">
+                          <div className="flex-1 relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                            <input
+                              type="text"
+                              placeholder="Поиск по имени и реферальному коду..."
+                              value={searchQuery}
+                              onChange={(e) => setSearchQuery(e.target.value)}
+                              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#39B7FF] focus:border-transparent"
+                            />
+                          </div>
+                          <Button variant="outline">
+                            <Filter className="w-4 h-4 mr-2" />
+                            Фильтры
+                          </Button>
+                        </div>
+
+                        {/* Фильтры по линиям */}
+                        <div className="flex gap-2 mt-3">
+                          <Button
+                            size="sm"
+                            variant={selectedLineFilter === null ? 'default' : 'outline'}
+                            onClick={() => setSelectedLineFilter(null)}
+                            className={selectedLineFilter === null ? 'bg-[#39B7FF] text-white' : ''}
+                          >
+                            Все ({team.length})
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={selectedLineFilter === 1 ? 'default' : 'outline'}
+                            onClick={() => setSelectedLineFilter(1)}
+                            className={selectedLineFilter === 1 ? 'bg-blue-500 text-white' : ''}
+                          >
+                            D1 ({team.filter(m => m.глубина === 1).length})
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={selectedLineFilter === 2 ? 'default' : 'outline'}
+                            onClick={() => setSelectedLineFilter(2)}
+                            className={selectedLineFilter === 2 ? 'bg-purple-500 text-white' : ''}
+                          >
+                            D2 ({team.filter(m => m.глубина === 2).length})
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={selectedLineFilter === 3 ? 'default' : 'outline'}
+                            onClick={() => setSelectedLineFilter(3)}
+                            className={selectedLineFilter === 3 ? 'bg-pink-500 text-white' : ''}
+                          >
+                            D3 ({team.filter(m => m.глубина === 3).length})
+                          </Button>
+                        </div>
+                      </Card>
+
+                      {/* Список партнёров */}
+                      <div className="space-y-3">
+                        {getFilteredTeam().map((member) => {
+                          const statusBadge = getStatusBadge(member.последнийВход || null);
+                          const childrenCount = getPartnerChildrenCount(member);
+                          const showPhone = member.privacySettings?.showPhone !== false;
+                          const showTelegram = member.privacySettings?.showTelegram !== false;
+                          const showWhatsapp = member.privacySettings?.showWhatsapp !== false;
+                          
+                          return (
+                            <Card key={member.id} className="p-5 hover:shadow-lg transition-shadow">
+                              <div className="flex items-start justify-between">
+                                <div className="flex items-start gap-4 flex-1">
+                                  {/* Аватар */}
+                                  <div className={`w-12 h-12 ${getAvatarColor(member.глубина || 1)} rounded-full flex items-center justify-center ${getAvatarTextColor(member.глубина || 1)} text-lg font-bold shadow-md`}>
+                                    {member.имя.charAt(0).toUpperCase()}
+                                  </div>
+
+                                  {/* Инфо */}
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-3 mb-2">
+                                      <h4 className="font-semibold text-gray-900">
+                                        {member.имя} {member.фамилия}
+                                      </h4>
+                                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${statusBadge.color}`}>
+                                        {statusBadge.label}
+                                      </span>
+                                      <Badge className={`${getLevelColor(member.глубина || 1)} border text-xs`}>
+                                        D{member.глубина || 1}
+                                      </Badge>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+                                      <div>
+                                        <div className="text-gray-500">Реф. код</div>
+                                        <div className="font-medium text-gray-900 font-mono text-xs">{member.рефКод}</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-gray-500">В команде</div>
+                                        <div className="font-medium text-gray-900">{childrenCount} чел</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-gray-500">Баланс</div>
+                                        <div className="font-bold text-[#39B7FF]">
+                                          {(member.баланс || 0).toLocaleString('ru-RU')} ₽
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-gray-500">Активность</div>
+                                        <div className="font-medium text-gray-900 text-xs">
+                                          {statusBadge.icon} {getActivityStatus(member.последнийВход || null).label}
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
+                                      <div className="flex items-center gap-1">
+                                        <Clock className="w-3 h-3" />
+                                        {member.датаРегистрации 
+                                          ? new Date(member.датаРегистрации).toLocaleDateString('ru-RU')
+                                          : 'Не указано'
+                                        }
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <Zap className="w-3 h-3" />
+                                        {getActivityStatus(member.последнийВход || null).label}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Действия */}
+                                <div className="flex gap-2 ml-4">
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={() => setSelectedUserId(member.id)}
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                  </Button>
+                                  {showTelegram && member.telegram && (
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline"
+                                      onClick={() => window.open(`https://t.me/${member.telegram.replace('@', '')}`, '_blank')}
+                                    >
+                                      <Send className="w-4 h-4" />
+                                    </Button>
+                                  )}
+                                  {showWhatsapp && member.whatsapp && (
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline"
+                                      onClick={() => window.open(`https://wa.me/${member.whatsapp.replace(/[^0-9]/g, '')}`, '_blank')}
+                                    >
+                                      <MessageCircle className="w-4 h-4" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Раскрываемая секция с командой */}
+                              {childrenCount > 0 && (
+                                <button
+                                  onClick={() => setExpandedPartner(expandedPartner === member.id ? null : member.id)}
+                                  className="mt-3 text-sm text-[#39B7FF] hover:underline flex items-center gap-1"
+                                >
+                                  {expandedPartner === member.id ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                                  Показать команду ({childrenCount})
+                                </button>
+                              )}
+
+                              {expandedPartner === member.id && (
+                                <div className="mt-3 pt-3 border-t">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    {team.filter(m => m.пригласительКод === member.рефКод).map(child => (
+                                      <div 
+                                        key={child.id}
+                                        className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+                                        onClick={() => setSelectedUserId(child.id)}
+                                      >
+                                        <div className={`w-8 h-8 ${getAvatarColor(child.глубина || 1)} rounded-lg flex items-center justify-center ${getAvatarTextColor(child.глубина || 1)} text-xs font-bold`}>
+                                          {child.имя.charAt(0).toUpperCase()}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <div className="text-sm font-medium text-gray-900 truncate">
+                                            {child.имя} {child.фамилия}
+                                          </div>
+                                          <div className="text-xs text-gray-500">
+                                            {(child.баланс || 0).toLocaleString('ru-RU')} ₽
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </Card>
+                          );
+                        })}
+
+                        {getFilteredTeam().length === 0 && (
+                          <Card className="p-8 text-center">
+                            <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                            <p className="text-gray-500">Партнёры не найдены</p>
+                            {searchQuery && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="mt-3"
+                                onClick={() => {
+                                  setSearchQuery('');
+                                  setSelectedLineFilter(null);
+                                }}
+                              >
+                                Сбросить фильтры
+                              </Button>
+                            )}
+                          </Card>
+                        )}
+                      </div>
+                    </div>
+                  )}

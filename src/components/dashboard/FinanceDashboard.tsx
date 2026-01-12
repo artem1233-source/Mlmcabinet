@@ -95,7 +95,7 @@ export function FinanceDashboard({ currentUser, period = '30' }: FinanceDashboar
   const recalculateStats = () => {
     console.log(`💰 Recalculating finance stats for period: ${periodDays} days`);
     
-    // Фильтруем заказы  выплаты по периоду
+    // Фильтруем заказы  выпла��ы по периоду
     const currentOrders = filterByPeriod(allOrders, 'дата', periodDays);
     const currentPayouts = filterByPeriod(allPayouts, 'дата_создания', periodDays);
     

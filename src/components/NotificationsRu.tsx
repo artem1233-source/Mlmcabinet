@@ -15,10 +15,63 @@ interface Notification {
   данные?: any; // Дополнительные данные (ID заказа, сумма и т.д.)
 }
 
+// Mock данные для демонстрации функционала
+const mockNotifications: Notification[] = [
+  {
+    id: 'mock-1',
+    тип: 'commission',
+    заголовок: 'Получена комиссия',
+    сообщение: 'Вы получили комиссию 1 500 ₽ с заказа партнёра Михаил Иванов',
+    дата: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    прочитано: false,
+  },
+  {
+    id: 'mock-2',
+    тип: 'new_partner',
+    заголовок: 'Новый партнёр в команде',
+    сообщение: 'Анна Петрова присоединилась к вашей команде по вашей реферальной ссылке',
+    дата: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+    прочитано: false,
+  },
+  {
+    id: 'mock-3',
+    тип: 'order',
+    заголовок: 'Заказ оформлен',
+    сообщение: 'Ваш заказ #12345 на сумму 3 200 ₽ успешно оформлен и отправлен на обработку',
+    дата: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    прочитано: true,
+  },
+  {
+    id: 'mock-4',
+    тип: 'goal',
+    заголовок: 'Цель достигнута!',
+    сообщение: 'Поздравляем! Вы достигли цели "Первые 10 партнёров" и получили бонус 5 000 ₽',
+    дата: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+    прочитано: true,
+  },
+  {
+    id: 'mock-5',
+    тип: 'withdrawal',
+    заголовок: 'Выплата одобрена',
+    сообщение: 'Ваша заявка на вывод 10 000 ₽ одобрена и будет переведена в течение 1-3 рабочих дней',
+    дата: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+    прочитано: true,
+  },
+  {
+    id: 'mock-6',
+    тип: 'course',
+    заголовок: 'Новый обучающий курс',
+    сообщение: 'Доступен новый курс "Эффективные продажи водородного порошка". Начните обучение прямо сейчас!',
+    дата: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+    прочитано: true,
+  },
+];
+
 export function NotificationsRu() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | Notification['тип']>('all');
+  const [useMockData, setUseMockData] = useState(false);
 
   useEffect(() => {
     loadNotifications();
@@ -30,20 +83,32 @@ export function NotificationsRu() {
       const response = await api.getNotifications();
       if (response.success) {
         setNotifications(response.notifications || []);
+        setUseMockData(false);
       } else {
-        // Если ответ не успешный, устанавливаем пустой массив
-        setNotifications([]);
+        // Если ответ не успешный, используем mock-данные
+        console.log('📌 Using mock notifications data');
+        setNotifications(mockNotifications);
+        setUseMockData(true);
       }
     } catch (error) {
-      console.error('Error loading notifications:', error);
-      // При ошибке устанавливаем пустой массив, чтобы UI продолжал работать
-      setNotifications([]);
+      // При ошибке используем mock-данные для демонстрации функционала
+      console.log('📌 Using mock notifications data (API unavailable)');
+      setNotifications(mockNotifications);
+      setUseMockData(true);
     } finally {
       setLoading(false);
     }
   };
 
   const markAsRead = async (notificationId: string) => {
+    if (useMockData) {
+      // Локальное обновление для mock-данных
+      setNotifications(notifications.map(n => 
+        n.id === notificationId ? { ...n, прочитано: true } : n
+      ));
+      return;
+    }
+    
     try {
       await api.markNotificationAsRead(notificationId);
       setNotifications(notifications.map(n => 
@@ -55,6 +120,12 @@ export function NotificationsRu() {
   };
 
   const markAllAsRead = async () => {
+    if (useMockData) {
+      // Локальное обновление для mock-данных
+      setNotifications(notifications.map(n => ({ ...n, прочитано: true })));
+      return;
+    }
+    
     try {
       await api.markAllNotificationsAsRead();
       setNotifications(notifications.map(n => ({ ...n, прочитано: true })));
@@ -64,6 +135,12 @@ export function NotificationsRu() {
   };
 
   const deleteNotification = async (notificationId: string) => {
+    if (useMockData) {
+      // Локальное обновление для mock-данных
+      setNotifications(notifications.filter(n => n.id !== notificationId));
+      return;
+    }
+    
     try {
       await api.deleteNotification(notificationId);
       setNotifications(notifications.filter(n => n.id !== notificationId));
@@ -96,7 +173,7 @@ export function NotificationsRu() {
   const getTypeLabel = (type: Notification['тип']) => {
     const labels: Record<Notification['тип'], string> = {
       order: 'Заказ',
-      commission: 'Комиссия',
+      commission: 'Ко��иссия',
       new_partner: 'Партнёр',
       goal: 'Цель',
       inactive: 'Активность',
@@ -125,6 +202,20 @@ export function NotificationsRu() {
 
   return (
     <div className="space-y-6">
+      {/* Mock Data Notice */}
+      {useMockData && (
+        <Card className="bg-blue-50 border-[#39B7FF]">
+          <CardContent className="py-3">
+            <div className="flex items-center gap-2 text-sm text-[#39B7FF]">
+              <AlertCircle className="size-4 flex-shrink-0" />
+              <p>
+                <strong>Демо-режим:</strong> Показаны примеры уведомлений. При подключении к серверу отобразятся реальные данные.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

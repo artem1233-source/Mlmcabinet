@@ -297,7 +297,7 @@ export function WarehouseDashboard({ currentUser, period = '30' }: WarehouseDash
 
         {/* Forecast */}
         <ChartContainer
-          title="Прогноз остатков"
+          title="П��огноз остатков"
           subtitle="Топ-2 SKU на следующие 21 день"
           loading={loading}
         >

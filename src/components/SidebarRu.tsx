@@ -1,5 +1,7 @@
 import { LayoutDashboard, Users, ShoppingBag, Wallet, Package, GraduationCap, UserCircle, Settings, Droplet, TrendingUp, Bell, Shield, Trophy, Sparkles, Crown } from 'lucide-react';
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from './ui/sheet';
+import { useRole, hasAccess } from '../contexts/RoleContext';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 
 interface SidebarProps {
   текущаяВкладка: string;
@@ -12,12 +14,11 @@ interface SidebarProps {
 export function SidebarRu({ текущаяВкладка, изменитьВкладку, mobileMenuOpen, setMobileMenuOpen, currentUser }: SidebarProps) {
   const isAdmin = currentUser?.isAdmin || false;
   const isCEO = currentUser?.type === 'admin' && currentUser?.role === 'ceo';
+  const { currentRole, inspectionMode } = useRole();
   
   const navItems = [
-    // 🆕 "Дашборд" только для обычных пользователей (у CEO есть Mission Control)
-    ...(!isAdmin ? [{ id: 'дашборд', label: 'Дашборд', icon: LayoutDashboard }] : []),
-    // 👑 Mission Control (только для CEO)
-    ...(isCEO ? [{ id: 'mission-control', label: 'Mission Control', icon: Crown }] : []),
+    // 🚀 "Дашборд" для всех пользователей (Unified Dashboard с режимами)
+    { id: 'дашборд', label: 'Дашборд', icon: LayoutDashboard },
     // 🆕 Админ видит "Пользователи", обычные партнёры - "Структура"
     ...(isAdmin 
       ? [{ id: 'пользователи', label: 'Пользователи', icon: Users }] 
@@ -43,45 +44,87 @@ export function SidebarRu({ текущаяВкладка, изменитьВкл
     ...(isAdmin ? [{ id: 'админ', label: 'Админ-панель', icon: Shield }] : []),
     // 👑 Управление админами (только для CEO)
     ...(isCEO ? [{ id: 'управление-админами', label: 'Управление админами', icon: Shield }] : []),
+    // 👑 H2 Admin - Центр управления (только для CEO)
+    ...(isCEO ? [{ id: 'h2-admin', label: 'H2 Admin', icon: Crown }] : []),
   ];
+
+  // Фильтрация пунктов меню на основе роли
+  const getFilteredNavItems = () => {
+    // Для режима инспекции Owner показываем все пункты
+    if (currentRole === 'owner' && inspectionMode) {
+      return navItems;
+    }
+    
+    // Иначе показываем только доступные пункты
+    return navItems.filter(item => hasAccess(currentRole, item.id));
+  };
+
+  const filteredNavItems = getFilteredNavItems();
 
   const sidebarContent = (
     <>
-      <div className="p-6 border-b border-[#E6E9EE]">
+      <div className="h-16 lg:h-20 px-6 border-b border-[#E6E9EE] flex items-center" style={{ boxSizing: 'border-box' }}>
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-xl flex items-center justify-center">
             <Droplet size={20} className="text-white" />
           </div>
           <div>
-            <h1 className="text-[#39B7FF]" style={{ fontSize: '16px', fontWeight: '700' }}>
+            <h1 className="text-[#39B7FF]" style={{ fontSize: '16px', fontWeight: '700', lineHeight: '1.2' }}>
               H₂ Платформа
             </h1>
-            <p className="text-[#666]" style={{ fontSize: '11px' }}>Партнёрская</p>
+            <p className="text-[#666]" style={{ fontSize: '11px', lineHeight: '1.2' }}>Партнёрская</p>
           </div>
         </div>
       </div>
       
       <nav className="flex-1 p-4">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = текущаяВкладка === item.id;
-          
-          return (
-            <button
-              key={item.id}
-              onClick={() => изменитьВкладку(item.id)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${
-                isActive
-                  ? 'bg-[#39B7FF] text-white shadow-lg shadow-[#39B7FF]/30'
-                  : 'text-[#666] hover:bg-gray-50'
-              }`}
-              style={{ fontWeight: isActive ? '600' : '500' }}
-            >
-              <Icon size={20} />
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
+        <TooltipProvider>
+          {filteredNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = текущаяВкладка === item.id;
+            const itemHasAccess = hasAccess(currentRole, item.id);
+            const isDisabled = currentRole === 'owner' && inspectionMode && !itemHasAccess;
+            
+            const buttonContent = (
+              <button
+                key={item.id}
+                onClick={() => {
+                  if (!isDisabled) {
+                    изменитьВкладку(item.id);
+                  }
+                }}
+                disabled={isDisabled}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${
+                  isActive
+                    ? 'bg-[#39B7FF] text-white shadow-lg shadow-[#39B7FF]/30'
+                    : isDisabled
+                    ? 'text-[#CCC] cursor-not-allowed opacity-50'
+                    : 'text-[#666] hover:bg-gray-50'
+                }`}
+                style={{ fontWeight: isActive ? '600' : '500' }}
+              >
+                <Icon size={20} />
+                <span>{item.label}</span>
+              </button>
+            );
+
+            // Показываем tooltip только для недоступных пунктов в режиме инспекции
+            if (isDisabled) {
+              return (
+                <Tooltip key={item.id}>
+                  <TooltipTrigger asChild>
+                    {buttonContent}
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    <p>Недоступно для роли {currentRole}</p>
+                  </TooltipContent>
+                </Tooltip>
+              );
+            }
+
+            return buttonContent;
+          })}
+        </TooltipProvider>
       </nav>
     </>
   );

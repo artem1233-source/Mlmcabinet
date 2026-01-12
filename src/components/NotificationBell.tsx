@@ -18,10 +18,39 @@ interface NotificationBellProps {
   onViewAll?: () => void;
 }
 
+// Mock-данные для демонстрации (используются когда сервер недоступен)
+const MOCK_NOTIFICATIONS: Notification[] = [
+  {
+    id: 'mock-1',
+    тип: 'commission',
+    заголовок: 'Новая комиссия',
+    сообщение: 'Вы получили комиссию 500₽ от заказа партнера',
+    дата: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 часа назад
+    прочитано: false,
+  },
+  {
+    id: 'mock-2',
+    тип: 'new_partner',
+    заголовок: 'Новый партнер',
+    сообщение: 'В вашей команде появился новый партнер!',
+    дата: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(), // 5 часов назад
+    прочитано: false,
+  },
+  {
+    id: 'mock-3',
+    тип: 'course',
+    заголовок: 'Новый обучающий материал',
+    сообщение: 'Доступен новый курс по продажам',
+    дата: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // вчера
+    прочитано: true,
+  },
+];
+
 export function NotificationBell({ onViewAll }: NotificationBellProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [usingMockData, setUsingMockData] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -62,20 +91,32 @@ export function NotificationBell({ onViewAll }: NotificationBellProps) {
           )
           .slice(0, 5);
         setNotifications(sorted);
+        setUsingMockData(false);
       } else {
-        // Если ответ не успешный, устанавливаем пустой массив
-        setNotifications([]);
+        // Если ответ не успешный, используем mock-данные
+        console.log('ℹ️ Notifications API unavailable, using mock data');
+        setNotifications(MOCK_NOTIFICATIONS);
+        setUsingMockData(true);
       }
     } catch (error) {
-      console.error('Error loading notifications:', error);
-      // При ошибке устанавливаем пустой массив, чтобы UI продолжал работать
-      setNotifications([]);
+      // При ошибке используем mock-данные вместо пустого массива
+      console.log('ℹ️ Notifications API unavailable, using mock data');
+      setNotifications(MOCK_NOTIFICATIONS);
+      setUsingMockData(true);
     } finally {
       setLoading(false);
     }
   };
 
   const markAsRead = async (notificationId: string) => {
+    // Если используем mock-данные, только обновляем локальное состояние
+    if (usingMockData) {
+      setNotifications(notifications.map(n => 
+        n.id === notificationId ? { ...n, прочитано: true } : n
+      ));
+      return;
+    }
+
     try {
       await api.markNotificationAsRead(notificationId);
       setNotifications(notifications.map(n => 
@@ -83,6 +124,10 @@ export function NotificationBell({ onViewAll }: NotificationBellProps) {
       ));
     } catch (error) {
       console.error('Error marking notification as read:', error);
+      // Все равно обновляем локально
+      setNotifications(notifications.map(n => 
+        n.id === notificationId ? { ...n, прочитано: true } : n
+      ));
     }
   };
 

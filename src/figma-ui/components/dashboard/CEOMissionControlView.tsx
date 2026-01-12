@@ -179,9 +179,9 @@ export function CEOMissionControlView({
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* Revenue vs Payouts vs Liability */}
+        {/* Выручка vs Выплаты vs Обязательства */}
         <ChartContainer
-          title="Revenue vs Payouts vs Liability"
+          title="Выручка vs Выплаты vs Обязательства"
           subtitle="Динамика за последние 30 дней"
           loading={loading}
           empty={chartData.length === 0}

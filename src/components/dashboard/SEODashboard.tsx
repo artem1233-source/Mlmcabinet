@@ -361,7 +361,7 @@ export function SEODashboard({ currentUser, period = '30' }: SEODashboardProps) 
         <CardContent>
           {loading ? (
             <div className="py-8 text-center text-sm text-[#6B7280]">
-              Загрузка...
+              Загрзка...
             </div>
           ) : (
             <div className="space-y-2">

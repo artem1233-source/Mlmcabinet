@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Users, UserPlus, TrendingUp, Award, Loader2, Share2, Copy, CheckCircle2, Network, BarChart3, Trophy, ChevronDown, ChevronRight, Minimize2, Maximize2, Phone, MessageCircle, Send, Star, Target, Zap, Crown, Rocket, Activity, Calendar as CalendarIcon, Clock, Flame, Eye, X } from 'lucide-react';
+import { Users, UserPlus, TrendingUp, Award, Loader2, Share2, Copy, CheckCircle2, Network, BarChart3, Trophy, ChevronDown, ChevronRight, Minimize2, Maximize2, Phone, MessageCircle, Send, Star, Target, Zap, Crown, Rocket, Activity, Calendar as CalendarIcon, Clock, Flame, Eye, X, Search, Filter, Mail, ExternalLink } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -227,6 +227,7 @@ const GrowthTimeline = ({ team }: { team: any[] }) => {
 export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataVizProps) {
   const [team, setTeam] = useState<any[]>([]);
   const [sponsor, setSponsor] = useState<any>(null);
+  const [upline, setUpline] = useState<any[]>([]); // Восходящая линия (3 уровня вверх)
   const [loading, setLoading] = useState(true);
   const [copiedLink, setCopiedLink] = useState(false);
   const [viewMode, setViewMode] = useState<'cards' | 'list' | 'tree' | 'top'>('cards');
@@ -237,6 +238,9 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
   const [showInviteDialog, setShowInviteDialog] = useState(false);
   const [inviteMessage, setInviteMessage] = useState('');
   const [viewHeight, setViewHeight] = useState<'10' | '15' | '20'>('15');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedLineFilter, setSelectedLineFilter] = useState<number | null>(null);
+  const [expandedPartner, setExpandedPartner] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const effectiveUserId = currentUser?.id;
@@ -270,6 +274,7 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
   useEffect(() => {
     loadTeam();
     loadSponsor();
+    loadUpline();
   }, [refreshTrigger, effectiveUserId]);
 
   const loadTeam = async () => {
@@ -310,6 +315,39 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
       }
     } catch (error) {
       console.error('Failed to load sponsor:', error);
+    }
+  };
+
+  const loadUpline = async () => {
+    if (!currentUser?.спонсорId) {
+      setUpline([]);
+      return;
+    }
+    
+    try {
+      const uplineChain: any[] = [];
+      let currentSponsorId = currentUser.спонсорId;
+      let level = 1;
+      
+      // Загружаем до 3 уровней вверх
+      while (currentSponsorId && level <= 3) {
+        const response = await api.getUser(currentSponsorId);
+        if (response.success && response.user) {
+          uplineChain.push({
+            ...response.user,
+            uplineLevel: level, // D1, D2, D3
+          });
+          currentSponsorId = response.user.спонсорId;
+          level++;
+        } else {
+          break;
+        }
+      }
+      
+      setUpline(uplineChain);
+    } catch (error) {
+      console.error('Failed to load upline:', error);
+      setUpline([]);
     }
   };
 
@@ -474,6 +512,42 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
     setShowInviteDialog(false);
   };
 
+  // Функция для получения статусного бейджа партнёра
+  const getStatusBadge = (lastActive: string | null) => {
+    if (!lastActive) return { color: 'bg-red-100 text-red-700', icon: '🔴', label: 'Неактивен 30+ дней' };
+    
+    const now = new Date();
+    const lastActiveDate = new Date(lastActive);
+    const diffHours = (now.getTime() - lastActiveDate.getTime()) / (1000 * 60 * 60);
+    
+    if (diffHours < 168) return { color: 'bg-green-100 text-green-700', icon: '🟢', label: 'Активен' };
+    if (diffHours < 720) return { color: 'bg-yellow-100 text-yellow-700', icon: '🟡', label: 'Неактивен 7+ дней' };
+    return { color: 'bg-red-100 text-red-700', icon: '🔴', label: 'Неактивен 30+ дней' };
+  };
+
+  // Фильтрация партнёров для режима list
+  const getFilteredTeam = () => {
+    let filtered = [...team];
+    
+    if (selectedLineFilter) {
+      filtered = filtered.filter(m => m.глубина === selectedLineFilter);
+    }
+    
+    if (searchQuery) {
+      filtered = filtered.filter(m => 
+        `${m.имя} ${m.фамилия}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        m.рефКод.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+    
+    return filtered.sort((a, b) => (b.баланс || 0) - (a.баланс || 0));
+  };
+
+  // Подсчёт детей партнёра
+  const getPartnerChildrenCount = (member: any) => {
+    return team.filter(m => m.пригласительКод === member.рефКод).length;
+  };
+
   const toggleNode = (nodeId: string) => {
     const newExpanded = new Set(expandedNodes);
     if (newExpanded.has(nodeId)) {
@@ -528,130 +602,99 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
       <div
         key={node.id}
         className="ml-0"
+        style={{ marginLeft: `${node.depth * 24}px` }}
       >
-        <div className="flex items-center gap-2 p-3 bg-white rounded-xl mb-2 hover:shadow-md transition-all duration-200 group relative border border-gray-100">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className={`absolute top-2 left-2 w-2.5 h-2.5 ${activityStatus.color} rounded-full animate-pulse`} />
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{activityStatus.label}</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+        <div className={`
+          flex items-center gap-2 p-2 bg-white rounded-xl mb-1 transition-all duration-200 group relative 
+          border border-gray-100
+          hover:shadow-lg hover:shadow-blue-100/50 hover:border-blue-200 hover:-translate-y-0.5
+          ${hasChildren ? 'cursor-pointer hover:bg-blue-50/30' : 'cursor-default'}
+        `}>
+          {/* Иконка связи (вертикальная линия) */}
+          {node.depth > 0 && (
+            <div className="absolute -left-3 top-0 bottom-0 w-px bg-gray-200"></div>
+          )}
 
-          {hasChildren && (
+          {/* Кнопка раскрытия */}
+          {hasChildren ? (
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 toggleNode(node.id);
               }}
-              className="p-1 hover:bg-gray-100 rounded-lg transition-colors ml-3"
+              className="h-7 w-7 p-0 rounded-full hover:bg-blue-50 shrink-0 relative transition-all flex items-center justify-center"
             >
               {isExpanded ? (
-                <ChevronDown size={16} className="text-[#666]" />
+                <ChevronDown className="w-4 h-4 text-blue-400 transition-colors" />
               ) : (
-                <ChevronRight size={16} className="text-[#666]" />
+                <ChevronRight className="w-4 h-4 text-gray-400 transition-colors" />
               )}
+              <div className="absolute -top-0.5 -right-0.5 bg-gradient-to-br from-blue-400 to-blue-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[9px] font-bold shadow-sm">
+                {node.children.length}
+              </div>
             </button>
+          ) : (
+            <div className="w-7 shrink-0"></div>
           )}
           
-          {!hasChildren && <div className="w-6 ml-3" />}
-          
+          {/* Аватар */}
           <div 
             onClick={() => setSelectedUserId(node.id)}
-            className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+            className="cursor-pointer relative"
           >
-            <div className={`w-10 h-10 ${getAvatarColor(node.глубина || 1)} rounded-lg flex items-center justify-center ${getAvatarTextColor(node.глубина || 1)} flex-shrink-0 shadow-sm group-hover:scale-110 transition-transform`}>
-              <span style={{ fontWeight: '700', fontSize: '14px' }}>
+            <Avatar className="w-11 h-11 shadow-md shadow-blue-100/50 transition-transform group-hover:scale-105 flex-shrink-0">
+              {node.аватарка ? (
+                <AvatarImage src={node.аватарка} alt={`${node.имя} ${node.фамилия}`} />
+              ) : null}
+              <AvatarFallback className={`${getAvatarColor(node.глубина || 1)} ${getAvatarTextColor(node.глубина || 1)} font-bold rounded-2xl`}>
                 {node.имя.charAt(0).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            {/* Индикатор активности */}
+            <div className={`absolute -top-0.5 -right-0.5 w-3 h-3 ${activityStatus.color} rounded-full border-2 border-white`}></div>
+          </div>
+
+          {/* Информация */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="text-gray-700 truncate font-semibold text-sm">
+                {node.имя} {node.фамилия}
               </span>
+              {/* Оранжевый бейдж с уровнем */}
+              <Badge className="bg-gradient-to-r from-orange-400 to-orange-500 text-white border-0 text-xs px-2 py-0 h-5">
+                {node.глубина || 1}/{node.children?.length || 0}/{(node.баланс || 0) > 0 ? 'D' : '0'}
+              </Badge>
             </div>
-
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-[#1E1E1E] truncate group-hover:text-[#39B7FF] transition-colors" style={{ fontWeight: '600', fontSize: '14px' }}>
-                  {node.имя} {node.фамилия}
-                </span>
-                <Badge className={`${getLevelColor(node.глубина || 1)} border text-xs`}>
-                  Уровень {node.глубина || 1}
-                </Badge>
-              </div>
-              <div className="text-[#666]" style={{ fontSize: '12px' }}>
-                {node.рефКод} • {(node.баланс || 0).toLocaleString('ru-RU')}₽
-              </div>
+            <div className="text-xs text-gray-500 flex items-center gap-2">
+              <span>ID: {node.id.substring(0, 8)}</span>
+              <span>•</span>
+              <span className="font-mono">{node.рефКод}</span>
+              <span>•</span>
+              <span>{node.датаРегистрации ? new Date(node.датаРегистрации).toLocaleDateString('ru-RU') : 'Не указано'}</span>
             </div>
           </div>
 
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            {showTelegram && node.telegram && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <a
-                      href={`https://t.me/${node.telegram.replace(/^@/, '')}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="p-2 hover:bg-blue-100 rounded-lg transition-colors"
-                    >
-                      <Send size={16} className="text-[#0088cc]" />
-                    </a>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Telegram</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            
-            {showWhatsapp && node.whatsapp && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <a
-                      href={`https://wa.me/${node.whatsapp.replace(/[^0-9]/g, '')}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="p-2 hover:bg-green-100 rounded-lg transition-colors"
-                    >
-                      <MessageCircle size={16} className="text-[#25D366]" />
-                    </a>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>WhatsApp</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-
-            {showPhone && node.телефон && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <a
-                      href={`tel:${node.телефон}`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="p-2 hover:bg-purple-100 rounded-lg transition-colors"
-                    >
-                      <Phone size={16} className="text-[#8B5CF6]" />
-                    </a>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Позвонить</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
+          {/* Метрики */}
+          <div className="flex items-center gap-4 text-xs mr-2">
+            <div className="flex flex-col items-center">
+              <Users className="w-3 h-3 text-blue-400 mb-0.5" />
+              <span className="font-medium text-gray-700">{node.children?.length || 0}/{getPartnerChildrenCount(node)}</span>
+            </div>
+            <div className="flex flex-col items-center">
+              <span className="text-gray-500 text-xs mb-0.5">₽</span>
+              <span className="font-bold text-[#39B7FF]">{(node.баланс || 0).toLocaleString('ru-RU')}</span>
+            </div>
           </div>
 
-          {hasChildren && (
-            <Badge variant="outline" className="text-xs">
-              {node.children.length} чел.
-            </Badge>
-          )}
+          {/* Кнопка "Открыть" */}
+          <Button 
+            size="sm" 
+            onClick={() => setSelectedUserId(node.id)}
+            className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white hover:from-[#2997E0] hover:to-[#0FA896] text-xs h-8 px-3"
+          >
+            <Eye className="w-3 h-3 mr-1" />
+            Открыть
+          </Button>
         </div>
 
         <div className="overflow-hidden">
@@ -860,9 +903,14 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
             <div className="flex items-center gap-2.5 p-2.5">
               {/* Avatar with status - mini */}
               <div className="relative flex-shrink-0">
-                <div className={`w-9 h-9 ${getAvatarColor(member.глубина || 1)} rounded-lg flex items-center justify-center ${getAvatarTextColor(member.глубина || 1)} font-bold text-sm`}>
-                  {member.имя.charAt(0).toUpperCase()}
-                </div>
+                <Avatar className="w-9 h-9">
+                  {member.аватарка ? (
+                    <AvatarImage src={member.аватарка} alt={`${member.имя} ${member.фамилия}`} />
+                  ) : null}
+                  <AvatarFallback className={`${getAvatarColor(member.глубина || 1)} ${getAvatarTextColor(member.глубина || 1)} font-bold text-sm rounded-lg`}>
+                    {member.имя.charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
                 <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 ${activityStatus.color} rounded-full border border-white`} />
               </div>
 
@@ -1375,7 +1423,7 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
                   Пока нет партнеров
                 </h3>
                 <p className="text-[#666] mb-8">
-                  Пригласите первого партнера, используя вашу реферальную ссылку
+                  Пригласите первого партнера, используя вашу ре��еральную ссылку
                 </p>
                 <Button
                   onClick={handleShare}
@@ -1413,6 +1461,128 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
                 <div ref={containerRef} className={`${getContainerHeight()} overflow-auto transition-opacity duration-200`} style={{ contain: 'layout', willChange: 'transform', transform: 'translateZ(0)' }}>
                   {viewMode === 'cards' && (
                     <div className="space-y-6">
+                      {/* 🔼 Восходящая линия (Upline) - 3 уровня вверх */}
+                      {upline.length > 0 && (
+                        <div className="mb-6">
+                          {/* Заголовок восходящей линии */}
+                          <div className="w-full flex items-center justify-between p-3 rounded-xl bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 mb-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 bg-gradient-to-br from-purple-400 to-indigo-600 rounded-lg flex items-center justify-center text-white shadow-sm">
+                                <TrendingUp className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <h3 className="font-semibold text-purple-700 text-sm">
+                                  ⬆️ Моя восходящая линия
+                                </h3>
+                                <p className="text-xs text-purple-500">
+                                  {upline.length} {upline.length === 1 ? 'уровень' : upline.length < 5 ? 'уровня' : 'уровней'} до основателя
+                                </p>
+                              </div>
+                            </div>
+                            <Badge className="bg-purple-600 text-white border-0 text-xs">
+                              {upline.length} чел.
+                            </Badge>
+                          </div>
+
+                          {/* Карточки upline */}
+                          <div className="space-y-2">
+                            {upline.map((member, index) => {
+                              const activityStatus = getActivityStatus(member.последнийВход || null);
+                              const levelColors = {
+                                1: { bg: 'bg-blue-50', border: 'border-blue-200', badge: 'from-blue-400 to-blue-600', text: 'text-blue-700' },
+                                2: { bg: 'bg-rose-50', border: 'border-rose-200', badge: 'from-rose-400 to-rose-600', text: 'text-rose-700' },
+                                3: { bg: 'bg-amber-50', border: 'border-amber-200', badge: 'from-amber-400 to-amber-600', text: 'text-amber-700' },
+                              };
+                              const colors = levelColors[member.uplineLevel as keyof typeof levelColors] || levelColors[1];
+
+                              return (
+                                <motion.div
+                                  key={member.id}
+                                  initial={{ opacity: 0, x: -20 }}
+                                  animate={{ opacity: 1, x: 0 }}
+                                  transition={{ duration: 0.3, delay: index * 0.1 }}
+                                  className={`flex items-center gap-3 p-3 ${colors.bg} border ${colors.border} rounded-xl hover:shadow-md transition-all cursor-pointer group`}
+                                  onClick={() => setSelectedUserId(member.id)}
+                                >
+                                  {/* Аватар */}
+                                  <div className="relative">
+                                    <Avatar className="w-12 h-12 shadow-md group-hover:scale-105 transition-transform">
+                                      {member.аватарка ? (
+                                        <AvatarImage src={member.аватарка} alt={`${member.имя} ${member.фамилия}`} />
+                                      ) : null}
+                                      <AvatarFallback 
+                                        className="text-white font-bold text-lg"
+                                        style={{ 
+                                          background: `linear-gradient(135deg, ${colors.badge.includes('blue') ? '#60A5FA' : colors.badge.includes('rose') ? '#FB7185' : '#FBBF24'} 0%, ${colors.badge.includes('blue') ? '#2563EB' : colors.badge.includes('rose') ? '#E11D48' : '#D97706'} 100%)`,
+                                        }}
+                                      >
+                                        {member.имя?.charAt(0).toUpperCase() || '?'}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                    {/* Индикатор активности */}
+                                    <div className={`absolute -top-0.5 -right-0.5 w-3.5 h-3.5 ${activityStatus.color} rounded-full border-2 border-white`}></div>
+                                  </div>
+
+                                  {/* Информация */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span className={`font-semibold ${colors.text} truncate text-sm`}>
+                                        {member.имя} {member.фамилия}
+                                      </span>
+                                      <Badge className={`bg-gradient-to-r ${colors.badge} text-white border-0 text-xs px-2 py-0 h-5`}>
+                                        D{member.uplineLevel}
+                                      </Badge>
+                                      {member.isAdmin && (
+                                        <Badge className="bg-gradient-to-r from-green-400 to-emerald-500 text-white border-0 text-xs px-2 py-0 h-5">
+                                          CEO
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    <div className="text-xs text-gray-600 flex items-center gap-2">
+                                      <span className="font-mono">{member.рефКод || 'N/A'}</span>
+                                      <span>•</span>
+                                      <span>{member.email || 'Не указан'}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Статистика */}
+                                  <div className="flex flex-col items-end gap-1">
+                                    <div className="text-xs text-gray-500">Команда</div>
+                                    <div className="flex items-center gap-1">
+                                      <Users className="w-3.5 h-3.5 text-purple-400" />
+                                      <span className="font-bold text-purple-600">{member.команда?.length || 0}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Кнопка */}
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedUserId(member.id);
+                                    }}
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                  </Button>
+                                </motion.div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Разделитель */}
+                          <div className="flex items-center gap-3 my-6">
+                            <div className="flex-1 h-px bg-gradient-to-r from-transparent via-purple-200 to-transparent"></div>
+                            <div className="text-xs text-purple-400 font-semibold px-3 py-1 bg-purple-50 rounded-full border border-purple-100">
+                              ⭐ ВЫ ЗДЕСЬ
+                            </div>
+                            <div className="flex-1 h-px bg-gradient-to-r from-transparent via-purple-200 to-transparent"></div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 🔽 Нисходящие линии (Downline) */}
                       {Object.entries(getPartnersByLine())
                       .sort(([a], [b]) => Number(a) - Number(b))
                       .map(([line, members]) => {
@@ -1567,72 +1737,281 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
                   )}
 
                   {viewMode === 'tree' && (
-                    <div className="space-y-2">
-                      {buildTree(currentUser.рефКод).map((node) => renderTreeNode(node))}
+                    <div className="space-y-4">
+                      {/* Поиск и управление для дерева */}
+                      <Card className="p-3">
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="relative flex-1">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                            <input
+                              type="text"
+                              placeholder="Поиск по имени, email, ID, телефону..."
+                              value={searchQuery}
+                              onChange={(e) => setSearchQuery(e.target.value)}
+                              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#39B7FF] focus:border-transparent text-sm"
+                            />
+                          </div>
+                          <Button variant="outline" size="sm" onClick={expandAll} className="text-xs">
+                            Раскрыть корни
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={collapseAll} className="text-xs">
+                            Свернуть всё
+                          </Button>
+                        </div>
+
+                        {/* Статистика */}
+                        <div className="flex items-center gap-4 text-xs">
+                          <div className="flex items-center gap-1.5">
+                            <Users className="w-4 h-4 text-blue-400" />
+                            <span className="text-gray-500">
+                              Показано: <span className="font-semibold text-gray-700">{buildTree(currentUser.рефКод).length} из {team.length}</span>
+                            </span>
+                          </div>
+                          <div className="w-px h-4 bg-gray-200"></div>
+                          <div className="flex items-center gap-1.5">
+                            <Network className="w-4 h-4 text-cyan-400" />
+                            <span className="text-gray-500">
+                              Раскрыто: <span className="font-semibold text-gray-700">{expandedNodes.size}</span>
+                            </span>
+                          </div>
+                          
+                          {/* Цветовая шкала уровней */}
+                          <div className="flex items-center gap-2 ml-auto bg-gray-50 rounded-lg px-3 py-1.5 border border-gray-100">
+                            <span className="text-gray-500 text-xs font-semibold">УРОВНИ:</span>
+                            <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1">
+                                <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-blue-200 to-blue-300"></div>
+                                <span className="text-xs text-gray-600">D1</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-rose-200 to-rose-300"></div>
+                                <span className="text-xs text-gray-600">D2</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-amber-200 to-amber-300"></div>
+                                <span className="text-xs text-gray-600">D3</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </Card>
+
+                      {/* Дерево */}
+                      <div className="space-y-1">
+                        {buildTree(currentUser.рефКод).map((node) => renderTreeNode(node))}
+                      </div>
                     </div>
                   )}
 
                   {viewMode === 'list' && (
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                      <thead>
-                        <tr className="border-b border-gray-200">
-                          <th className="text-left p-4 text-[#666] font-semibold">Партнер</th>
-                          <th className="text-left p-4 text-[#666] font-semibold">Уровень</th>
-                          <th className="text-left p-4 text-[#666] font-semibold">Код</th>
-                          <th className="text-right p-4 text-[#666] font-semibold">Баланс</th>
-                          <th className="text-left p-4 text-[#666] font-semibold">Активность</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {team.map((member, index) => {
-                          const activityStatus = getActivityStatus(member.последнийВход || null);
+                    <div className="space-y-6">
+                      {/* Поиск и фильтры */}
+                      <Card className="p-4">
+                        <div className="flex gap-3">
+                          <div className="flex-1 relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                            <input
+                              type="text"
+                              placeholder="Поиск по имени и реферальному коду..."
+                              value={searchQuery}
+                              onChange={(e) => setSearchQuery(e.target.value)}
+                              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#39B7FF] focus:border-transparent"
+                            />
+                          </div>
+                          <Button variant="outline">
+                            <Filter className="w-4 h-4 mr-2" />
+                            Фильтры
+                          </Button>
+                        </div>
+
+                        {/* Фильтры по линиям */}
+                        <div className="flex gap-2 mt-3">
+                          <Button
+                            size="sm"
+                            variant={selectedLineFilter === null ? 'default' : 'outline'}
+                            onClick={() => setSelectedLineFilter(null)}
+                            className={selectedLineFilter === null ? 'bg-[#39B7FF] text-white' : ''}
+                          >
+                            Все ({team.length})
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={selectedLineFilter === 1 ? 'default' : 'outline'}
+                            onClick={() => setSelectedLineFilter(1)}
+                            className={selectedLineFilter === 1 ? 'bg-blue-500 text-white' : ''}
+                          >
+                            D1 ({team.filter(m => m.глубина === 1).length})
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={selectedLineFilter === 2 ? 'default' : 'outline'}
+                            onClick={() => setSelectedLineFilter(2)}
+                            className={selectedLineFilter === 2 ? 'bg-purple-500 text-white' : ''}
+                          >
+                            D2 ({team.filter(m => m.глубина === 2).length})
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={selectedLineFilter === 3 ? 'default' : 'outline'}
+                            onClick={() => setSelectedLineFilter(3)}
+                            className={selectedLineFilter === 3 ? 'bg-pink-500 text-white' : ''}
+                          >
+                            D3 ({team.filter(m => m.глубина === 3).length})
+                          </Button>
+                        </div>
+                      </Card>
+
+                      {/* Список партнёров */}
+                      <div className="space-y-2">
+                        {getFilteredTeam().map((member) => {
+                          const statusBadge = getStatusBadge(member.последнийВход || null);
+                          const childrenCount = getPartnerChildrenCount(member);
+                          const showPhone = member.privacySettings?.showPhone !== false;
+                          const showTelegram = member.privacySettings?.showTelegram !== false;
+                          const showWhatsapp = member.privacySettings?.showWhatsapp !== false;
+                          
                           return (
-                            <tr
-                              key={member.id}
-                              className="border-b border-gray-100 hover:bg-[#F7FAFC] transition-colors cursor-pointer"
-                              onClick={() => setSelectedUserId(member.id)}
-                            >
-                              <td className="p-4">
-                                <div className="flex items-center gap-3">
-                                  <div className="relative">
-                                    <div className={`w-10 h-10 ${getAvatarColor(member.глубина || 1)} rounded-lg flex items-center justify-center ${getAvatarTextColor(member.глубина || 1)} shadow-sm`}>
-                                      <span className="font-bold text-sm">
-                                        {member.имя.charAt(0).toUpperCase()}
-                                      </span>
-                                    </div>
-                                    <div className={`absolute -top-1 -right-1 w-3 h-3 ${activityStatus.color} rounded-full border-2 border-white animate-pulse`} />
+                            <Card key={member.id} className="p-3 hover:shadow-md transition-shadow">
+                              <div className="flex items-center gap-3">
+                                {/* Аватар */}
+                                <Avatar className="w-11 h-11 flex-shrink-0">
+                                  {member.аватарка ? (
+                                    <AvatarImage src={member.аватарка} alt={`${member.имя} ${member.фамилия}`} />
+                                  ) : null}
+                                  <AvatarFallback className={`${getAvatarColor(member.глубина || 1)} ${getAvatarTextColor(member.глубина || 1)} font-bold`}>
+                                    {member.имя.charAt(0).toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
+
+                                {/* Левая секция: Имя и доп. инфо */}
+                                <div className="flex-1 min-w-0">
+                                  {/* Строка 1: Имя, бейджи */}
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="font-semibold text-gray-900 truncate">
+                                      {member.имя} {member.фамилия}
+                                    </span>
+                                    <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${statusBadge.color} flex-shrink-0`}>
+                                      {statusBadge.label}
+                                    </span>
+                                    <Badge className={`${getLevelColor(member.глубина || 1)} border text-xs flex-shrink-0`}>
+                                      D{member.глубина || 1}
+                                    </Badge>
                                   </div>
-                                  <span className="text-[#1E1E1E] font-semibold">
-                                    {member.имя} {member.фамилия}
-                                  </span>
+                                  
+                                  {/* Строка 2: Реф. код и мета-инфо */}
+                                  <div className="flex items-center gap-3 text-xs text-gray-500">
+                                    <div className="flex items-center gap-1">
+                                      <span>Реф. код</span>
+                                      <code className="font-mono font-medium text-gray-700">{member.рефКод}</code>
+                                    </div>
+                                    {!showPhone && (
+                                      <div className="flex items-center gap-1">
+                                        <Clock className="w-3 h-3" />
+                                        <span>Не указано</span>
+                                      </div>
+                                    )}
+                                    {!showTelegram && !showWhatsapp && (
+                                      <div className="flex items-center gap-1">
+                                        <Phone className="w-3 h-3" />
+                                        <span>Неизвестно</span>
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
-                              </td>
-                              <td className="p-4">
-                                <Badge className={`${getLevelColor(member.глубина || 1)} border`}>
-                                  Уровень {member.глубина || 1}
-                                </Badge>
-                              </td>
-                              <td className="p-4">
-                                <code className="text-[#666] bg-gray-100 px-3 py-1 rounded-lg text-xs">
-                                  {member.рефКод}
-                                </code>
-                              </td>
-                              <td className="p-4 text-right">
-                                <span className="text-[#1E1E1E] font-bold">
-                                  {(member.баланс || 0).toLocaleString('ru-RU')}₽
-                                </span>
-                              </td>
-                              <td className="p-4">
-                                <span className="text-sm text-[#666]">
-                                  {activityStatus.dot} {activityStatus.label}
-                                </span>
-                              </td>
-                            </tr>
+
+                                {/* Правая секция: Метрики в ряд */}
+                                <div className="flex items-center gap-6 flex-shrink-0">
+                                  <div className="text-center">
+                                    <div className="text-xs text-gray-500">В команде</div>
+                                    <div className="font-medium text-gray-900">{childrenCount} чел</div>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-xs text-gray-500">Баланс</div>
+                                    <div className="font-bold text-[#39B7FF]">
+                                      {(member.баланс || 0).toLocaleString('ru-RU')} ₽
+                                    </div>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-xs text-gray-500">Активность</div>
+                                    <div className="font-medium text-gray-900 text-xs flex items-center justify-center gap-1">
+                                      <span className={`w-2 h-2 rounded-full ${statusBadge.color.includes('green') ? 'bg-green-500' : statusBadge.color.includes('yellow') ? 'bg-yellow-500' : 'bg-red-500'}`}></span>
+                                      {statusBadge.label.split(' ')[0]}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Кнопка просмотра */}
+                                <button 
+                                  onClick={() => setSelectedUserId(member.id)}
+                                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
+                                  title="Просмотр профиля"
+                                >
+                                  <Eye className="w-4 h-4 text-gray-600" />
+                                </button>
+                              </div>
+
+                              {/* Раскрываемая секция с командой */}
+                              {childrenCount > 0 && (
+                                <>
+                                  <button
+                                    onClick={() => setExpandedPartner(expandedPartner === member.id ? null : member.id)}
+                                    className="mt-2 text-xs text-[#39B7FF] hover:underline flex items-center gap-1"
+                                  >
+                                    <ChevronRight className={`w-3 h-3 transition-transform ${expandedPartner === member.id ? 'rotate-90' : ''}`} />
+                                    Показать команду ({childrenCount})
+                                  </button>
+
+                                  {expandedPartner === member.id && (
+                                    <div className="mt-2 pt-2 border-t">
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                        {team.filter(m => m.пригласительКод === member.рефКод).map(child => (
+                                          <div 
+                                            key={child.id}
+                                            className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+                                            onClick={() => setSelectedUserId(child.id)}
+                                          >
+                                            <div className={`w-7 h-7 ${getAvatarColor(child.глубина || 1)} rounded-full flex items-center justify-center ${getAvatarTextColor(child.глубина || 1)} text-xs font-bold flex-shrink-0`}>
+                                              {child.имя.charAt(0).toUpperCase()}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                              <div className="text-xs font-medium text-gray-900 truncate">
+                                                {child.имя} {child.фамилия}
+                                              </div>
+                                              <div className="text-xs text-gray-500">
+                                                {(child.баланс || 0).toLocaleString('ru-RU')} ₽
+                                              </div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </Card>
                           );
                         })}
-                      </tbody>
-                      </table>
+
+                        {getFilteredTeam().length === 0 && (
+                          <Card className="p-8 text-center">
+                            <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                            <p className="text-gray-500">Партнёры не найдены</p>
+                            {searchQuery && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="mt-3"
+                                onClick={() => {
+                                  setSearchQuery('');
+                                  setSelectedLineFilter(null);
+                                }}
+                              >
+                                Сбросить фильтры
+                              </Button>
+                            )}
+                          </Card>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -1656,11 +2035,14 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
                           </div>
 
                           <div className="relative">
-                            <div className={`w-12 h-12 ${getAvatarColor(member.глубина || 1)} rounded-lg flex items-center justify-center ${getAvatarTextColor(member.глубина || 1)} shadow-sm`}>
-                              <span className="font-bold">
+                            <Avatar className="w-12 h-12 shadow-sm">
+                              {member.аватарка ? (
+                                <AvatarImage src={member.аватарка} alt={`${member.имя} ${member.фамилия}`} />
+                              ) : null}
+                              <AvatarFallback className={`${getAvatarColor(member.глубина || 1)} ${getAvatarTextColor(member.глубина || 1)} font-bold rounded-lg`}>
                                 {member.имя.charAt(0).toUpperCase()}
-                              </span>
-                            </div>
+                              </AvatarFallback>
+                            </Avatar>
                             <div className={`absolute -top-1 -right-1 w-3.5 h-3.5 ${activityStatus.color} rounded-full border-2 border-white`} />
                           </div>
 

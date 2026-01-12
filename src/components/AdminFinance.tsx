@@ -18,7 +18,28 @@ import {
   Trash2
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+// 🔧 Функция для безопасного отображения method и details
+const formatPaymentField = (field: any): string => {
+  if (!field) return 'Не указано';
+  if (typeof field === 'string') return field;
+  if (typeof field === 'object') {
+    // Если объект, попробуем извлечь важные поля
+    if (field.type) {
+      if (field.card_last4) {
+        return `${field.type} (**** ${field.card_last4})`;
+      }
+      return field.type;
+    }
+    // Если не удалось извлечь, вернем JSON строку
+    try {
+      return JSON.stringify(field);
+    } catch {
+      return 'Формат не поддерживается';
+    }
+  }
+  return String(field);
+};
 
 interface AdminFinanceProps {
   currentUser: any;
@@ -194,7 +215,7 @@ export function AdminFinance({ currentUser }: AdminFinanceProps) {
   };
 
   const handleCleanInvalidOrders = async () => {
-    if (!confirm('⚠️ Это действие удалит все заказы с некорректными датами (в будущем). Про��олжить?')) {
+    if (!confirm('⚠️ Это действие удалит все заказы с некорректными датами (в будущем). Проолжить?')) {
       return;
     }
 
@@ -429,7 +450,7 @@ export function AdminFinance({ currentUser }: AdminFinanceProps) {
                         <span style={{ fontWeight: '600' }}>Сумма:</span> ₽{withdrawal.amount?.toLocaleString()}
                       </p>
                       <p className="text-[#666]" style={{ fontSize: '13px', marginBottom: '4px' }}>
-                        <span style={{ fontWeight: '600' }}>Реквизиты:</span> {withdrawal.details || 'Не указаны'}
+                        <span style={{ fontWeight: '600' }}>Реквизиты:</span> {formatPaymentField(withdrawal.details) || 'Не указаны'}
                       </p>
                       <p className="text-[#999]" style={{ fontSize: '12px' }}>
                         {new Date(withdrawal.createdAt).toLocaleString('ru-RU')}
@@ -536,7 +557,7 @@ export function AdminFinance({ currentUser }: AdminFinanceProps) {
                   <span style={{ fontWeight: '600' }}>Метод:</span> {actionDialog.withdrawal.method || 'USDT'}
                 </p>
                 <p className="text-[#666]" style={{ fontSize: '13px' }}>
-                  <span style={{ fontWeight: '600' }}>Реквизиты:</span> {actionDialog.withdrawal.details || 'Не указаны'}
+                  <span style={{ fontWeight: '600' }}>Реквизиты:</span> {formatPaymentField(actionDialog.withdrawal.details) || 'Не указаны'}
                 </p>
               </div>
 

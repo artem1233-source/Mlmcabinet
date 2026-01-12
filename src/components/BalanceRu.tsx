@@ -1,15 +1,37 @@
 import { useState, useEffect } from 'react';
-import { Wallet, TrendingUp, ArrowDownToLine, Loader2, CheckCircle2, Clock, CheckCircle, XCircle, Edit3, Download } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
-import { AdminToolbar } from './AdminToolbar';
+import { Textarea } from './ui/textarea';
+import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, DollarSign, ArrowUpRight, AlertCircle, Copy, X, Check, Loader2, Edit3, Download, ArrowDownToLine, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { AdminToolbar } from './AdminToolbar';
 import * as api from '../utils/api';
 import { exportEarningsToCSV } from '../utils/exportToCSV';
+
+// 🔧 Функция для безопасного отображения method и details
+const formatPaymentField = (field: any): string => {
+  if (!field) return 'Не указано';
+  if (typeof field === 'string') return field;
+  if (typeof field === 'object') {
+    // Если объект, попробуем извлечь важные поля
+    if (field.type) {
+      if (field.card_last4) {
+        return `${field.type} (**** ${field.card_last4})`;
+      }
+      return field.type;
+    }
+    // Если не удалось извлечь, вернем JSON строку
+    try {
+      return JSON.stringify(field);
+    } catch {
+      return 'Формат не поддерживается';
+    }
+  }
+  return String(field);
+};
 
 interface BalanceRuProps {
   currentUser: any;
@@ -221,10 +243,10 @@ export function BalanceRu({ currentUser, onRefresh, refreshTrigger }: BalanceRuP
                         ₽{(withdrawal.amount || withdrawal.сумма || 0).toLocaleString()}
                       </div>
                       <p className="text-[#666]" style={{ fontSize: '13px' }}>
-                        {withdrawal.method || withdrawal.метод} • {new Date(withdrawal.createdAt).toLocaleDateString('ru-RU')}
+                        {formatPaymentField(withdrawal.method || withdrawal.метод)} • {new Date(withdrawal.createdAt).toLocaleDateString('ru-RU')}
                       </p>
                       <p className="text-[#666] mt-1" style={{ fontSize: '12px' }}>
-                        Реквизиты: {withdrawal.details || withdrawal.реквизиты}
+                        Реквизиты: {formatPaymentField(withdrawal.details || withdrawal.реквизиты)}
                       </p>
                       {withdrawal.adminNote && (
                         <p className="text-amber-600 mt-2" style={{ fontSize: '12px', fontWeight: '600' }}>
@@ -355,7 +377,7 @@ export function BalanceRu({ currentUser, onRefresh, refreshTrigger }: BalanceRuP
           <CardContent className="p-6">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 bg-[#39B7FF]/10 rounded-xl flex items-center justify-center">
-                <ArrowDownToLine className="w-6 h-6 text-[#39B7FF]" />
+                <TrendingDown className="w-6 h-6 text-[#39B7FF]" />
               </div>
               <div className="text-[#666]" style={{ fontSize: '14px', fontWeight: '600' }}>
                 Выведено

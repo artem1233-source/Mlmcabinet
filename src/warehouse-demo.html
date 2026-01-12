@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Склад Dashboard v1 vs v2 — Визуальное сравнение</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+        
+        h1 {
+            font-size: 48px;
+            font-weight: 800;
+            margin-bottom: 16px;
+            text-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        
+        .subtitle {
+            font-size: 20px;
+            opacity: 0.95;
+        }
+        
+        .differences-banner {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            border-radius: 24px;
+            padding: 40px;
+            margin-bottom: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        .differences-banner h2 {
+            color: white;
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 30px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        
+        .differences-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+        }
+        
+        .difference-card {
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 16px;
+            padding: 24px;
+            color: white;
+        }
+        
+        .difference-card .icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+        }
+        
+        .difference-card h3 {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+        
+        .difference-card p {
+            font-size: 15px;
+            line-height: 1.6;
+            opacity: 0.95;
+        }
+        
+        .comparison-container {
+            background: white;
+            border-radius: 24px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        .version-tabs {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 32px;
+            justify-content: center;
+        }
+        
+        .tab {
+            padding: 16px 32px;
+            border-radius: 12px;
+            border: 2px solid #e5e7eb;
+            background: white;
+            color: #6b7280;
+            font-weight: 600;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .tab:hover {
+            border-color: #39B7FF;
+            background: #f0f9ff;
+        }
+        
+        .tab.active {
+            background: linear-gradient(135deg, #39B7FF 0%, #12C9B6 100%);
+            color: white;
+            border-color: transparent;
+            box-shadow: 0 4px 12px rgba(57, 183, 255, 0.4);
+        }
+        
+        .content {
+            display: none;
+        }
+        
+        .content.active {
+            display: block;
+        }
+        
+        .mockup {
+            background: #f7fafc;
+            border-radius: 16px;
+            padding: 32px;
+            border: 2px solid #e5e7eb;
+        }
+        
+        .mockup-header {
+            background: #1e1e1e;
+            color: white;
+            padding: 16px 24px;
+            border-radius: 12px 12px 0 0;
+            font-weight: 700;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+        }
+        
+        .badge {
+            background: rgba(255,255,255,0.2);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: normal;
+        }
+        
+        .highlight-box {
+            border: 4px dashed #8b5cf6;
+            padding: 24px;
+            border-radius: 16px;
+            margin-bottom: 24px;
+            position: relative;
+        }
+        
+        .highlight-label {
+            position: absolute;
+            top: -16px;
+            left: 16px;
+            background: #8b5cf6;
+            color: white;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 14px;
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+        }
+        
+        .feature-item {
+            background: white;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        
+        .feature-item h4 {
+            color: #1e1e1e;
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .feature-item p {
+            color: #6b7280;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        
+        .split-view {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+        
+        @media (max-width: 1200px) {
+            .split-view {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .version-label {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px;
+            text-align: center;
+            font-weight: 700;
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📊 Склад Dashboard: v1 → v2</h1>
+            <p class="subtitle">Сравнение оригинальной версии с переработанной Action-first версией</p>
+        </header>
+        
+        <div class="differences-banner">
+            <h2>
+                <span>⚡</span>
+                3 Главных визуальных отличия v2
+            </h2>
+            <div class="differences-grid">
+                <div class="difference-card">
+                    <div class="icon">🔥</div>
+                    <h3>1. Animated Action Block</h3>
+                    <p>Блок "Требует действий сегодня" с мигающими индикаторами, анимированными таймерами обратного отсчёта и градиентами для максимальной заметности критических товаров</p>
+                </div>
+                <div class="difference-card">
+                    <div class="icon">📊</div>
+                    <h3>2. Extreme KPI Hierarchy</h3>
+                    <p>Радикальное разделение KPI на 2 уровня: огромные первичные метрики (текст 6xl, карточки с градиентами) и компактные вторичные (текст xl, минималистичный дизайн)</p>
+                </div>
+                <div class="difference-card">
+                    <div class="icon">🎯</div>
+                    <h3>3. Smart Order Recommendations</h3>
+                    <p>Кнопка "Рекомендуемый заказ: +XXX" вместо просто "Заказать" с умными расчётами запаса, визуальными акцентами и подробной информацией</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="comparison-container">
+            <div class="version-tabs">
+                <button class="tab" onclick="showVersion('v1')">📦 Версия 1 (Оригинал)</button>
+                <button class="tab active" onclick="showVersion('compare')">⚡ Сравнение</button>
+                <button class="tab" onclick="showVersion('v2')">🚀 Версия 2 (Action-first)</button>
+            </div>
+            
+            <div id="v1" class="content">
+                <div class="mockup">
+                    <div class="mockup-header">
+                        <span>📦 Версия 1: Оригинальный дизайн</span>
+                        <span class="badge">Current</span>
+                    </div>
+                    
+                    <div class="feature-item">
+                        <h4>✅ Блок "Требует действий сегодня"</h4>
+                        <p>Присутствует в верхней части с красной рамкой и таймерами. Градиент from-red-50 to-orange-50.</p>
+                    </div>
+                    
+                    <div class="feature-item">
+                        <h4>✅ KPI разделены на 2 уровня</h4>
+                        <p>Первичные (4xl шрифт, 4 карточки) и вторичные (2xl шрифт, 3 компактные карточки).</p>
+                    </div>
+                    
+                    <div class="feature-item">
+                        <h4>✅ Переключатель режимов в Burn Rate</h4>
+                        <p>3 режима: Расход / Тренд / Аномалии с подсветкой аномальных точек.</p>
+                    </div>
+                    
+                    <div class="feature-item">
+                        <h4>📝 Inventory List — стандартная кнопка</h4>
+                        <p>Кнопка "Заказать" с иконкой ArrowUpRight. Показывает рекомендуемое количество отдельно.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="v2" class="content">
+                <div class="mockup">
+                    <div class="mockup-header" style="background: linear-gradient(135deg, #39B7FF 0%, #12C9B6 100%);">
+                        <span>🚀 Версия 2: Action-first дизайн</span>
+                        <span class="badge">New</span>
+                    </div>
+                    
+                    <div class="highlight-box">
+                        <div class="highlight-label">⭐ ОТЛИЧИЕ #1</div>
+                        <div class="feature-item">
+                            <h4>🔥 Animated Action Block</h4>
+                            <p>
+                                <strong>Изменения:</strong><br>
+                                • Анимированные градиенты (from-red-50 via-orange-50 to-yellow-50)<br>
+                                • Пульсирующий фон с animate-pulse<br>
+                                • Иконки с анимацией (Flame + Bell с animate-bounce)<br>
+                                • Таймеры с вращением (Timer с animate-spin 3s)<br>
+                                • Увеличенные размеры шрифтов (до 5xl для таймера)<br>
+                                • Кнопки с градиентами и animate-pulse
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <div class="highlight-box">
+                        <div class="highlight-label">⭐ ОТЛИЧИЕ #2</div>
+                        <div class="feature-item">
+                            <h4>📊 Extreme KPI Hierarchy</h4>
+                            <p>
+                                <strong>Изменения:</strong><br>
+                                • Первичные KPI: текст 6xl (вместо 4xl), градиентные карточки<br>
+                                • Иконки увеличены до 10x10 (вместо 6x6)<br>
+                                • Карточки с эффектом hover:scale-105<br>
+                                • Вторичные KPI: минималистичный дизайн, bg-gray-50/50<br>
+                                • Заголовки с анимированными точками<br>
+                                • Чёткое визуальное разделение между уровнями
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <div class="highlight-box">
+                        <div class="highlight-label">⭐ ОТЛИЧИЕ #3</div>
+                        <div class="feature-item">
+                            <h4>🎯 Smart Order Recommendations</h4>
+                            <p>
+                                <strong>Изменения:</strong><br>
+                                • Блок рекомендаций с 3-х пиксельной рамкой border-3<br>
+                                • Градиентный фон (from-[#39B7FF]/10 via-cyan-50 to-blue-50)<br>
+                                • Увеличенный шрифт для количества (5xl вместо 3xl)<br>
+                                • Кнопка с текстом "Рекомендуемый заказ: +XXX" и градиентом<br>
+                                • Дополнительная кнопка "Изменить количество"<br>
+                                • Иконка в контейнере с фоном
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="compare" class="content active">
+                <div class="split-view">
+                    <div>
+                        <div class="version-label">V1: Текущая версия</div>
+                        <div class="mockup">
+                            <div class="feature-item">
+                                <h4>🟡 Action Block</h4>
+                                <p>Красная рамка border-3, статичный дизайн, таймер text-3xl</p>
+                            </div>
+                            <div class="feature-item">
+                                <h4>🟡 KPI</h4>
+                                <p>Первичные text-4xl, вторичные text-2xl, стандартные карточки</p>
+                            </div>
+                            <div class="feature-item">
+                                <h4>🟡 Inventory</h4>
+                                <p>Кнопка "Заказать", рекомендация text-3xl отдельно</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div class="version-label" style="background: linear-gradient(135deg, #39B7FF 0%, #12C9B6 100%);">V2: Action-first</div>
+                        <div class="mockup">
+                            <div class="feature-item">
+                                <h4>✨ Animated Action Block</h4>
+                                <p>Анимированные градиенты, пульсация, вращающиеся иконки, таймер text-5xl</p>
+                            </div>
+                            <div class="feature-item">
+                                <h4>✨ Extreme KPI Hierarchy</h4>
+                                <p>Первичные text-6xl с градиентами и scale, вторичные минималистичные</p>
+                            </div>
+                            <div class="feature-item">
+                                <h4>✨ Smart Recommendations</h4>
+                                <p>"Рекомендуемый заказ: +XXX" в кнопке, text-5xl, градиентный блок</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 32px; padding: 24px; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border-radius: 16px; border: 2px solid #f59e0b;">
+                    <h3 style="color: #92400e; font-size: 20px; font-weight: 700; margin-bottom: 12px;">💡 Ключевое отличие философии дизайна</h3>
+                    <p style="color: #78350f; line-height: 1.6;">
+                        <strong>V1</strong> — сбалансированный информационный дизайн с акцентом на читаемость и структурированность данных.<br>
+                        <strong>V2</strong> — экстремально action-oriented подход с максимальной визуальной иерархией, анимациями и призывами к действию.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function showVersion(version) {
+            // Hide all content
+            document.querySelectorAll('.content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+            
+            // Show selected
+            if (version === 'v1') {
+                document.getElementById('v1').classList.add('active');
+                document.querySelectorAll('.tab')[0].classList.add('active');
+            } else if (version === 'v2') {
+                document.getElementById('v2').classList.add('active');
+                document.querySelectorAll('.tab')[2].classList.add('active');
+            } else {
+                document.getElementById('compare').classList.add('active');
+                document.querySelectorAll('.tab')[1].classList.add('active');
+            }
+        }
+    </script>
+</body>
+</html>

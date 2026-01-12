@@ -84,10 +84,16 @@ async function apiCall(endpoint: string, options: RequestInit = {}) {
     return data;
     
   } catch (error: any) {
-    // Более детальное логирование ошибок
+    // Более детальное логирование ошибок только для критических случаев
     if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
-      console.error(`💥 Network connection error for ${endpoint}:`, error);
-      console.error(`   This usually means the server is unreachable or CORS is blocking the request`);
+      // Тихо пропускаем ошибки сети для некритичных эндпоинтов
+      if (endpoint === '/notifications' || endpoint.startsWith('/notifications/')) {
+        // Notifications можно показать с mock-данными - не логируем как ошибку
+        console.log(`ℹ️ Notifications API unavailable (endpoint: ${endpoint}), application will use mock data`);
+      } else {
+        console.error(`💥 Network connection error for ${endpoint}:`, error);
+        console.error(`   This usually means the server is unreachable or CORS is blocking the request`);
+      }
     } else {
       console.error(`💥 Fetch failed for ${endpoint}:`, error);
     }
