@@ -48,6 +48,7 @@
         '@radix-ui/react-accordion@1.2.3': '@radix-ui/react-accordion',
         '@jsr/supabase__supabase-js@2.49.8': '@jsr/supabase__supabase-js',
         '@': path.resolve(__dirname, './src'),
+        '@assets': path.resolve(__dirname, './attached_assets'),
       },
     },
     build: {
@@ -55,7 +56,8 @@
       outDir: 'build',
     },
     server: {
-      port: 3000,
-      open: true,
+      port: 5000,
+      host: '0.0.0.0',
+      allowedHosts: true,
     },
   });
