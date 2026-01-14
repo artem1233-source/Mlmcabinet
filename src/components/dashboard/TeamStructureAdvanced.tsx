@@ -7,7 +7,7 @@ import {
   ArrowUpRight, ArrowDownRight, Mail, ExternalLink, Copy
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { TreeVisualizationPhysics } from '../TreeVisualizationPhysics';
+import { TreeVisualization } from '../TreeVisualization';
 
 interface Partner {
   id: string;
@@ -960,9 +960,8 @@ export function TeamStructureAdvanced({ stats, currentUser }: TeamStructureProps
       )}
 
       {activeSubTab === 'tree' && (
-        <TreeVisualizationPhysics 
+        <TreeVisualization 
           currentUser={currentUser} 
-          onClose={() => setActiveSubTab('analytics')}
         />
       )}
     </div>
