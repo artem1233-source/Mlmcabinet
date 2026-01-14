@@ -222,20 +222,24 @@ async function verifyUser(userIdHeader: string | null) {
   
   // 🆕 ИСПРАВЛЕНИЕ: Проверяем и восстанавливаем ��ла�� isAdmin для первого пользователя, admin@admin.com и CEO
   const isFirstUser = user.id === '1';
-  // User 001 is NOT admin - they're a regular partner
+  // ✅ User 001 (artem1233@mail.ru) is admin
   const isAdminEmail = user.email?.toLowerCase() === 'admin@admin.com';
   const isUser2Email = user.email?.toLowerCase() === '2@gmail.com'; // ✅ ADD: 2@gmail.com is admin
   const isUser4Email = user.email?.toLowerCase() === '4@gmail.com'; // ✅ ADD: 4@gmail.com is admin
-  const isCEO = user.id === 'ceo';
+  const isUser001Email = user.email?.toLowerCase() === 'artem1233@mail.ru'; // ✅ ADD: artem1233@mail.ru is admin (user 001)
+  const isCEOId = user.id?.toLowerCase() === 'ceo';
+  const isSEOId = user.id?.toLowerCase() === 'seo';
+  const isCEOEmail = user.email?.toLowerCase()?.startsWith('ceo@');
+  const isSEOEmail = user.email?.toLowerCase()?.startsWith('seo@');
   const hasAdminIdPrefix = typeof user.id === 'string' && user.id.toLowerCase().startsWith('admin-');
   
-  if ((isFirstUser || isAdminEmail || isUser2Email || isUser4Email || isCEO || hasAdminIdPrefix) && !user.isAdmin) {
+  if ((isFirstUser || isAdminEmail || isUser2Email || isUser4Email || isUser001Email || isCEOId || isSEOId || isCEOEmail || isSEOEmail || hasAdminIdPrefix) && !user.isAdmin) {
     console.log(`⚠️ User ${user.id} (${user.email}) should be admin but isAdmin flag is missing. Fixing...`);
     user.isAdmin = true;
     user.type = 'admin';
     
     // Save to correct location based on user type
-    if (isCEO || hasAdminIdPrefix || user.type === 'admin') {
+    if (isCEOId || isSEOId || isCEOEmail || isSEOEmail || hasAdminIdPrefix || user.type === 'admin') {
       await kv.set(`admin:id:${user.id}`, user);
       // Also update in regular user location if it exists there
       const regularUserKey = `user:id:${user.id}`;
@@ -254,7 +258,33 @@ async function verifyUser(userIdHeader: string | null) {
   return user;
 }
 
-// 🔐 Check if user has admin rights
+// 🔐 HELPER: Check if user is a SYSTEM admin (excluded from team tree)
+// System admins: admin@admin.com, CEO, SEO, admin-* IDs
+// ⚠️ User 001 (artem1233@mail.ru) is NOT a system admin - they're a partner with admin rights
+function isSystemAdmin(user: any): boolean {
+  if (!user) return false;
+  
+  // Проверяем email
+  const isAdminEmail = user.email?.toLowerCase() === 'admin@admin.com';
+  const isCeoEmail = user.email?.toLowerCase()?.startsWith('ceo@');
+  const isSeoEmail = user.email?.toLowerCase()?.startsWith('seo@');
+  
+  // Проверяем ID
+  const isCeoId = user.id?.toLowerCase() === 'ceo';
+  const isSeoId = user.id?.toLowerCase() === 'seo';
+  const hasAdminIdPrefix = typeof user.id === 'string' && user.id.toLowerCase().startsWith('admin-');
+  
+  const result = isAdminEmail || isCeoEmail || isSeoEmail || isCeoId || isSeoId || hasAdminIdPrefix;
+  
+  // Отладочный лог для критических случаев
+  if (result) {
+    console.log(`🚫 Filtering out SYSTEM admin: ${user.id} (email: ${user.email})`);
+  }
+  
+  return result;
+}
+
+// 🔐 Check if user has admin rights (for access control)
 function isUserAdmin(user: any): boolean {
   if (!user) return false;
   
@@ -265,13 +295,18 @@ function isUserAdmin(user: any): boolean {
   const isUser2Email = user.email?.toLowerCase() === '2@gmail.com';
   // ✅ ADD: Email 4@gmail.com is admin
   const isUser4Email = user.email?.toLowerCase() === '4@gmail.com';
-  const isCEO = user.id === 'ceo';
-  // User 001 is NOT admin - they're a regular partner
+  // ✅ ADD: Email artem1233@mail.ru is admin (user 001)
+  const isUser001Email = user.email?.toLowerCase() === 'artem1233@mail.ru';
+  const isCEOId = user.id?.toLowerCase() === 'ceo';
+  const isSEOId = user.id?.toLowerCase() === 'seo';
+  const isCEOEmail = user.email?.toLowerCase()?.startsWith('ceo@');
+  const isSEOEmail = user.email?.toLowerCase()?.startsWith('seo@');
+  // ✅ User 001 (artem1233@mail.ru) is admin, but user.id === '1' is a separate check
   const isFirstUser = user.id === '1';
   const hasAdminType = user.type === 'admin';
   const hasAdminRole = user.роль === 'admin' || user.role === 'admin';
   
-  return hasAdminFlag || isAdminEmail || isUser2Email || isUser4Email || isCEO || isFirstUser || hasAdminType || hasAdminRole;
+  return hasAdminFlag || isAdminEmail || isUser2Email || isUser4Email || isUser001Email || isCEOId || isSEOId || isCEOEmail || isSEOEmail || isFirstUser || hasAdminType || hasAdminRole;
 }
 
 // 🔄 ID Reuse Management
@@ -729,7 +764,7 @@ app.post("/make-server-05aa3c8a/emergency/restore-001", async (c) => {
         id: '001',
         имя: 'Главный',
         фамилия: 'Партнёр',
-        email: 'partner001@h2platform.com',
+        email: 'artem1233@mail.ru', // ✅ CRITICAL: User 001 email (NEVER CHANGE THIS!)
         партнёрскийID: '001',
         уровень: 3,
         рефКод: 'MAIN001',
@@ -738,23 +773,25 @@ app.post("/make-server-05aa3c8a/emergency/restore-001", async (c) => {
         датаРегистрации: new Date().toISOString(),
         зарегистрирован: new Date().toISOString(),
         lastLogin: new Date().toISOString(),
-        lastActivity: new Date().toISOString()
-        // User 001 is a regular partner, not admin
+        lastActivity: new Date().toISOString(),
+        isAdmin: true, // ✅ User 001 is admin (NEVER REMOVE THIS!)
+        type: 'admin'
       };
       
       await kv.set('user:id:001', user001);
       await kv.set('user:refcode:MAIN001', { id: '001' });
-      console.log('✅ User 001 created');
+      console.log('✅ User 001 created as admin');
     } else {
       console.log('✅ User 001 already exists');
       
-      // Remove admin flag if it was set by mistake
-      if (user001.isAdmin === true) {
-        console.log('⚠️ User 001 has isAdmin flag, removing...');
-        delete user001.isAdmin;
-        delete user001.type;
+      // ✅ CRITICAL: Ensure user 001 has admin rights and correct email (NEVER REMOVE THIS!)
+      if (!user001.isAdmin || user001.email !== 'artem1233@mail.ru') {
+        console.log('⚠️ User 001 missing admin flag or wrong email, fixing...');
+        user001.isAdmin = true;
+        user001.type = 'admin';
+        user001.email = 'artem1233@mail.ru'; // Ensure correct email
         await kv.set('user:id:001', user001);
-        console.log('✅ User 001 admin flag removed (they are a regular partner)');
+        console.log('✅ User 001 admin rights restored with correct email');
       }
     }
     
@@ -2448,7 +2485,10 @@ app.get("/make-server-05aa3c8a/user/check-admin", async (c) => {
       flags: {
         hasAdminFlag: user.isAdmin === true,
         isAdminEmail: user.email?.toLowerCase() === 'admin@admin.com',
-        isCEO: user.id === 'ceo',
+        isCEOId: user.id?.toLowerCase() === 'ceo',
+        isSEOId: user.id?.toLowerCase() === 'seo',
+        isCEOEmail: user.email?.toLowerCase()?.startsWith('ceo@'),
+        isSEOEmail: user.email?.toLowerCase()?.startsWith('seo@'),
         isFirstUser: user.id === '1' || user.id === '001',
         hasAdminType: user.type === 'admin',
         hasAdminRole: user.роль === 'admin' || user.role === 'admin',
@@ -2472,17 +2512,19 @@ app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
     
     console.log(`📊 Building team structure for user: ${userId}`);
     
-    // Get all users (excluding admins)
+    // Get all users (excluding SYSTEM admins only)
     const allUsers = await kv.getByPrefix('user:id:');
     const allUsersArray = Array.isArray(allUsers) ? allUsers : [];
     
-    // 🆕 ИСПРАВЛЕНИЕ: Фильтруем администраторов из списка пользователей
-    const nonAdminUsers = allUsersArray.filter((u: any) => !isUserAdmin(u));
-    console.log(`📊 Filtered ${allUsersArray.length} total users to ${nonAdminUsers.length} non-admin users`);
+    // 🆕 ИСПРАВЛЕНИЕ: Фильтруем только СИСТЕМНЫХ администраторов (admin@admin.com, CEO, admin-*)
+    // Партнёры с админ правами (например, user 001) ДОЛЖНЫ отображаться в дереве!
+    const nonSystemAdminUsers = allUsersArray.filter((u: any) => !isSystemAdmin(u));
+    console.log(`📊 Filtered ${allUsersArray.length} total users to ${nonSystemAdminUsers.length} non-system-admin users`);
     
     // Получаем данные текущего пользователя для рефкода
-    const currentUser = nonAdminUsers.find((u: any) => u.id === userId);
+    const currentUser = nonSystemAdminUsers.find((u: any) => u.id === userId);
     if (!currentUser) {
+      console.log(`⚠️ User ${userId} not found among non-system-admin users`);
       return c.json({ success: true, team: [] });
     }
     
@@ -2495,8 +2537,8 @@ app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
       
       visited.add(sponsorId);
       
-      // Найти всех прямых партнёров (только не-админов)
-      const directPartners = nonAdminUsers.filter((u: any) => 
+      // Найти всех прямых партнёров (только не-системных-админов)
+      const directPartners = nonSystemAdminUsers.filter((u: any) => 
         u.спонсорId === sponsorId && u.id !== sponsorId
       );
       
@@ -3322,12 +3364,8 @@ app.get("/make-server-05aa3c8a/admin/stats", async (c) => {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     
-    // Фильтруем только пользователей (без админов)
-    const users = allUsers.filter((u: any) => 
-      u.__type !== 'admin' && 
-      u.isAdmin !== true && 
-      u.роль !== 'admin'
-    );
+    // Фильтруем только СИСТЕМНЫХ админов (partners with admin rights are included)
+    const users = allUsers.filter((u: any) => !isSystemAdmin(u));
     
     // Новые сегодня
     const newToday = users.filter((u: any) => {
@@ -3489,20 +3527,17 @@ app.get("/make-server-05aa3c8a/admin/users", async (c) => {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    console.log('📋 Getting all users (excluding admins)...');
+    console.log('📋 Getting all users (excluding SYSTEM admins)...');
     
     // Get regular users
     const users = await kv.getByPrefix('user:id:');
     const userArray = Array.isArray(users) ? users : [];
     
-    // Фильтруем администраторов
-    const allUsers = userArray.filter((u: any) => 
-      u.__type !== 'admin' && 
-      u.isAdmin !== true && 
-      u.роль !== 'admin'
-    );
+    // Фильтруем только СИСТЕМНЫХ администраторов (admin@admin.com, CEO, admin-*)
+    // Партнёры с админ правами (например, user 001) ДОЛЖНЫ отображаться!
+    const allUsers = userArray.filter((u: any) => !isSystemAdmin(u));
     
-    console.log(`📋 Found ${userArray.length} total users, filtered to ${allUsers.length} non-admin users`);
+    console.log(`📋 Found ${userArray.length} total users, filtered to ${allUsers.length} non-system-admin users`);
     
     return c.json({ success: true, users: allUsers });
   } catch (error) {
@@ -3515,7 +3550,7 @@ app.get("/make-server-05aa3c8a/admin/users", async (c) => {
   }
 });
 
-// 🌳 Alias для древовидного режима - возвращает ВСЕ пользователей (включая админов для полной структуры)
+// 🌳 Alias для древовидного режима - возвращает ВСЕ пользователей (исключая СИСТЕМНЫХ админов)
 app.get("/make-server-05aa3c8a/admin/users/all", async (c) => {
   try {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
@@ -3523,13 +3558,24 @@ app.get("/make-server-05aa3c8a/admin/users/all", async (c) => {
     
     console.log('🌳 Getting ALL users for tree view...');
     
-    // Get ALL users including admins for complete tree structure
-    const users = await kv.getByPrefix('user:id:');
-    const userArray = Array.isArray(users) ? users : [];
+    // Get ALL users and filter out SYSTEM admins (admin@admin.com, CEO, admin-*)
+    const allUsers = await kv.getByPrefix('user:id:');
+    const userArray = Array.isArray(allUsers) ? allUsers : [];
     
-    console.log(`🌳 Found ${userArray.length} total users for tree`);
+    // 🆕 ИСПРАВЛЕНИЕ: Фильтруем только СИСТЕМНЫХ администраторов
+    // Партнёры с админ правами (например, user 001) ДОЛЖНЫ отображаться!
+    const nonSystemAdminUsers = userArray.filter((u: any) => !isSystemAdmin(u));
     
-    return c.json({ success: true, users: userArray });
+    console.log(`🌳 Filtered ${userArray.length} total users to ${nonSystemAdminUsers.length} non-system-admin users for tree`);
+    console.log(`🔍 First 5 users (after filter):`, nonSystemAdminUsers.slice(0, 5).map((u: any) => ({ 
+      id: u.id, 
+      email: u.email, 
+      name: u.имя,
+      sponsor: u.спонсорId,
+      isAdmin: u.isAdmin 
+    })));
+    
+    return c.json({ success: true, users: nonSystemAdminUsers });
   } catch (error) {
     console.log(`Admin get all users error: ${error}`);
     return c.json({ 
@@ -3562,19 +3608,16 @@ app.get("/make-server-05aa3c8a/admin/users/paginated", async (c) => {
     
     console.log(`📋 Getting paginated users - page: ${page}, limit: ${limit}, search: "${search}", level: ${level}, type: ${userType}, sponsor: ${sponsorStatus}, team: ${teamSize}, balance: ${balanceRange}`);
     
-    // 🎯 Get ONLY regular users (no admins in partners panel)
+    // 🎯 Get ONLY regular users (no SYSTEM admins in partners panel)
     const users = await kv.getByPrefix('user:id:');
     const userArray = Array.isArray(users) ? users : [];
     
     // Apply filters
     let filteredUsers = userArray;
     
-    // 🚫 CRITICAL: Exclude all administrators from the list
-    filteredUsers = filteredUsers.filter((u: any) => 
-      u.__type !== 'admin' && 
-      u.isAdmin !== true && 
-      u.роль !== 'admin'
-    );
+    // 🚫 CRITICAL: Exclude only SYSTEM administrators (admin@admin.com, CEO, admin-*)
+    // Partners with admin rights (e.g., user 001) SHOULD be shown!
+    filteredUsers = filteredUsers.filter((u: any) => !isSystemAdmin(u));
     
     // Filter by level
     if (level) {
@@ -3847,7 +3890,7 @@ app.get("/make-server-05aa3c8a/admin/users/paginated", async (c) => {
     const activeUserBuyersIds = new Set(ordersThisMonth.map((o: any) => o.продавецId).filter(Boolean));
     
     // Calculate active/passive partners (who recruited in this month)
-    const partners = userArray.filter((u: any) => !u.isAdmin);
+    const partners = userArray.filter((u: any) => !isSystemAdmin(u));
     
     // Active partners = those who got new team members (first line) this month
     const activePartnersCount = partners.filter((partner: any) => {
@@ -4324,9 +4367,9 @@ app.get("/make-server-05aa3c8a/admin/users-tree", async (c) => {
     const currentUser = await verifyUser(c.req.header('X-User-Id'));
     await requireAdmin(c, currentUser);
     
-    // Get all users (excluding admins)
+    // Get all users (excluding SYSTEM admins only - partners with admin rights are included!)
     const allUsers = await kv.getByPrefix('user:id:');
-    const users = allUsers.filter((u: any) => !isUserAdmin(u));
+    const users = allUsers.filter((u: any) => !isSystemAdmin(u));
     console.log(`�� Filtered ${allUsers.length} total users to ${users.length} non-admin users for tree`);
     
     // Build tree structure
@@ -8083,12 +8126,8 @@ app.post("/make-server-05aa3c8a/admin/recalculate-ranks", async (c) => {
     const allUsers = await kv.getByPrefix('user:id:');
     const userArray = Array.isArray(allUsers) ? allUsers : [];
     
-    // Filter out admins
-    const partners = userArray.filter((u: any) => 
-      u.__type !== 'admin' && 
-      u.isAdmin !== true && 
-      u.роль !== 'admin'
-    );
+    // Filter out SYSTEM admins only (partners with admin rights are included)
+    const partners = userArray.filter((u: any) => !isSystemAdmin(u));
     
     console.log(`📊 Found ${partners.length} partners to recalculate`);
     
@@ -8224,14 +8263,14 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
         users = allUsersCache.users;
       } else {
         const allUsers = await kv.getByPrefix('user:id:');
-        // ✅ Фильтруем админов, НО оставляем user 001 (корневой партнёр-админ)
-        users = allUsers.filter((u: any) => !isUserAdmin(u));
+        // ✅ Фильтруем СИСТЕМНЫХ админов (admin@admin.com, CEO, admin-*), НО оставляем user 001 (партнёр-админ)
+        users = allUsers.filter((u: any) => !isSystemAdmin(u));
         await kv.set(ALL_USERS_CACHE_KEY, { users, timestamp: new Date().toISOString() });
       }
     } else {
       const allUsers = await kv.getByPrefix('user:id:');
-      // Фильтруем админов
-      users = allUsers.filter((u: any) => !isUserAdmin(u));
+      // Фильтруем СИСТЕМНЫХ админов
+      users = allUsers.filter((u: any) => !isSystemAdmin(u));
       await kv.set(ALL_USERS_CACHE_KEY, { users, timestamp: new Date().toISOString() });
     }
 
@@ -8729,8 +8768,8 @@ app.get("/make-server-05aa3c8a/admin/diagnose-ranks", async (c) => {
     
     // Получаем всех пользователей
     const allUsers = await kv.getByPrefix('user:id:');
-    // Фильтруем админов
-    const users = allUsers.filter((u: any) => u.__type !== 'admin' && !u.isAdmin);
+    // Фильтруем СИСТЕМНЫХ админов (admin@admin.com, CEO, admin-*), но оставляем партнёров с админ правами
+    const users = allUsers.filter((u: any) => !isSystemAdmin(u));
     
     console.log(`📊 Всего пользователей: ${users.length}`);
     
@@ -8890,8 +8929,8 @@ app.post("/make-server-05aa3c8a/admin/recalculate-all-ranks", async (c) => {
     
     // Получаем всех пользователей
     const allUsers = await kv.getByPrefix('user:id:');
-    // Фильтруем админов
-    const users = allUsers.filter((u: any) => u.__type !== 'admin' && !u.isAdmin);
+    // Фильтруем СИСТЕМНЫХ админов (admin@admin.com, CEO, admin-*), но оставляем партнёров с админ правами
+    const users = allUsers.filter((u: any) => !isSystemAdmin(u));
     
     console.log(`📊 Пользователей для обновления: ${users.length}`);
     
@@ -9143,9 +9182,7 @@ app.get("/make-server-05aa3c8a/admin/finance-stats", async (c) => {
     const allEarnings = await kv.getByPrefix('earnings:');
     
     const now = new Date();
-    const users = allUsers.filter((u: any) => 
-      u.__type !== 'admin' && u.isAdmin !== true && u.роль !== 'admin'
-    );
+    const users = allUsers.filter((u: any) => !isSystemAdmin(u));
     
     // Очистка невалидных заказов
     let autoDeletedCount = 0;
@@ -9587,7 +9624,7 @@ console.log('✅ Server ready!');
         id: '001',
         имя: 'Главный',
         фамилия: 'Партнёр',
-        email: 'partner001@h2platform.com',
+        email: 'artem1233@mail.ru', // ✅ CRITICAL: User 001 email (NEVER CHANGE THIS!)
         партнёрскийID: '001',
         уровень: 3,
         рефКод: 'MAIN001',
@@ -9598,7 +9635,8 @@ console.log('✅ Server ready!');
         зарегистрирован: new Date().toISOString(),
         lastLogin: new Date().toISOString(),
         lastActivity: new Date().toISOString(),
-        // User 001 is a regular partner, not admin
+        isAdmin: true, // ✅ User 001 is admin (NEVER REMOVE THIS!)
+        type: 'admin', // ✅ User 001 is admin
         телефон: '',
         telegram: '',
         instagram: '',
@@ -9610,13 +9648,13 @@ console.log('✅ Server ready!');
       
       await kv.set('user:id:001', user001);
       await kv.set('user:refcode:MAIN001', { id: '001' });
-      await kv.set('user:email:partner001@h2platform.com', { id: '001' });
+      await kv.set('user:email:artem1233@mail.ru', { id: '001' });
       
       console.log('✅ User 001 created successfully!');
       console.log('   ID: 001');
       console.log('   Name: Главный Партнёр');
       console.log('   RefCode: MAIN001');
-      console.log('   Email: partner001@h2platform.com');
+      console.log('   Email: artem1233@mail.ru');
       console.log('   isAdmin: true ✅');
     } else {
       console.log('✅ User 001 already exists');
@@ -9624,13 +9662,16 @@ console.log('✅ Server ready!');
       console.log(`   RefCode: ${user001.рефКод}`);
       console.log(`   Email: ${user001.email}`);
       
-      // Remove admin flag if it was set by mistake
-      if (user001.isAdmin === true) {
-        console.log('⚠️ User 001 has isAdmin flag, removing...');
-        delete user001.isAdmin;
-        delete user001.type;
+      // ✅ CRITICAL: Ensure user 001 has admin rights and correct email (NEVER REMOVE THIS!)
+      if (!user001.isAdmin || user001.email !== 'artem1233@mail.ru') {
+        console.log('⚠️ User 001 missing admin flag or wrong email, fixing...');
+        user001.isAdmin = true;
+        user001.type = 'admin';
+        user001.email = 'artem1233@mail.ru'; // Ensure correct email
         await kv.set('user:id:001', user001);
-        console.log('✅ User 001 admin flag removed (they are a regular partner)');
+        // Update email index if email changed
+        await kv.set('user:email:artem1233@mail.ru', { id: '001' });
+        console.log('✅ User 001 admin rights restored with correct email');
       }
     }
   } catch (error) {

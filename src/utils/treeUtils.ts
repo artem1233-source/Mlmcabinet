@@ -2,6 +2,8 @@
  * 🌳 Утилиты для работы с древовидной структурой
  */
 
+import { isSystemAdmin } from './userTypeHelpers';
+
 export interface TreeNode {
   id: string;
   user: any;
@@ -68,7 +70,7 @@ export function flattenTree(
     totalSiblings: number = 1
   ) => {
     const user = userMap.get(userId);
-    if (!user || user.isAdmin) return;
+    if (!user || isSystemAdmin(user)) return; // 🆕 Используем isSystemAdmin вместо user.isAdmin
     
     // Получаем детей
     const childrenIds = user.команда || [];
@@ -112,8 +114,8 @@ export function flattenTree(
     }
   };
   
-  // Находим корневые узлы (без спонсора)
-  const rootUsers = allUsers.filter(u => !u.спонсорId && !u.isAdmin);
+  // Находим корневые узлы (без спонсора, но исключая СИСТЕМНЫХ админов)
+  const rootUsers = allUsers.filter(u => !u.спонсорId && !isSystemAdmin(u)); // 🆕 Используем isSystemAdmin
   
   // Обходим каждый корневой узел (корневые узлы не имеют siblings между собой)
   rootUsers.forEach((rootUser, index) => {

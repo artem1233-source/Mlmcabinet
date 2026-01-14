@@ -11,6 +11,7 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { UserTreeRenderer } from './UserTreeRenderer';
 import { flattenTree, expandPathToUser, findPathToUser } from '../utils/treeUtils';
+import { isSystemAdmin } from '../utils/userTypeHelpers';
 import { Card, CardContent } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
@@ -47,7 +48,7 @@ export function VirtualizedTreeView({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
     // По умолчанию раскрываем первые 2 уровня
     const initialExpanded = new Set<string>();
-    const rootUsers = allUsers.filter(u => !u.спонсорId && !u.isAdmin);
+    const rootUsers = allUsers.filter(u => !u.спонсорId && !isSystemAdmin(u)); // 🆕 Используем isSystemAdmin
     
     rootUsers.slice(0, 10).forEach(root => {
       initialExpanded.add(root.id);
@@ -91,7 +92,7 @@ export function VirtualizedTreeView({
   
   // 📊 Статистика
   const stats = useMemo(() => {
-    const totalPartners = allUsers.filter(u => !u.isAdmin).length;
+    const totalPartners = allUsers.filter(u => !isSystemAdmin(u)).length; // 🆕 Используем isSystemAdmin
     const visibleNodes = flatList.length;
     const expandedCount = expandedIds.size;
     const maxRank = Math.max(...Array.from(userRanks.values()), 0);
