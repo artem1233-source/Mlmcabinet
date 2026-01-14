@@ -9,13 +9,8 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@assets': path.resolve(__dirname, './attached_assets'),
-      'lucide-react': path.resolve(__dirname, 'node_modules/lucide-react'),
     },
-    dedupe: ['lucide-react', 'react', 'react-dom', '@radix-ui/react-slot'],
-  },
-  optimizeDeps: {
-    include: ['lucide-react', 'react', 'react-dom'],
-    force: true,
+    dedupe: ['lucide-react', 'react', 'react-dom'],
   },
   build: {
     target: 'esnext',

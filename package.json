@@ -43,7 +43,7 @@
             "html2canvas": "*",
             "input-otp": "^1.4.2",
             "jspdf": "*",
-            "lucide-react": "^0.562.0",
+            "lucide-react": "0.460.0",
             "motion": "*",
             "path": "*",
             "qr-code-styling": "*",
@@ -61,6 +61,8 @@
       },
       "devDependencies": {
             "@types/node": "^20.10.0",
+            "@types/react": "^19.2.8",
+            "@types/react-dom": "^19.2.3",
             "@vitejs/plugin-react-swc": "^3.10.2",
             "vite": "6.3.5"
       },
