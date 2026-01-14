@@ -43,7 +43,7 @@ import {
   groupByDay,
   calculateDelta
 } from '../../utils/periodCalculations';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface FinanceDashboardProps {
   currentUser: any;

@@ -6,7 +6,7 @@ import {
   ChevronRight, ChevronDown, Circle, Award, Star, Zap, Clock,
   ArrowUpRight, ArrowDownRight, Mail, ExternalLink, Copy
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { TreeVisualization } from '../TreeVisualization';
 
 interface Partner {

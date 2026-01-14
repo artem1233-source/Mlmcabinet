@@ -3,7 +3,7 @@ import { CheckCircle2, XCircle, AlertCircle, Download, Star } from 'lucide-react
 import { Button } from '../../../components/ui/button';
 import { Card } from '../../../components/ui/card';
 import { Badge } from '../../../components/ui/badge';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { User001Diagnostic } from '../../../components/User001Diagnostic';
 
 interface TestItem {

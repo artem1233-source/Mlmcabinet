@@ -31,7 +31,7 @@ import {
   Bar,
 } from 'recharts';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 // 💰 Форматтер для рублей
 const rubFormatter = new Intl.NumberFormat('ru-RU', {
