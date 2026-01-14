@@ -257,12 +257,13 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
 
   useEffect(() => {
     if (viewMode === 'tree' && expandedNodes.size === 0 && team.length > 0) {
+      // 🔧 ИСПРАВЛЕНИЕ: Используем спонсорId
       const firstLevelIds = team
-        .filter(m => m.пригласительКод === currentUser.рефКод)
+        .filter(m => m.спонсорId === currentUser.id)
         .map(m => m.id);
       setExpandedNodes(new Set(firstLevelIds));
     }
-  }, [viewMode, team, currentUser.рефКод]);
+  }, [viewMode, team, currentUser.id]);
 
   // Сброс скролла контейнера при смене режима для предотвращения прыжков
   useEffect(() => {
@@ -286,11 +287,12 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
       
       if (data.success && data.team) {
         const filteredTeam = data.team.filter((m: any) => m.id !== effectiveUserId);
-        console.log('📊 FULL TEAM:', filteredTeam.map((m: any) => ({ id: m.id, имя: m.имя, рефКод: m.рефКод, глубина: m.глубина, пригласительКод: m.пригласительКод })));
+        console.log('📊 FULL TEAM:', filteredTeam.map((m: any) => ({ id: m.id, имя: m.имя, рефКод: m.рефКод, глубина: m.глубина, спонсорId: m.спонсорId })));
         setTeam(filteredTeam);
         
         if (viewMode === 'tree' && filteredTeam.length > 0) {
-          const firstLevelMembers = filteredTeam.filter((m: any) => m.пригласительКод === currentUser.рефКод);
+          // 🔧 ИСПРАВЛЕНИЕ: Используем спонсорId
+          const firstLevelMembers = filteredTeam.filter((m: any) => m.спонсорId === currentUser.id);
           const firstLevelIds = firstLevelMembers.map((m: any) => m.id);
           setExpandedNodes(new Set(firstLevelIds));
         }
@@ -545,7 +547,8 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
 
   // Подсчёт детей партнёра
   const getPartnerChildrenCount = (member: any) => {
-    return team.filter(m => m.пригласительКод === member.рефКод).length;
+    // 🔧 ИСПРАВЛЕНИЕ: Используем спонсорId
+    return team.filter(m => m.спонсорId === member.id).length;
   };
 
   const toggleNode = (nodeId: string) => {
@@ -580,12 +583,14 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
     toast.success('Все линии свернуты');
   };
 
-  const buildTree = (parentRefCode: string, depth = 0): any[] => {
-    const children = team.filter(member => member.пригласительКод === parentRefCode);
+  const buildTree = (parentId: string, depth = 0): any[] => {
+    // 🔧 ИСПРАВЛЕНИЕ: Используем parentId напрямую для построения дерева
+    // Ищем всех пользователей, у которых спонсором является данный пользователь
+    const children = team.filter(member => member.спонсорId === parentId);
     
     return children.map(member => ({
       ...member,
-      children: buildTree(member.рефКод, depth + 1),
+      children: buildTree(member.id, depth + 1),
       depth
     }));
   };
@@ -738,15 +743,16 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
     const partner = team.find(m => m.id === partnerId);
     if (!partner) return [];
     
+    // 🔧 ИСПРАВЛЕНИЕ: Используем спонсорId для поиска детей
     const descendants: string[] = [];
-    const queue = [partner.рефКод];
+    const queue = [partner.id];
     
     while (queue.length > 0) {
-      const refCode = queue.shift()!;
-      const children = team.filter(m => m.пригласительКод === refCode);
+      const currentId = queue.shift()!;
+      const children = team.filter(m => m.спонсорId === currentId);
       children.forEach(child => {
         descendants.push(child.id);
-        queue.push(child.рефКод);
+        queue.push(child.id);
       });
     }
     
@@ -758,15 +764,20 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
     const partner = team.find(m => m.id === partnerId);
     if (!partner) return [];
     
+    // 🔧 ИСПРАВЛЕНИЕ: Используем спонсорId для поиска родителей
     const ancestors: string[] = [];
-    let currentInviteCode = partner.пригласительКод;
+    let currentSponsorId = partner.спонсорId;
     
-    while (currentInviteCode) {
-      const sponsor = team.find(m => m.рефКод === currentInviteCode);
+    while (currentSponsorId) {
+      const sponsor = team.find(m => m.id === currentSponsorId);
       if (sponsor) {
         ancestors.push(sponsor.id);
-        currentInviteCode = sponsor.пригласительКод;
+        currentSponsorId = sponsor.спонсорId;
       } else {
+        // Проверяем, может быть спонсор - это currentUser
+        if (currentSponsorId === currentUser.id) {
+          ancestors.push(currentUser.id);
+        }
         break;
       }
     }
@@ -812,7 +823,8 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
         const isAncestorOnly = ancestorIds.has(partner.id) && !isSelected;
         
         if (relatedIds.has(partner.id) && !isAncestorOnly) {
-          const directChildren = team.filter(m => m.пригласительКод === partner.рефКод);
+          // 🔧 ИСПРАВЛЕНИЕ: Используем спонсорId
+          const directChildren = team.filter(m => m.спонсорId === partner.id);
           directChildren.forEach(child => {
             relatedIds.add(child.id);
             // Дети не являются "только предками", они могут дальше расширяться
@@ -858,11 +870,13 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
     const showWhatsapp = member.privacySettings?.showWhatsapp !== false;
     
     // Найти спонсора
-    const sponsor = team.find(m => m.рефКод === member.пригласительКод) || 
-                    (member.пригласительКод === currentUser.рефКод ? currentUser : null);
+    // 🔧 ИСПРАВЛЕНИЕ: Используем спонсорId
+    const sponsor = team.find(m => m.id === member.спонсорId) || 
+                    (member.спонсорId === currentUser.id ? currentUser : null);
     
     // Посчитать детей (прямых рефералов)
-    const childrenCount = team.filter(m => m.пригласительКод === member.рефКод).length;
+    // 🔧 ИСПРАВЛЕНИЕ: Используем спонсорId
+    const childrenCount = team.filter(m => m.спонсорId === member.id).length;
     
     const lineGradients = {
       1: 'from-blue-400 to-blue-600',
@@ -1764,7 +1778,7 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
                           <div className="flex items-center gap-1.5">
                             <Users className="w-4 h-4 text-blue-400" />
                             <span className="text-gray-500">
-                              Показано: <span className="font-semibold text-gray-700">{buildTree(currentUser.рефКод).length} из {team.length}</span>
+                              Показано: <span className="font-semibold text-gray-700">{buildTree(currentUser.id).length} из {team.length}</span>
                             </span>
                           </div>
                           <div className="w-px h-4 bg-gray-200"></div>
@@ -1798,7 +1812,7 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
 
                       {/* Дерево */}
                       <div className="space-y-1">
-                        {buildTree(currentUser.рефКод).map((node) => renderTreeNode(node))}
+                        {buildTree(currentUser.id).map((node) => renderTreeNode(node))}
                       </div>
                     </div>
                   )}
@@ -1964,7 +1978,8 @@ export function StructureDataViz({ currentUser, refreshTrigger }: StructureDataV
                                   {expandedPartner === member.id && (
                                     <div className="mt-2 pt-2 border-t">
                                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                        {team.filter(m => m.пригласительКод === member.рефКод).map(child => (
+                                        {/* 🔧 ИСПРАВЛЕНИЕ: Используем спонсорId */}
+                                        {team.filter(m => m.спонсорId === member.id).map(child => (
                                           <div 
                                             key={child.id}
                                             className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"

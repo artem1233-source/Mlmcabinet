@@ -150,19 +150,20 @@ export function useTeamStats(team: TeamMember[]) {
 
 /**
  * Хук для построения дерева партнёров (мемоизированный)
+ * 🔧 ИСПРАВЛЕНИЕ: Используем спонсорId вместо пригласительКод
  */
-export function useBuildTree(team: TeamMember[], currentUserRefCode: string) {
-  const buildTree = (parentRefCode: string, depth = 0): (TeamMember & { children: any[], depth: number })[] => {
-    const children = team.filter(member => member.пригласительКод === parentRefCode);
+export function useBuildTree(team: TeamMember[], currentUserId: string) {
+  const buildTree = (parentId: string, depth = 0): (TeamMember & { children: any[], depth: number })[] => {
+    const children = team.filter(member => member.спонсорId === parentId);
     
     return children.map(member => ({
       ...member,
-      children: buildTree(member.рефКод, depth + 1),
+      children: buildTree(member.id, depth + 1),
       depth
     }));
   };
 
-  return buildTree(currentUserRefCode);
+  return buildTree(currentUserId);
 }
 
 /**

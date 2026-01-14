@@ -1,4 +1,4 @@
-import { BookOpen, Users, TrendingUp, Play, Droplet, Award, Plus, Edit2, Trash2, Save, X, FileText, Loader2, ArrowUp, ArrowDown, Video, Image as ImageIcon, File, Link as LinkIcon, Upload, Eye, Download as DownloadIcon, ExternalLink } from 'lucide-react';
+import { BookOpen, Users, TrendingUp, Play, Droplet, Award, Plus, Edit2, Trash2, Save, X, FileText, Loader2, ArrowUp, ArrowDown, Video, Image as ImageIcon, File, Link as LinkIcon, Upload, Eye, Download, ExternalLink } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
@@ -782,7 +782,7 @@ export function TrainingRu({ currentUser }: TrainingRuProps) {
                     variant="outline"
                   >
                     <a href={viewingMaterial.url} download>
-                      <DownloadIcon className="w-4 h-4 mr-2" />
+                      <Download className="w-4 h-4 mr-2" />
                       Скачать
                     </a>
                   </Button>

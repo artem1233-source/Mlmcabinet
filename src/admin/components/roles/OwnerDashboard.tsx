@@ -1,12 +1,27 @@
-import { DollarSign, TrendingUp, Users, Package, AlertCircle, Clock, CheckCircle } from 'lucide-react';
+import { DollarSign, TrendingUp, Users, Package, AlertCircle, Clock, CheckCircle, UserCog, Search } from 'lucide-react';
 import { KPICard } from '../ui/KPICard';
 import { AlertBanner } from '../ui/AlertBanner';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Button } from '../../../components/ui/button';
 import { Badge } from '../../../components/ui/badge';
+import { Input } from '../../../components/ui/input';
+import { useState, useEffect } from 'react';
+import { toast } from 'sonner@2.0.3';
+import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 
 export function OwnerDashboard() {
+  // State для ручного назначения спонсора
+  const [userSearch, setUserSearch] = useState('');
+  const [sponsorSearch, setSponsorSearch] = useState('');
+  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [selectedSponsor, setSelectedSponsor] = useState<any>(null);
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [userSearchResults, setUserSearchResults] = useState<any[]>([]);
+  const [sponsorSearchResults, setSponsorSearchResults] = useState<any[]>([]);
+  const [isSearchingUsers, setIsSearchingUsers] = useState(false);
+  const [isSearchingSponsors, setIsSearchingSponsors] = useState(false);
+
   // Mock data
   const salesData = [
     { date: '1 янв', revenue: 125000, commissions: 18750, payouts: 15000 },
@@ -54,6 +69,112 @@ export function OwnerDashboard() {
       action: { label: 'Обработать', onClick: () => {} }
     }
   ];
+
+  // Функция для поиска пользователей
+  const searchUsers = async (query: string) => {
+    if (!query.trim()) return [];
+    
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/user001/search?q=${encodeURIComponent(query)}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Search users error:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+      return data.users || [];
+    } catch (error) {
+      console.error('Error searching users:', error);
+      toast.error('Ошибка поиска пользователей');
+      return [];
+    }
+  };
+
+  // Функция для назначения спонсора
+  const assignSponsor = async () => {
+    if (!selectedUser || !selectedSponsor) {
+      toast.error('Выберите пользователя и спонсора');
+      return;
+    }
+
+    if (selectedUser.id === selectedSponsor.id) {
+      toast.error('Пользователь не может быть своим спонсором');
+      return;
+    }
+
+    setIsAssigning(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/user001/assign-sponsor`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            userId: selectedUser.id,
+            sponsorId: selectedSponsor.id
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Assign sponsor error:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const result = await response.json();
+      toast.success(`Спонсор успешно назначен: ${selectedUser.имя} → ${selectedSponsor.имя}`);
+      
+      // Сброс формы
+      setSelectedUser(null);
+      setSelectedSponsor(null);
+      setUserSearch('');
+      setSponsorSearch('');
+    } catch (error) {
+      console.error('Error assigning sponsor:', error);
+      toast.error('Ошибка при назначении спонсора');
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
+  // Обработчики поиска пользователей и спонсоров
+  useEffect(() => {
+    if (userSearch.trim()) {
+      setIsSearchingUsers(true);
+      searchUsers(userSearch).then(results => {
+        setUserSearchResults(results);
+        setIsSearchingUsers(false);
+      });
+    } else {
+      setUserSearchResults([]);
+    }
+  }, [userSearch]);
+
+  useEffect(() => {
+    if (sponsorSearch.trim()) {
+      setIsSearchingSponsors(true);
+      searchUsers(sponsorSearch).then(results => {
+        setSponsorSearchResults(results);
+        setIsSearchingSponsors(false);
+      });
+    } else {
+      setSponsorSearchResults([]);
+    }
+  }, [sponsorSearch]);
 
   return (
     <div className="space-y-6">
@@ -187,6 +308,182 @@ export function OwnerDashboard() {
         </Card>
       </div>
 
+      {/* Ручное назначение спонсора - только для SEO/Owner */}
+      <Card className="border-[#E6E9EE] rounded-2xl shadow-sm bg-gradient-to-br from-purple-50 to-pink-50">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <UserCog className="w-5 h-5 text-[#39B7FF]" />
+            🔧 Ручное назначение спонсора (SEO Mode)
+          </CardTitle>
+          <p className="text-sm text-[#666] mt-2">
+            Только для супер-администратора: назначение или смена спонсора пользователю вручную
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Выбор пользователя */}
+            <div className="space-y-3">
+              <label className="text-sm font-semibold text-[#1E1E1E]">
+                1. Выберите пользователя
+              </label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#666]" />
+                <Input
+                  placeholder="Поиск по имени, email, ID..."
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  className="pl-10 border-[#E6E9EE] rounded-xl"
+                />
+              </div>
+              {isSearchingUsers && (
+                <div className="p-4 bg-white rounded-xl border-2 border-[#39B7FF]">
+                  <p className="text-sm text-[#666]">Ищем...</p>
+                </div>
+              )}
+              {userSearchResults.length > 0 && !isSearchingUsers && (
+                <div className="p-4 bg-white rounded-xl border-2 border-[#39B7FF] max-h-40 overflow-y-auto">
+                  {userSearchResults.map(user => (
+                    <div key={user.id} className="flex items-center gap-3 cursor-pointer hover:bg-gray-100 p-2" onClick={() => setSelectedUser(user)}>
+                      <div className="w-12 h-12 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-full flex items-center justify-center text-white font-bold text-lg">
+                        {user.имя?.[0] || 'U'}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-bold text-[#1E1E1E]">{user.имя} {user.фамилия}</p>
+                        <p className="text-sm text-[#666]">{user.email}</p>
+                        <p className="text-xs text-[#666]">ID: {user.id}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {selectedUser && (
+                <div className="p-4 bg-white rounded-xl border-2 border-[#39B7FF]">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-full flex items-center justify-center text-white font-bold text-lg">
+                      {selectedUser.имя?.[0] || 'U'}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-bold text-[#1E1E1E]">{selectedUser.имя} {selectedUser.фамилия}</p>
+                      <p className="text-sm text-[#666]">{selectedUser.email}</p>
+                      <p className="text-xs text-[#666]">ID: {selectedUser.id}</p>
+                    </div>
+                  </div>
+                  {selectedUser.спонсорId && (
+                    <div className="mt-3 p-2 bg-yellow-50 rounded-lg">
+                      <p className="text-xs text-yellow-800">
+                        ⚠️ Текущий спонсор: {selectedUser.спонсорId}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Выбор спонсора */}
+            <div className="space-y-3">
+              <label className="text-sm font-semibold text-[#1E1E1E]">
+                2. Назначьте нового спонсора
+              </label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#666]" />
+                <Input
+                  placeholder="Поиск спонсора по имени, email, ID..."
+                  value={sponsorSearch}
+                  onChange={(e) => setSponsorSearch(e.target.value)}
+                  className="pl-10 border-[#E6E9EE] rounded-xl"
+                />
+              </div>
+              {isSearchingSponsors && (
+                <div className="p-4 bg-white rounded-xl border-2 border-green-500">
+                  <p className="text-sm text-[#666]">Ищем...</p>
+                </div>
+              )}
+              {sponsorSearchResults.length > 0 && !isSearchingSponsors && (
+                <div className="p-4 bg-white rounded-xl border-2 border-green-500 max-h-40 overflow-y-auto">
+                  {sponsorSearchResults.map(user => (
+                    <div key={user.id} className="flex items-center gap-3 cursor-pointer hover:bg-gray-100 p-2" onClick={() => setSelectedSponsor(user)}>
+                      <div className="w-12 h-12 bg-gradient-to-br from-green-400 to-green-600 rounded-full flex items-center justify-center text-white font-bold text-lg">
+                        {user.имя?.[0] || 'S'}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-bold text-[#1E1E1E]">{user.имя} {user.фамилия}</p>
+                        <p className="text-sm text-[#666]">{user.email}</p>
+                        <p className="text-xs text-[#666]">ID: {user.id}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {selectedSponsor && (
+                <div className="p-4 bg-white rounded-xl border-2 border-green-500">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-gradient-to-br from-green-400 to-green-600 rounded-full flex items-center justify-center text-white font-bold text-lg">
+                      {selectedSponsor.имя?.[0] || 'S'}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-bold text-[#1E1E1E]">{selectedSponsor.имя} {selectedSponsor.фамилия}</p>
+                      <p className="text-sm text-[#666]">{selectedSponsor.email}</p>
+                      <p className="text-xs text-[#666]">ID: {selectedSponsor.id}</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 p-2 bg-green-50 rounded-lg">
+                    <p className="text-xs text-green-800">
+                      ✓ Уровень {selectedSponsor.уровень || 1} • Команда: {selectedSponsor.команда?.length || 0} чел.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Кнопка назначения */}
+          <div className="mt-6 flex items-center justify-between">
+            <div className="text-sm text-[#666]">
+              {selectedUser && selectedSponsor ? (
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-[#1E1E1E]">{selectedUser.имя}</span>
+                  <span>→</span>
+                  <span className="font-semibold text-green-600">{selectedSponsor.имя}</span>
+                </div>
+              ) : (
+                <span>Выберите пользователя и спонсора</span>
+              )}
+            </div>
+            <Button
+              onClick={assignSponsor}
+              disabled={!selectedUser || !selectedSponsor || isAssigning}
+              className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] hover:opacity-90 text-white gap-2"
+            >
+              {isAssigning ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Назначение...
+                </>
+              ) : (
+                <>
+                  <UserCog className="w-4 h-4" />
+                  Назначить спонсора
+                </>
+              )}
+            </Button>
+          </div>
+
+          {/* Предупреждение */}
+          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-red-800">
+                <p className="font-semibold mb-1">⚠️ Критическая операция</p>
+                <p>
+                  Изменение спонсора влияет на всю структуру команды и расчёт комиссий. 
+                  Убедитесь, что действие выполнено корректно. Все изменения логируются.
+                </p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Top Branches */}
       <Card className="border-[#E6E9EE] rounded-2xl shadow-sm">
         <CardHeader>
@@ -195,7 +492,7 @@ export function OwnerDashboard() {
               <TrendingUp className="w-5 h-5 text-[#39B7FF]" />
               ТОП-5 веток по выручке
             </CardTitle>
-            <Button variant="outline" size="sm">Подроб��ее</Button>
+            <Button variant="outline" size="sm">Подробее</Button>
           </div>
         </CardHeader>
         <CardContent>

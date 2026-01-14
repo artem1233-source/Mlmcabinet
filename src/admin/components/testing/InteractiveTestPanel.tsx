@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import { CheckCircle2, XCircle, AlertCircle, Download as DownloadIcon, Star } from 'lucide-react';
+import { useState } from 'react';
+import { CheckCircle2, XCircle, AlertCircle, Download, Star } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import { Card } from '../../../components/ui/card';
 import { Badge } from '../../../components/ui/badge';
 import { toast } from 'sonner@2.0.3';
+import { User001Diagnostic } from '../../../components/User001Diagnostic';
 
 interface TestItem {
   id: string;
@@ -284,7 +285,7 @@ ${bugs.length > 0 ? bugs.map((b, i) => `${i + 1}. [${b.priority.toUpperCase()}] 
           <p className="text-gray-600 mt-1">Протестируйте админ-панель и варианты заказов</p>
         </div>
         <Button onClick={generateReport} className="gap-2">
-          <DownloadIcon className="w-4 h-4" />
+          <Download className="w-4 h-4" />
           Сгенерировать отчёт
         </Button>
       </div>
@@ -322,6 +323,9 @@ ${bugs.length > 0 ? bugs.map((b, i) => `${i + 1}. [${b.priority.toUpperCase()}] 
           </div>
         </div>
       </Card>
+
+      {/* Диагностика пользователя 001 */}
+      <User001Diagnostic />
 
       {/* Тесты админ-панели */}
       <div>

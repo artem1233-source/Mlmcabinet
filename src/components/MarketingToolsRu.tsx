@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { 
-  Share2, Download as DownloadIcon, Copy, ExternalLink, Instagram, 
+  Share2, Download, Copy, ExternalLink, Instagram, 
   MessageCircle, Mail, QrCode, FileText, Image as ImageIcon,
   Video, Layout, Sparkles, Check, ChevronDown, ChevronUp
 } from 'lucide-react';
@@ -552,7 +552,7 @@ export function MarketingToolsRu({ currentUser }: MarketingToolsRuProps) {
                             onClick={handleCreateBusinessCard}
                             className="bg-[#39B7FF] hover:bg-[#2A9FEF]"
                           >
-                            <DownloadIcon className="w-4 h-4 mr-2" />
+                            <Download className="w-4 h-4 mr-2" />
                             Создать
                           </Button>
                         ) : (
@@ -561,7 +561,7 @@ export function MarketingToolsRu({ currentUser }: MarketingToolsRuProps) {
                             variant="outline"
                             onClick={() => toast.info('Материал будет доступен в следующей версии')}
                           >
-                            <DownloadIcon className="w-4 h-4 mr-2" />
+                            <Download className="w-4 h-4 mr-2" />
                             Скачать
                           </Button>
                         )}
@@ -655,7 +655,7 @@ export function MarketingToolsRu({ currentUser }: MarketingToolsRuProps) {
                   onClick={handleDownloadQR}
                   className="bg-[#39B7FF] hover:bg-[#2A9FEF]"
                 >
-                  <DownloadIcon className="w-4 h-4 mr-2" />
+                  <Download className="w-4 h-4 mr-2" />
                   Скачать QR-код
                 </Button>
                 <p className="text-xs text-[#666] text-center max-w-md">

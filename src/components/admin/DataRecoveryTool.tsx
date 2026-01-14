@@ -10,7 +10,9 @@ import {
   Link,
   XCircle,
   Info,
-  Zap
+  Zap,
+  UserCog,
+  X
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -18,6 +20,7 @@ import { Badge } from '../ui/badge';
 import { toast } from 'sonner@2.0.3';
 import { useAllUsers, useInvalidateUsers } from '../../hooks/useAllUsers';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { Input } from '../ui/input';
 
 interface DataRecoveryToolProps {
   currentUser: any;
@@ -44,7 +47,121 @@ export function DataRecoveryTool({ currentUser, onSuccess }: DataRecoveryToolPro
   const [fixedIssues, setFixedIssues] = useState<Set<string>>(new Set());
   const [showDetails, setShowDetails] = useState(false);
 
-  // 🔍 Анализ данных и поиск проблем
+  // 🆕 Состояние для модального окна назначения спонсора
+  const [showSponsorModal, setShowSponsorModal] = useState(false);
+  const [selectedOrphan, setSelectedOrphan] = useState<any>(null);
+  const [sponsorSearch, setSponsorSearch] = useState('');
+  const [sponsorSearchResults, setSponsorSearchResults] = useState<any[]>([]);
+  const [selectedSponsor, setSelectedSponsor] = useState<any>(null);
+  const [isSearchingSponsors, setIsSearchingSponsors] = useState(false);
+  const [isAssigning, setIsAssigning] = useState(false);
+
+  // Функция для поиска спонсоров
+  const searchSponsors = async (query: string) => {
+    if (!query.trim()) return [];
+    
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/user001/search?q=${encodeURIComponent(query)}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Search sponsors error:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+      return data.users || [];
+    } catch (error) {
+      console.error('Error searching sponsors:', error);
+      toast.error('Ошибка поиска спонсоров');
+      return [];
+    }
+  };
+
+  // Функция для назначения спонсора
+  const assignSponsor = async () => {
+    if (!selectedOrphan || !selectedSponsor) {
+      toast.error('Выберите пользователя и спонсора');
+      return;
+    }
+
+    if (selectedOrphan.id === selectedSponsor.id) {
+      toast.error('Пользователь не может быть своим спонсором');
+      return;
+    }
+
+    setIsAssigning(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/user001/assign-sponsor`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            userId: selectedOrphan.id,
+            sponsorId: selectedSponsor.id
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Assign sponsor error:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const result = await response.json();
+      toast.success(`Спонсор успешно назначен: ${selectedOrphan.имя} → ${selectedSponsor.имя}`);
+      
+      // Помечаем проблему как исправленную
+      markAsFixed({ type: 'orphan', userId: selectedOrphan.id } as Issue);
+      
+      // Закрываем модальное окно и сбрасываем состояние
+      setShowSponsorModal(false);
+      setSelectedOrphan(null);
+      setSelectedSponsor(null);
+      setSponsorSearch('');
+      setSponsorSearchResults([]);
+      
+      // Перезагружаем данные
+      invalidateUsers();
+      await refetch();
+      
+      // Запускаем повторный анализ
+      await analyzeData();
+    } catch (error) {
+      console.error('Error assigning sponsor:', error);
+      toast.error('Ошибка при назначении спонсора');
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
+  // Обработчик поиска спонсоров
+  useEffect(() => {
+    if (sponsorSearch.trim()) {
+      setIsSearchingSponsors(true);
+      searchSponsors(sponsorSearch).then(results => {
+        setSponsorSearchResults(results);
+        setIsSearchingSponsors(false);
+      });
+    } else {
+      setSponsorSearchResults([]);
+    }
+  }, [sponsorSearch]);
+
+  // 🔍 Анализ данных и поиск поблем
   const analyzeData = async () => {
     setAnalyzing(true);
     const foundIssues: Issue[] = [];
@@ -63,7 +180,7 @@ export function DataRecoveryTool({ currentUser, onSuccess }: DataRecoveryToolPro
       console.log('🔍 Checking for orphan users...');
       for (const user of allUsers) {
         // Пропускаем админов и CEO
-        if (user.isAdmin || user.id === 'ceo' || user.id === '1' || user.id === '001') {
+        if (user.isAdmin || user.id === 'ceo' || user.id === '1') {
           continue;
         }
 
@@ -297,13 +414,19 @@ export function DataRecoveryTool({ currentUser, onSuccess }: DataRecoveryToolPro
           )) {
             await removeFromTeam(issue.userId, issue.details.missingChildId);
             markAsFixed(issue);
-            toast.success(`Исправлено: удалена сломанная ссылка`);
+            toast.success(`Исправлено: удалена ссылка`);
           }
           break;
 
         case 'orphan':
-          // Пользователь без спонсора - требует ручного назначения
-          toast.info('Используйте "Ручное назначение спонсора" для этого пользователя');
+          // Пользователь без спонсора - открываем модальное окно для назначения
+          const orphanUser = allUsers.find(u => u.id === issue.userId);
+          if (orphanUser) {
+            setSelectedOrphan(orphanUser);
+            setShowSponsorModal(true);
+          } else {
+            toast.error('Пользователь не найден');
+          }
           break;
 
         default:
@@ -711,6 +834,212 @@ export function DataRecoveryTool({ currentUser, onSuccess }: DataRecoveryToolPro
           </p>
         </div>
       </CardContent>
+
+      {/* 🆕 Модальное окно назначения спонсора */}
+      {showSponsorModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 p-6 rounded-t-2xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center">
+                    <UserCog className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-[#1E1E1E]">Назначение спонсора</h3>
+                    <p className="text-sm text-[#666]">
+                      {selectedOrphan?.имя} {selectedOrphan?.фамилия} (ID: {selectedOrphan?.id})
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowSponsorModal(false);
+                    setSelectedOrphan(null);
+                    setSelectedSponsor(null);
+                    setSponsorSearch('');
+                    setSponsorSearchResults([]);
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Информация о пользователе */}
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-12 h-12 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-full flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
+                    {selectedOrphan?.имя?.[0] || 'U'}
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-bold text-[#1E1E1E]">
+                      {selectedOrphan?.имя} {selectedOrphan?.фамилия}
+                    </p>
+                    <p className="text-sm text-[#666]">{selectedOrphan?.email}</p>
+                    <p className="text-xs text-orange-700 mt-2">
+                      ⚠️ У этого пользователя отсутствует спонсор
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Поиск спонсора */}
+              <div className="space-y-3">
+                <label className="text-sm font-semibold text-[#1E1E1E]">
+                  Найдите и выберите спонсора
+                </label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#666]" />
+                  <Input
+                    placeholder="Поиск по имени, email, ID, рефкоду..."
+                    value={sponsorSearch}
+                    onChange={(e) => setSponsorSearch(e.target.value)}
+                    className="pl-10 border-[#E6E9EE] rounded-xl"
+                  />
+                </div>
+                
+                {isSearchingSponsors && (
+                  <div className="p-4 bg-white rounded-xl border-2 border-green-500">
+                    <div className="flex items-center gap-2 text-sm text-[#666]">
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      Поиск...
+                    </div>
+                  </div>
+                )}
+                
+                {sponsorSearchResults.length > 0 && !isSearchingSponsors && (
+                  <div className="p-4 bg-white rounded-xl border-2 border-green-500 max-h-60 overflow-y-auto space-y-2">
+                    {sponsorSearchResults.map(user => (
+                      <div 
+                        key={user.id} 
+                        className={`flex items-center gap-3 cursor-pointer hover:bg-gray-100 p-3 rounded-lg transition-colors ${
+                          selectedSponsor?.id === user.id ? 'bg-green-100 border-2 border-green-500' : ''
+                        }`}
+                        onClick={() => setSelectedSponsor(user)}
+                      >
+                        <div className="w-12 h-12 bg-gradient-to-br from-green-400 to-green-600 rounded-full flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
+                          {user.имя?.[0] || 'S'}
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-bold text-[#1E1E1E]">{user.имя} {user.фамилия}</p>
+                          <p className="text-sm text-[#666]">{user.email}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className="text-xs text-[#666]">ID: {user.id}</p>
+                            {user.рефКод && (
+                              <p className="text-xs text-[#666]">• Рефкод: {user.рефКод}</p>
+                            )}
+                          </div>
+                        </div>
+                        {selectedSponsor?.id === user.id && (
+                          <CheckCircle2 className="w-5 h-5 text-green-600" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
+                {sponsorSearchResults.length === 0 && sponsorSearch.trim() && !isSearchingSponsors && (
+                  <div className="p-4 bg-gray-50 rounded-xl text-center text-sm text-[#666]">
+                    Пользователи не найдены. Попробуйте другой запрос.
+                  </div>
+                )}
+
+                {selectedSponsor && (
+                  <div className="p-4 bg-white rounded-xl border-2 border-green-500">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-gradient-to-br from-green-400 to-green-600 rounded-full flex items-center justify-center text-white font-bold text-lg">
+                        {selectedSponsor.имя?.[0] || 'S'}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-bold text-[#1E1E1E]">{selectedSponsor.имя} {selectedSponsor.фамилия}</p>
+                        <p className="text-sm text-[#666]">{selectedSponsor.email}</p>
+                        <p className="text-xs text-[#666]">ID: {selectedSponsor.id}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 p-2 bg-green-50 rounded-lg">
+                      <p className="text-xs text-green-800">
+                        ✓ Уровень {selectedSponsor.уровень || 1} • Команда: {selectedSponsor.команда?.length || 0} чел.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Предпросмотр назначения */}
+              {selectedSponsor && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Info className="w-4 h-4 text-blue-600" />
+                    <span className="text-sm font-semibold text-blue-900">Предпросмотр</span>
+                  </div>
+                  <div className="flex items-center justify-center gap-3 text-sm">
+                    <span className="font-semibold text-[#1E1E1E]">
+                      {selectedOrphan?.имя} ({selectedOrphan?.id})
+                    </span>
+                    <span className="text-[#666]">→</span>
+                    <span className="font-semibold text-green-600">
+                      {selectedSponsor?.имя} ({selectedSponsor?.id})
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Предупреждение */}
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm text-yellow-800">
+                    <p className="font-semibold mb-1">⚠️ Важно</p>
+                    <p>
+                      Назначение спонсора изменяет структуру MLM-сети. 
+                      Убедитесь, что выбран правильный спонсор. Операция будет залогирована.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Кнопки действий */}
+              <div className="flex gap-3">
+                <Button
+                  onClick={() => {
+                    setShowSponsorModal(false);
+                    setSelectedOrphan(null);
+                    setSelectedSponsor(null);
+                    setSponsorSearch('');
+                    setSponsorSearchResults([]);
+                  }}
+                  variant="outline"
+                  className="flex-1"
+                >
+                  Отмена
+                </Button>
+                <Button
+                  onClick={assignSponsor}
+                  disabled={!selectedSponsor || isAssigning}
+                  className="flex-1 bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] hover:opacity-90 text-white gap-2"
+                >
+                  {isAssigning ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      Назначение...
+                    </>
+                  ) : (
+                    <>
+                      <UserCog className="w-4 h-4" />
+                      Назначить спонсора
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </Card>
   );
 }

@@ -31,7 +31,7 @@ export function IdManagementOptimized({ currentUser, onSuccess }: IdManagementOp
 
   // Вычисляем статистику
   const nonAdminUsers = allUsers.filter(u => !u.isAdmin && u.id !== 'ceo' && u.id !== '1');
-  const orphansCount = allUsers.filter(u => !u.спонсорId && !u.isAdmin && u.id !== 'ceo' && u.id !== '1' && u.id !== '001').length;
+  const orphansCount = allUsers.filter(u => !u.спонсорId && !u.isAdmin && u.id !== 'ceo' && u.id !== '1').length;
   const lastBackupTime = localStorage.getItem('lastBackupTime');
   
   function calculateIntegrity() {

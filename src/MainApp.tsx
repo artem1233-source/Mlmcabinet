@@ -22,7 +22,7 @@ import { AdminFinancePage } from './components/admin/AdminFinancePage'; // Neoba
 import { UnifiedDashboard } from './components/dashboard/UnifiedDashboard'; // 🆕 Unified Dashboard
 import { DrilldownProvider } from './components/dashboard/DrilldownProvider'; // 🆕 Drilldown Provider
 import { AdminDashboard } from './admin/AdminDashboard'; // 🆕 H2 Platform Admin Panel
-import { RoleProvider } from './contexts/RoleContext'; // 🆕 Role Context для управления ролями
+import { RoleProvider, useRole } from './contexts/RoleContext'; // 🆕 Role Context для управления ролями
 import { Menu } from 'lucide-react';
 import { Button } from './components/ui/button';
 import * as api from './utils/api.ts';
@@ -32,13 +32,18 @@ interface MainAppProps {
   setAuthScreen: (screen: 'login' | 'register') => void;
 }
 
-export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
+// 🔧 Внутренний компонент с доступом к RoleContext
+function MainAppContent({ authScreen, setAuthScreen }: MainAppProps) {
   const [userId, setUserId] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [activeSection, setActiveSection] = useState('дашборд');
   const [loading, setLoading] = useState(true);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  
+  // 🔧 Импортируем setCurrentRole из RoleContext
+  const { setCurrentRole } = useRole();
+  
   // 🚀 Переключатель между старой и оптимизированной версией управления пользователями
   // ✅ Оптимизированная версия по умолчанию (имеет 100% функционал + лучшая производительность)
   const useOptimizedUsers = true; // Всегда используем новую версию
@@ -69,6 +74,7 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
     api.clearAuthToken();
     setUserId(null);
     setCurrentUser(null);
+    setCurrentRole('partner'); // 🔧 Сбрасываем роль на партнёра при выходе
     setActiveSection('дашборд');
     window.location.reload();
   };
@@ -93,6 +99,20 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
         if (response.success && response.user) {
           console.log('✅ MainApp: User data loaded:', response.user);
           setCurrentUser(response.user);
+          
+          // 🔧 Устанавливаем правильную роль на основе данных пользователя
+          if (response.user.isAdmin) {
+            if (response.user.type === 'admin' && response.user.role === 'ceo') {
+              setCurrentRole('owner'); // CEO = Owner/SuperAdmin
+              console.log('👑 MainApp: Setting role to OWNER (CEO)');
+            } else {
+              setCurrentRole('owner'); // Другие админы тоже получают роль owner
+              console.log('🔧 MainApp: Setting role to OWNER (Admin)');
+            }
+          } else {
+            setCurrentRole('partner'); // Обычные партнёры
+            console.log('👤 MainApp: Setting role to PARTNER');
+          }
         } else {
           console.error('❌ MainApp: Failed to load user data:', response);
           // Если не уалось загрузить данные, очищаем userId
@@ -109,7 +129,7 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
     };
 
     loadUserData();
-  }, [userId, refreshTrigger]); // 🆕 Добавили refreshTrigger в зависимости
+  }, [userId, refreshTrigger, setCurrentRole]); // 🔧 Добавили setCurrentRole в зависимости
 
   // 💓 Activity heartbeat (обновление последней активности пользователя)
   useEffect(() => {
@@ -146,7 +166,7 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
       } catch (error) {
         // Тихо игнорируем все ошибки сети для heartbeat (не критично)
         // Включая таймауты, сетевые ошибки, 500 и т.д.
-        // Пользователь не должен видеть эти технические ошибки
+        // Пользователь не долж��н видеть эти технические ошибки
       }
     };
 
@@ -321,55 +341,61 @@ export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
   };
 
   return (
-    <RoleProvider>
-      <div className="flex h-screen bg-[#F7FAFC] overflow-hidden">
-        <SidebarRu 
-          текущаяВкладка={activeSection} 
-          изменитьВкладку={(tab) => {
-            setActiveSection(tab);
-            setMobileMenuOpen(false);
-          }}
-          currentUser={currentUser}
-          mobileMenuOpen={mobileMenuOpen}
-          setMobileMenuOpen={setMobileMenuOpen}
-        />
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Desktop TopBar */}
-          <div className="hidden lg:block">
-            <TopBarRu
-              имяПользователя={currentUser?.name || currentUser?.username || 'Пользователь'}
-              балансПользователя={currentUser?.balance || 0}
-              cartItemsCount={0}
-              onMenuClick={() => setMobileMenuOpen(true)}
-              onProfileClick={() => setActiveSection('профиль')}
-              onBalanceClick={() => setActiveSection('баланс')}
-              onNotificationsClick={() => setActiveSection('уведомления')}
-              onLogoClick={() => setActiveSection('дашборд')}
-              onCartClick={() => setActiveSection('каталог')}
-            />
-          </div>
-          
-          {/* Mobile Header */}
-          <header className="lg:hidden bg-white border-b border-[#E6E9EE] px-4 py-3 flex items-center justify-between">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setMobileMenuOpen(true)}
-              className="text-[#666]"
-            >
-              <Menu className="w-5 h-5" />
-            </Button>
-            <h1 className="text-[#39B7FF] font-bold">H₂ Платформа</h1>
-            <div className="w-9" /> {/* Spacer for centering */}
-          </header>
-          
-          <main className="flex-1 overflow-y-auto pt-0 lg:pt-20">
-            <div className="max-w-7xl mx-auto w-full">
-              {renderSection()}
-            </div>
-          </main>
+    <div className="flex h-screen bg-[#F7FAFC] overflow-hidden">
+      <SidebarRu 
+        текущаяВкладка={activeSection} 
+        изменитьВкладку={(tab) => {
+          setActiveSection(tab);
+          setMobileMenuOpen(false);
+        }}
+        currentUser={currentUser}
+        mobileMenuOpen={mobileMenuOpen}
+        setMobileMenuOpen={setMobileMenuOpen}
+      />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Desktop TopBar */}
+        <div className="hidden lg:block">
+          <TopBarRu
+            имяПользователя={currentUser?.name || currentUser?.username || 'Пользователь'}
+            балансПользователя={currentUser?.balance || 0}
+            cartItemsCount={0}
+            onMenuClick={() => setMobileMenuOpen(true)}
+            onProfileClick={() => setActiveSection('профиль')}
+            onBalanceClick={() => setActiveSection('баланс')}
+            onNotificationsClick={() => setActiveSection('уведомления')}
+            onLogoClick={() => setActiveSection('дашборд')}
+            onCartClick={() => setActiveSection('каталог')}
+          />
         </div>
+        
+        {/* Mobile Header */}
+        <header className="lg:hidden bg-white border-b border-[#E6E9EE] px-4 py-3 flex items-center justify-between">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setMobileMenuOpen(true)}
+            className="text-[#666]"
+          >
+            <Menu className="w-5 h-5" />
+          </Button>
+          <h1 className="text-[#39B7FF] font-bold">H₂ Платформа</h1>
+          <div className="w-9" /> {/* Spacer for centering */}
+        </header>
+        
+        <main className="flex-1 overflow-y-auto pt-0 lg:pt-20">
+          <div className="max-w-7xl mx-auto w-full">
+            {renderSection()}
+          </div>
+        </main>
       </div>
+    </div>
+  );
+}
+
+export function MainApp({ authScreen, setAuthScreen }: MainAppProps) {
+  return (
+    <RoleProvider>
+      <MainAppContent authScreen={authScreen} setAuthScreen={setAuthScreen} />
     </RoleProvider>
   );
 }

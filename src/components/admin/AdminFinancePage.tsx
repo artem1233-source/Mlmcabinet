@@ -18,7 +18,7 @@ import {
   ArrowDownRight,
   Search,
   Filter,
-  Download as DownloadIcon,
+  Download,
   RefreshCw,
   Eye,
   CheckCircle,
@@ -397,7 +397,7 @@ export function AdminFinancePage({ currentUser }: AdminFinancePageProps) {
 
             {/* Export Button */}
             <Button variant="outline" className="gap-2">
-              <DownloadIcon className="w-4 h-4" />
+              <Download className="w-4 h-4" />
               <span className="hidden sm:inline">Экспорт</span>
             </Button>
           </div>

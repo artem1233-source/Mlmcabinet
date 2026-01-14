@@ -10,6 +10,7 @@ import { ResetPasswordRu } from './components/ResetPasswordRu';
 import { MainApp } from './MainApp';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { EmailDiagnostic } from './components/EmailDiagnostic';
+import { AdminRightsDiagnostic } from './components/AdminRightsDiagnostic';
 import { Toaster } from './components/ui/sonner';
 
 export default function AppRu() {
@@ -24,6 +25,11 @@ export default function AppRu() {
   // Если URL содержит /email-diagnostic, показываем диагностику email
   if (currentPath === '/email-diagnostic') {
     return <EmailDiagnostic />;
+  }
+  
+  // Если URL содержит /admin-diagnostic, показываем диагностику админских прав
+  if (currentPath === '/admin-diagnostic') {
+    return <AdminRightsDiagnostic />;
   }
   
   // Если URL содержит /partner-id-demo, показываем демо страницу

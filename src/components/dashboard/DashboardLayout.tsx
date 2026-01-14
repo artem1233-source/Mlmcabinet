@@ -1,6 +1,6 @@
 import { ReactNode, useState, useEffect } from 'react';
 import { Button } from '../ui/button';
-import { Download as DownloadIcon, Crown, Users, Wallet, Package, TrendingUp, Headphones } from 'lucide-react';
+import { Download, Crown, Users, Wallet, Package, TrendingUp, Headphones } from 'lucide-react';
 
 /**
  * Debug UI flag - set to true to show debug information in the UI
@@ -227,7 +227,7 @@ export function DashboardLayout({
               {/* Export */}
               {onExport && showExport && (
                 <Button variant="outline" size="sm" onClick={onExport} className="h-9">
-                  <DownloadIcon className="w-4 h-4 mr-2" />
+                  <Download className="w-4 h-4 mr-2" />
                   Экспорт
                 </Button>
               )}

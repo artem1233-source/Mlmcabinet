@@ -1,4 +1,4 @@
-import { Wallet, TrendingUp, Download as DownloadIcon } from 'lucide-react';
+import { Wallet, TrendingUp, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -51,7 +51,7 @@ export function Balance({ userBalance, orders, onPayout }: BalanceProps) {
               className="mt-6 bg-white text-[#3FB7FF] hover:bg-gray-100"
               style={{ fontWeight: '600' }}
             >
-              <DownloadIcon size={18} className="mr-2" />
+              <Download size={18} className="mr-2" />
               Request Payout
             </Button>
           </CardContent>

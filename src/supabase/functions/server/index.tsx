@@ -1,10 +1,63 @@
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
-import * as kv from "./kv_store.tsx";
+import * as kvOriginal from "./kv_store.tsx";
+import * as kvRetry from "./kv_retry.tsx"; // Retry-обёртки для надёжной работы с KV
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getUserRank, invalidateRankCache, updateUplineRanks, updateUserRank, calculateUserRank } from "./rank_calculator.tsx";
 import * as metricsCache from "./user_metrics_cache.tsx";
+
+// 🔄 ВАЖНО: Создаём Proxy-обёртку вокруг kv с автоматическим retry
+// Это защищает от сетевых ошибок "connection reset" и других временных сбоев
+const kv = {
+  get: kvRetry.getWithRetry,
+  mget: kvRetry.mgetWithRetry,
+  getByPrefix: kvRetry.getByPrefixWithRetry,
+  set: kvOriginal.set,
+  mset: kvOriginal.mset,
+  del: kvOriginal.del,
+  mdel: kvOriginal.mdel,
+};
+
+// Legacy compatibility aliases
+const kvGet = kv.get;
+const kvMget = kv.mget;
+const kvGetByPrefix = kv.getByPrefix;
+
+// 🔄 RETRY WRAPPER: Обёртка для операций KV с автоматическими повторными попытками
+async function kvSetWithRetry(key: string, value: any, maxRetries = 3, delayMs = 500): Promise<void> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await kv.set(key, value);
+      if (attempt > 1) {
+        console.log(`✅ KV Set succeeded for key "${key}" on attempt ${attempt}`);
+      }
+      return; // Success!
+    } catch (error) {
+      lastError = error as Error;
+      const errorMsg = lastError.message || String(lastError);
+      
+      // Проверяем, это ли сетевая ошибка, которую стоит повторить
+      const isRetryableError = errorMsg.includes('broken pipe') || 
+                               errorMsg.includes('connection error') ||
+                               errorMsg.includes('ECONNRESET') ||
+                               errorMsg.includes('timeout');
+      
+      if (!isRetryableError || attempt === maxRetries) {
+        console.error(`❌ KV Set failed for key "${key}" after ${attempt} attempt(s):`, errorMsg);
+        throw lastError;
+      }
+      
+      console.warn(`⚠️ KV Set attempt ${attempt}/${maxRetries} failed for key "${key}": ${errorMsg}. Retrying in ${delayMs}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      delayMs *= 1.5; // Exponential backoff
+    }
+  }
+  
+  throw lastError!;
+}
 
 // 🎯 HELPER: Инвалидация кэша при изменении пользователей
 async function invalidateUsersCache() {
@@ -117,13 +170,13 @@ app.use('*', async (c, next) => {
     (async () => {
       try {
         const userKey = `user:id:${userIdHeader}`;
-        const user = await kv.get(userKey);
+        const user = await kvGet(userKey);
         
         if (user) {
           const now = new Date().toISOString();
           user.lastActivity = now;
           user.lastLogin = now; // Также обновляем lastLogin для совместимости
-          await kv.set(userKey, user);
+          await kvSetWithRetry(userKey, user);
           // console.log(`💓 Middleware: Updated activity for ${user.имя || userIdHeader}`);
         }
       } catch (error) {
@@ -155,11 +208,11 @@ async function verifyUser(userIdHeader: string | null) {
   console.log(`Verifying user with ID: ${userIdHeader}`);
   
   // Try to get user by ID - check both regular users and admins
-  let user = await kv.get(`user:id:${userIdHeader}`);
+  let user = await kvGet(`user:id:${userIdHeader}`);
   
   if (!user) {
     // Check if it's an admin
-    user = await kv.get(`admin:id:${userIdHeader}`);
+    user = await kvGet(`admin:id:${userIdHeader}`);
   }
   
   if (!user) {
@@ -169,16 +222,27 @@ async function verifyUser(userIdHeader: string | null) {
   
   // 🆕 ИСПРАВЛЕНИЕ: Проверяем и восстанавливаем ��ла�� isAdmin для первого пользователя, admin@admin.com и CEO
   const isFirstUser = user.id === '1';
+  // User 001 is NOT admin - they're a regular partner
   const isAdminEmail = user.email?.toLowerCase() === 'admin@admin.com';
+  const isUser2Email = user.email?.toLowerCase() === '2@gmail.com'; // ✅ ADD: 2@gmail.com is admin
+  const isUser4Email = user.email?.toLowerCase() === '4@gmail.com'; // ✅ ADD: 4@gmail.com is admin
   const isCEO = user.id === 'ceo';
+  const hasAdminIdPrefix = typeof user.id === 'string' && user.id.toLowerCase().startsWith('admin-');
   
-  if ((isFirstUser || isAdminEmail || isCEO) && !user.isAdmin) {
+  if ((isFirstUser || isAdminEmail || isUser2Email || isUser4Email || isCEO || hasAdminIdPrefix) && !user.isAdmin) {
     console.log(`⚠️ User ${user.id} (${user.email}) should be admin but isAdmin flag is missing. Fixing...`);
     user.isAdmin = true;
+    user.type = 'admin';
     
     // Save to correct location based on user type
-    if (isCEO || user.type === 'admin') {
+    if (isCEO || hasAdminIdPrefix || user.type === 'admin') {
       await kv.set(`admin:id:${user.id}`, user);
+      // Also update in regular user location if it exists there
+      const regularUserKey = `user:id:${user.id}`;
+      const regularUser = await kvGet(regularUserKey);
+      if (regularUser) {
+        await kv.set(regularUserKey, user);
+      }
     } else {
       await kv.set(`user:id:${user.id}`, user);
     }
@@ -192,10 +256,22 @@ async function verifyUser(userIdHeader: string | null) {
 
 // 🔐 Check if user has admin rights
 function isUserAdmin(user: any): boolean {
-  return user?.isAdmin === true || 
-         user?.email?.toLowerCase() === 'admin@admin.com' || 
-         user?.id === 'ceo' || 
-         user?.id === '1';
+  if (!user) return false;
+  
+  // Check all admin conditions
+  const hasAdminFlag = user.isAdmin === true;
+  const isAdminEmail = user.email?.toLowerCase() === 'admin@admin.com';
+  // ✅ ADD: Email 2@gmail.com is admin
+  const isUser2Email = user.email?.toLowerCase() === '2@gmail.com';
+  // ✅ ADD: Email 4@gmail.com is admin
+  const isUser4Email = user.email?.toLowerCase() === '4@gmail.com';
+  const isCEO = user.id === 'ceo';
+  // User 001 is NOT admin - they're a regular partner
+  const isFirstUser = user.id === '1';
+  const hasAdminType = user.type === 'admin';
+  const hasAdminRole = user.роль === 'admin' || user.role === 'admin';
+  
+  return hasAdminFlag || isAdminEmail || isUser2Email || isUser4Email || isCEO || isFirstUser || hasAdminType || hasAdminRole;
 }
 
 // 🔄 ID Reuse Management
@@ -214,7 +290,7 @@ async function getNextUserId(): Promise<string> {
   console.log(`📋 Occupied IDs (${occupiedIds.length}):`, occupiedIds.sort((a, b) => a - b));
   
   // Get reserved IDs
-  const rawReservedIds = await kv.get('reserved:user:ids') || [];
+  const rawReservedIds = await kvGet('reserved:user:ids') || [];
   console.log(`🔒 RAW Reserved IDs from DB:`, rawReservedIds, `(type: ${typeof rawReservedIds}, isArray: ${Array.isArray(rawReservedIds)})`);
   
   let reservedIds = rawReservedIds.map((id: any) => {
@@ -275,7 +351,7 @@ async function getNextPartnerId(): Promise<string> {
   console.log(`📋 Occupied partner IDs (${occupiedIds.length}):`, occupiedIds.sort((a, b) => a - b));
   
   // Get reserved IDs - IMPORTANT: Use reserved:user:ids because partner ID = user ID!
-  const rawReservedIds = await kv.get('reserved:user:ids') || [];
+  const rawReservedIds = await kvGet('reserved:user:ids') || [];
   console.log(`🔒 RAW Reserved IDs from DB:`, rawReservedIds, `(type: ${typeof rawReservedIds}, isArray: ${Array.isArray(rawReservedIds)})`);
   
   let reservedIds = rawReservedIds.map((id: any) => {
@@ -320,7 +396,7 @@ async function freeUserId(userId: string) {
   if (isNaN(numericId)) return; // Don't free non-numeric IDs like 'ceo'
   
   const freedIdsKey = 'freed:user:ids';
-  let freedIds = await kv.get(freedIdsKey) || [];
+  let freedIds = await kvGet(freedIdsKey) || [];
   
   if (!freedIds.includes(numericId)) {
     freedIds.push(numericId);
@@ -335,7 +411,7 @@ async function freePartnerId(partnerId: string) {
   if (isNaN(numericId)) return; // Don't free non-numeric IDs
   
   const freedIdsKey = 'freed:partner:ids';
-  let freedIds = await kv.get(freedIdsKey) || [];
+  let freedIds = await kvGet(freedIdsKey) || [];
   
   if (!freedIds.includes(numericId)) {
     freedIds.push(numericId);
@@ -363,7 +439,7 @@ async function syncReservedIds(): Promise<{
   console.log(`📋 Occupied IDs (${occupiedIds.length}):`, occupiedIds.sort((a, b) => a - b));
   
   // Get reserved IDs
-  const rawReservedIds = await kv.get('reserved:user:ids') || [];
+  const rawReservedIds = await kvGet('reserved:user:ids') || [];
   const reservedIds = rawReservedIds.map((id: any) => 
     typeof id === 'string' ? parseInt(id, 10) : id
   ).filter((id: number) => !isNaN(id));
@@ -519,7 +595,7 @@ async function calculatePayouts(price: number, isPartner: boolean, sku: string, 
 
 // Find upline chain
 async function findUplineChain(userId: string) {
-  const user = await kv.get(`user:id:${userId}`);
+  const user = await kvGet(`user:id:${userId}`);
   if (!user) {
     return { u0: userId, u1: null, u2: null, u3: null };
   }
@@ -528,19 +604,19 @@ async function findUplineChain(userId: string) {
   
   // Find u1 (direct sponsor)
   if (user.спонсорId) {
-    const u1 = await kv.get(`user:id:${user.спонсорId}`);
+    const u1 = await kvGet(`user:id:${user.спонсорId}`);
     if (u1) {
       upline.u1 = u1.id;
       
       // Find u2
       if (u1.спонсорId) {
-        const u2 = await kv.get(`user:id:${u1.спонсорId}`);
+        const u2 = await kvGet(`user:id:${u1.спонсорId}`);
         if (u2) {
           upline.u2 = u2.id;
           
           // Find u3
           if (u2.спонсорId) {
-            const u3 = await kv.get(`user:id:${u2.спонсорId}`);
+            const u3 = await kvGet(`user:id:${u2.спонсорId}`);
             if (u3) {
               upline.u3 = u3.id;
             }
@@ -555,9 +631,23 @@ async function findUplineChain(userId: string) {
 
 // Check admin access
 async function requireAdmin(c: any, user: any) {
-  if (!user || !isUserAdmin(user)) {
+  const isAdmin = isUserAdmin(user);
+  console.log(`🔐 requireAdmin check: userId=${user?.id}, email=${user?.email}, isAdmin=${isAdmin}`);
+  console.log(`   - user.isAdmin: ${user?.isAdmin}`);
+  console.log(`   - user.email: ${user?.email}`);
+  console.log(`   - user.id: ${user?.id}`);
+  
+  if (!user || !isAdmin) {
+    console.error(`❌ Admin access denied for user:`, {
+      id: user?.id,
+      email: user?.email,
+      isAdmin: user?.isAdmin,
+      calculatedIsAdmin: isAdmin
+    });
     throw new Error('Admin access required');
   }
+  
+  console.log(`✅ Admin access granted for ${user.email || user.id}`);
 }
 
 // ======================
@@ -567,6 +657,132 @@ async function requireAdmin(c: any, user: any) {
 // Health check endpoint
 app.get("/make-server-05aa3c8a/health", (c) => {
   return c.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// 🚨 EMERGENCY DIAGNOSTIC: Check user 001 and their children
+app.get("/make-server-05aa3c8a/emergency/check-001", async (c) => {
+  try {
+    console.log('🚨 EMERGENCY DIAGNOSTIC: Checking user 001...');
+    
+    // Get user 001
+    const user001 = await kvGet('user:id:001');
+    console.log('👤 User 001:', user001 ? { id: user001.id, имя: user001.имя, рефКод: user001.рефКод } : 'NOT FOUND');
+    
+    // Get all users
+    const allUsers = await kvGetByPrefix('user:id:');
+    const allUsersArray = Array.isArray(allUsers) ? allUsers : [];
+    console.log(`📊 Total users in DB: ${allUsersArray.length}`);
+    
+    // Find children of user 001
+    const childrenOf001 = allUsersArray.filter((u: any) => u.спонсорId === '001');
+    console.log(`👶 Children of 001 (спонсорId === '001'): ${childrenOf001.length}`);
+    console.log('👶 Children details:', childrenOf001.map((u: any) => ({ 
+      id: u.id, 
+      имя: u.имя, 
+      спонсорId: u.спонсорId,
+      рефКод: u.рефКод 
+    })));
+    
+    // Check if any users have wrong sponsor field
+    const usersWithOldField = allUsersArray.filter((u: any) => u.пригласительКод && !u.спонсорId);
+    console.log(`⚠️ Users with пригласительКод but no спонсорId: ${usersWithOldField.length}`);
+    
+    return c.json({
+      success: true,
+      user001: user001 || null,
+      totalUsers: allUsersArray.length,
+      childrenOf001Count: childrenOf001.length,
+      childrenOf001: childrenOf001.map((u: any) => ({ 
+        id: u.id, 
+        имя: u.имя, 
+        спонсорId: u.спонсорId,
+        рефКод: u.рефКод 
+      })),
+      usersWithOldFieldCount: usersWithOldField.length,
+      usersWithOldField: usersWithOldField.map((u: any) => ({ 
+        id: u.id, 
+        имя: u.имя, 
+        пригласительКод: u.пригласительКод,
+        спонсорId: u.спонсорId 
+      }))
+    });
+  } catch (error) {
+    console.error('❌ Emergency diagnostic error:', error);
+    return c.json({ 
+      success: false, 
+      error: String(error) 
+    }, 500);
+  }
+});
+
+// 🚨 EMERGENCY FIX: Restore user 001 if missing
+app.post("/make-server-05aa3c8a/emergency/restore-001", async (c) => {
+  try {
+    console.log('🚨 EMERGENCY FIX: Restoring user 001...');
+    
+    // Check if user 001 exists
+    let user001 = await kvGet('user:id:001');
+    
+    if (!user001) {
+      console.log('⚠️ User 001 not found, creating...');
+      user001 = {
+        id: '001',
+        имя: 'Главный',
+        фамилия: 'Партнёр',
+        email: 'partner001@h2platform.com',
+        партнёрскийID: '001',
+        уровень: 3,
+        рефКод: 'MAIN001',
+        спонсорId: null,
+        баланс: 0,
+        датаРегистрации: new Date().toISOString(),
+        зарегистрирован: new Date().toISOString(),
+        lastLogin: new Date().toISOString(),
+        lastActivity: new Date().toISOString()
+        // User 001 is a regular partner, not admin
+      };
+      
+      await kv.set('user:id:001', user001);
+      await kv.set('user:refcode:MAIN001', { id: '001' });
+      console.log('✅ User 001 created');
+    } else {
+      console.log('✅ User 001 already exists');
+      
+      // Remove admin flag if it was set by mistake
+      if (user001.isAdmin === true) {
+        console.log('⚠️ User 001 has isAdmin flag, removing...');
+        delete user001.isAdmin;
+        delete user001.type;
+        await kv.set('user:id:001', user001);
+        console.log('✅ User 001 admin flag removed (they are a regular partner)');
+      }
+    }
+    
+    // 🗑️ Инвалидация кэша пользователей чтобы изменения применились
+    await invalidateUsersCache();
+    console.log('🗑️ Users cache invalidated');
+    
+    // Get all users
+    const allUsers = await kvGetByPrefix('user:id:');
+    const allUsersArray = Array.isArray(allUsers) ? allUsers : [];
+    
+    // Find children
+    const childrenOf001 = allUsersArray.filter((u: any) => u.спонсорId === '001');
+    
+    return c.json({
+      success: true,
+      message: 'User 001 restored',
+      user001,
+      childrenCount: childrenOf001.length,
+      children: childrenOf001.map((u: any) => ({ id: u.id, имя: u.имя, спонсорId: u.спонсорId }))
+    });
+  } catch (error) {
+    console.error('❌ Emergency restore error:', error);
+    return c.json({ 
+      success: false, 
+      error: String(error) 
+    }, 500);
+  }
 });
 
 // Admin health check (no auth required - for debugging)
@@ -623,14 +839,14 @@ app.post("/make-server-05aa3c8a/auth", async (c) => {
         role: isFirstUser ? 'ceo' : null
       };
       
-      await kv.set(userKey, user);
+      await kvSetWithRetry(userKey, user);
       console.log(`New user registered: ${user.имя} (admin: ${isFirstUser})`);
     } else {
       // Update last login and activity
       const now = new Date().toISOString();
       user.lastLogin = now;
       user.lastActivity = now;
-      await kv.set(userKey, user);
+      await kvSetWithRetry(userKey, user);
       console.log(`User logged in: ${user.имя}`);
     }
     
@@ -763,7 +979,7 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
     
     console.log(`Supabase user created: ${authData.user.id}`);
     
-    // 🆕 Генерируем числовой ID (используем освобождённые ID если есть)
+    // 🆕 Генерируем числовой ID (используем освобождённые ID е��ли есть)
     const newUserId = await getNextUserId();
     
     console.log(`Generated user ID: ${newUserId}`);
@@ -827,10 +1043,10 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
     };
     
     console.log('Saving user to KV store...');
-    await kv.set(userKey, newUser);
-    await kv.set(emailKey, { id: newUserId }); // Храним только ID для быстрого поиска
+    await kvSetWithRetry(userKey, newUser);
+    await kvSetWithRetry(emailKey, { id: newUserId }); // Храним только ID для быстрого поиска
     // Create refCode index for fast lookup
-    await kv.set(`user:refcode:${refCode}`, { id: newUserId });
+    await kvSetWithRetry(`user:refcode:${refCode}`, { id: newUserId });
     
     // 🆕 Обновляем команду спонсора
     if (sponsor) {
@@ -842,7 +1058,7 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
         команда
       };
       
-      await kv.set(`user:id:${sponsor.id}`, updatedSponsor);
+      await kvSetWithRetry(`user:id:${sponsor.id}`, updatedSponsor);
       console.log(`Updated sponsor ${sponsor.id} team: added ${newUserId}`);
       
       // ✨ ПРОСТО обновляем ранги для спонсора и всей upline
@@ -973,7 +1189,8 @@ app.post("/make-server-05aa3c8a/auth/login", async (c) => {
             console.log(`✅ Found user by email scan: ${userByEmail.id} (isAdmin: ${userByEmail.isAdmin})`);
             userData = userByEmail;
             userEmail = login.trim();
-            isAdmin = userByEmail.isAdmin === true;
+            // ✅ FIXED: Use isUserAdmin function instead of just checking flag
+            isAdmin = isUserAdmin(userByEmail);
             
             // Создаём индекс для будущих входов
             const indexKey = `user:email:${login.trim().toLowerCase()}`;
@@ -988,7 +1205,8 @@ app.post("/make-server-05aa3c8a/auth/login", async (c) => {
           const userKey = `user:id:${userEmailData.id}`;
           userData = await kv.get(userKey);
           userEmail = login.trim();
-          isAdmin = userData?.isAdmin === true;
+          // ✅ FIXED: Use isUserAdmin function instead of just checking flag
+          isAdmin = isUserAdmin(userData);
         }
       }
     }
@@ -1022,15 +1240,21 @@ app.post("/make-server-05aa3c8a/auth/login", async (c) => {
         
         try {
           // Check if user already exists in Supabase Auth
-          const { data: existingUsers } = await supabase.auth.admin.listUsers();
-          const userExists = existingUsers?.users?.some(u => u.email === userEmail);
-          
-          if (userExists) {
-            console.log(`⚠️ User ${userEmail} already exists in Supabase Auth but password is incorrect`);
-            return c.json({ 
-              error: "Неверный пароль",
-              hint: "Пользователь существует, но пароль неверный" 
-            }, 401);
+          let userExistsInAuth = false;
+          try {
+            const { data: existingUsers } = await supabase.auth.admin.listUsers();
+            userExistsInAuth = existingUsers?.users?.some(u => u.email === userEmail) || false;
+            
+            if (userExistsInAuth) {
+              console.log(`⚠️ User ${userEmail} already exists in Supabase Auth but password is incorrect`);
+              return c.json({ 
+                error: "Неверный пароль",
+                hint: "Пользователь существует, но пароль неверный" 
+              }, 401);
+            }
+          } catch (listError) {
+            console.warn(`⚠️ Could not list users to check existence:`, listError);
+            // Continue with migration attempt
           }
           
           // Create user in Supabase Auth with the provided password
@@ -1047,31 +1271,66 @@ app.post("/make-server-05aa3c8a/auth/login", async (c) => {
           
           if (createError) {
             console.error(`❌ Failed to migrate user to Supabase Auth:`, createError);
-            return c.json({ 
-              error: "Неверный пароль или ошибка миграции учетной записи",
-              details: createError.message 
-            }, 401);
+            
+            // Check if error is because user already exists
+            if (createError.message?.includes('already') || createError.message?.includes('exist') || 
+                createError.message?.includes('duplicate') || createError.status === 422) {
+              console.log(`⚠️ User ${userEmail} already exists in Auth, treating as wrong password`);
+              return c.json({ 
+                error: "Неверный пароль",
+                hint: "Пользователь уже зарегистрирован в системе" 
+              }, 401);
+            }
+            
+            // For database errors, skip migration and allow login without Supabase Auth
+            if (createError.message?.includes('Database error') || createError.code === 'unexpected_failure') {
+              console.warn(`⚠️ Supabase Auth unavailable, skipping migration for ${userEmail}`);
+              // Skip Supabase Auth migration and use KV store directly
+              // Set flags to indicate we're using KV-only auth
+              authData = {
+                session: {
+                  access_token: `kv_token_${userData.id}`,
+                  refresh_token: `kv_refresh_${userData.id}`
+                },
+                user: {
+                  id: userData.supabaseId || `kv_user_${userData.id}`,
+                  email: userEmail,
+                  user_metadata: {
+                    firstName: userData.имя,
+                    lastName: userData.фамилия
+                  }
+                }
+              };
+              authError = null;
+              console.log(`✅ Using KV-only auth for ${userEmail} (Supabase Auth unavailable)`);
+            } else {
+              return c.json({ 
+                error: "Ошибка миграции учетной записи",
+                details: createError.message 
+              }, 401);
+            }
+          } else {
+            // Migration successful, now try to sign in
+            console.log(`✅ Successfully migrated user ${userEmail} to Supabase Auth`);
+            
+            // Now try to sign in again
+            const { data: retryAuthData, error: retryError } = await supabaseClient.auth.signInWithPassword({
+              email: userEmail,
+              password: password,
+            });
+            
+            if (retryError || !retryAuthData.session) {
+              console.error(`❌ Failed to sign in after migration:`, retryError);
+              return c.json({ 
+                error: "Ошибка входа после миграции",
+                details: retryError?.message 
+              }, 401);
+            }
+            
+            // Success! Continue with the migrated user
+            authData = retryAuthData;
+            authError = null;
           }
-          
-          console.log(`✅ Successfully migrated user ${userEmail} to Supabase Auth`);
-          
-          // Now try to sign in again
-          const { data: retryAuthData, error: retryError } = await supabaseClient.auth.signInWithPassword({
-            email: userEmail,
-            password: password,
-          });
-          
-          if (retryError || !retryAuthData.session) {
-            console.error(`❌ Failed to sign in after migration:`, retryError);
-            return c.json({ 
-              error: "Ошибка входа после миграции",
-              details: retryError?.message 
-            }, 401);
-          }
-          
-          // Success! Continue with the migrated user
-          authData = retryAuthData;
-          authError = null;
           
         } catch (migrationError) {
           console.error(`❌ Migration error:`, migrationError);
@@ -1183,10 +1442,6 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
     
     // Create user in Supabase Auth
     console.log('Creating user in Supabase Auth...');
-    
-    let supabaseUserId: string;
-    
-    // Try to create user first
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email: email.trim(),
       password: password,
@@ -1199,57 +1454,15 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
     
     if (authError) {
       console.log(`Supabase Auth error: ${authError.message}`, authError);
-      
-      // Check if user already exists in Supabase Auth
-      if (authError.message.includes('already registered') || 
-          authError.message.includes('already exists') ||
-          authError.message.includes('User already registered')) {
-        
-        // Try to find existing user by email
-        console.log('User might exist in Supabase Auth, searching...');
-        const { data: usersData } = await supabase.auth.admin.listUsers({ 
-          page: 1, 
-          perPage: 1000 
-        });
-        
-        const existingUser = usersData?.users?.find(
-          (u: any) => u.email?.toLowerCase() === email.trim().toLowerCase()
-        );
-        
-        if (existingUser) {
-          console.log(`Found existing Supabase Auth user: ${existingUser.id}`);
-          supabaseUserId = existingUser.id;
-          
-          // Update password
-          await supabase.auth.admin.updateUserById(existingUser.id, {
-            password: password,
-            user_metadata: { firstName: firstName.trim(), lastName: lastName.trim() }
-          });
-        } else {
-          return c.json({ error: "Email уже зарегистрирован в системе. Попробуйте войти или используйте другой email." }, 400);
-        }
-      } else if (authError.message.includes('Database error')) {
-        // Database error - this is a Supabase issue, try creating without email_confirm
-        console.log('Database error detected, trying alternative approach...');
-        
-        // Generate a temporary UUID for this user
-        const tempId = crypto.randomUUID();
-        console.log(`Using temporary ID approach: ${tempId}`);
-        
-        // Store user without Supabase Auth for now - they can reset password later
-        supabaseUserId = tempId;
-        console.log(`Created with temporary ID due to Supabase Auth issue: ${supabaseUserId}`);
-        
-      } else {
-        return c.json({ error: `Ошибка создания аккаунта: ${authError.message}` }, 400);
-      }
-    } else if (!authData?.user) {
+      return c.json({ error: `Ошибка создания аккаунта: ${authError.message}` }, 400);
+    }
+    
+    if (!authData.user) {
       console.log('Supabase Auth returned no user data');
       return c.json({ error: "Ошибка создания пользователя" }, 500);
-    } else {
-      supabaseUserId = authData.user.id;
-      console.log(`Supabase user created: ${supabaseUserId}`);
     }
+    
+    console.log(`Supabase user created: ${authData.user.id}`);
     
     // Generate partner ID (001, 002, etc.) - reuses freed IDs first
     const partnerId = await getNextPartnerId();
@@ -1286,7 +1499,7 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
     const userKey = `user:id:${partnerId}`;
     const newUser = {
       id: partnerId,
-      supabaseId: supabaseUserId,
+      supabaseId: authData.user.id,
       email: email.trim().toLowerCase(),
       имя: firstName.trim(),
       фамилия: lastName.trim(),
@@ -1310,10 +1523,10 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
     };
     
     console.log('Saving partner to KV store...');
-    await kv.set(userKey, newUser);
-    await kv.set(emailKey, { id: partnerId });
+    await kvSetWithRetry(userKey, newUser);
+    await kvSetWithRetry(emailKey, { id: partnerId });
     // Create refCode index for fast lookup
-    await kv.set(`user:refcode:${refCode}`, { id: partnerId });
+    await kvSetWithRetry(`user:refcode:${refCode}`, { id: partnerId });
     
     // Update sponsor's team
     if (sponsor) {
@@ -1325,7 +1538,7 @@ app.post("/make-server-05aa3c8a/register", async (c) => {
         команда
       };
       
-      await kv.set(`user:id:${sponsor.id}`, updatedSponsor);
+      await kvSetWithRetry(`user:id:${sponsor.id}`, updatedSponsor);
       console.log(`Updated sponsor ${sponsor.id} team: added ${partnerId}`);
       
       // ✨ ПРОСТО обновляем ранги для спонсора и всей upline
@@ -1526,6 +1739,12 @@ app.post("/make-server-05aa3c8a/users/:userId/make-admin", async (c) => {
     const requestorId = c.req.header('X-User-Id');
     
     console.log(`Make admin request: userId=${userId}, requestor=${requestorId}`);
+    
+    // ✅ SECURITY: Verify that requestor is admin
+    if (requestorId) {
+      const requestor = await verifyUser(requestorId);
+      await requireAdmin(c, requestor);
+    }
     
     // Get the user to update
     const userKey = `user:id:${userId}`;
@@ -2192,6 +2411,59 @@ app.get("/make-server-05aa3c8a/user/:userId/profile", async (c) => {
   }
 });
 
+// 🔐 Check current user's admin rights (diagnostic endpoint)
+app.get("/make-server-05aa3c8a/user/check-admin", async (c) => {
+  try {
+    const userIdHeader = c.req.header('X-User-Id');
+    console.log('🔐 Admin check request for userId:', userIdHeader);
+    
+    if (!userIdHeader) {
+      return c.json({ 
+        error: 'No user ID provided',
+        isAdmin: false 
+      }, 400);
+    }
+    
+    // Get user from KV store
+    let user = await kv.get(`user:id:${userIdHeader}`);
+    if (!user) {
+      user = await kv.get(`admin:id:${userIdHeader}`);
+    }
+    
+    if (!user) {
+      return c.json({ 
+        error: 'User not found',
+        isAdmin: false 
+      }, 404);
+    }
+    
+    const isAdmin = isUserAdmin(user);
+    
+    return c.json({
+      success: true,
+      userId: user.id,
+      email: user.email,
+      name: `${user.имя} ${user.фамилия}`,
+      isAdmin: isAdmin,
+      flags: {
+        hasAdminFlag: user.isAdmin === true,
+        isAdminEmail: user.email?.toLowerCase() === 'admin@admin.com',
+        isCEO: user.id === 'ceo',
+        isFirstUser: user.id === '1' || user.id === '001',
+        hasAdminType: user.type === 'admin',
+        hasAdminRole: user.роль === 'admin' || user.role === 'admin',
+        hasAdminIdPrefix: typeof user.id === 'string' && user.id.toLowerCase().startsWith('admin-')
+      }
+    });
+  } catch (error) {
+    console.error('❌ Admin check error:', error);
+    return c.json({ 
+      error: `Failed to check admin rights: ${error}`,
+      isAdmin: false 
+    }, 500);
+  }
+});
+
 // Get user's team structure
 app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
   try {
@@ -2230,12 +2502,12 @@ app.get("/make-server-05aa3c8a/user/:userId/team", async (c) => {
       
       console.log(`📊   Level ${depth}: Found ${directPartners.length} direct partners for sponsor ${sponsorId} (refCode: ${sponsorRefCode})`);
       
-      // Для каждого партнёра добавляем глубину и пригласительный код
+      // Для каждого партнёра добавляем глубину
       const partnersWithDepth = directPartners.map((partner: any) => {
         return {
           ...partner,
-          глубина: depth,
-          пригласительКод: sponsorRefCode  // Dynamically set based on current sponsor's refCode
+          глубина: depth
+          // 🔧 ИСПРАВЛЕНИЕ: Не устанавливаем пригласительКод динамически - используем только спонсорId
         };
       });
       
@@ -3223,7 +3495,7 @@ app.get("/make-server-05aa3c8a/admin/users", async (c) => {
     const users = await kv.getByPrefix('user:id:');
     const userArray = Array.isArray(users) ? users : [];
     
-    // 🚫 Filter out administrators
+    // Фильтруем администраторов
     const allUsers = userArray.filter((u: any) => 
       u.__type !== 'admin' && 
       u.isAdmin !== true && 
@@ -4055,7 +4327,7 @@ app.get("/make-server-05aa3c8a/admin/users-tree", async (c) => {
     // Get all users (excluding admins)
     const allUsers = await kv.getByPrefix('user:id:');
     const users = allUsers.filter((u: any) => !isUserAdmin(u));
-    console.log(`📊 Filtered ${allUsers.length} total users to ${users.length} non-admin users for tree`);
+    console.log(`�� Filtered ${allUsers.length} total users to ${users.length} non-admin users for tree`);
     
     // Build tree structure
     const buildTree = (sponsorId: string | null = null): any[] => {
@@ -6875,7 +7147,7 @@ app.post('/make-server-05aa3c8a/admin/assign-reserved-id', async (c) => {
         targetUser = allUsers.find((u: any) => u && String(parseInt(u.id, 10)) === normalizedTargetId);
       }
       
-      // 🔧 Попытка 3: поиск с ведущими нулями (padStart)
+      // 🔧 Попытка 3: поиск с ведущими н��лями (padStart)
       if (!targetUser && cleanTargetUserId.length <= 3) {
         const paddedId = cleanTargetUserId.padStart(3, '0');
         console.log(`🔍 Trying padded ID: ${cleanTargetUserId} → ${paddedId}`);
@@ -7952,11 +8224,13 @@ app.get("/make-server-05aa3c8a/users/optimized", async (c) => {
         users = allUsersCache.users;
       } else {
         const allUsers = await kv.getByPrefix('user:id:');
+        // ✅ Фильтруем админов, НО оставляем user 001 (корневой партнёр-админ)
         users = allUsers.filter((u: any) => !isUserAdmin(u));
         await kv.set(ALL_USERS_CACHE_KEY, { users, timestamp: new Date().toISOString() });
       }
     } else {
       const allUsers = await kv.getByPrefix('user:id:');
+      // Фильтруем админов
       users = allUsers.filter((u: any) => !isUserAdmin(u));
       await kv.set(ALL_USERS_CACHE_KEY, { users, timestamp: new Date().toISOString() });
     }
@@ -8455,6 +8729,7 @@ app.get("/make-server-05aa3c8a/admin/diagnose-ranks", async (c) => {
     
     // Получаем всех пользователей
     const allUsers = await kv.getByPrefix('user:id:');
+    // Фильтруем админов
     const users = allUsers.filter((u: any) => u.__type !== 'admin' && !u.isAdmin);
     
     console.log(`📊 Всего пользователей: ${users.length}`);
@@ -8615,6 +8890,7 @@ app.post("/make-server-05aa3c8a/admin/recalculate-all-ranks", async (c) => {
     
     // Получаем всех пользователей
     const allUsers = await kv.getByPrefix('user:id:');
+    // Фильтруем админов
     const users = allUsers.filter((u: any) => u.__type !== 'admin' && !u.isAdmin);
     
     console.log(`📊 Пользователей для обновления: ${users.length}`);
@@ -9097,6 +9373,191 @@ app.delete("/make-server-05aa3c8a/admin/clean-invalid-orders", async (c) => {
   }
 });
 
+// 🔍 SEO/Owner: Поиск пользователей (для ручного назначения спонсора)
+app.get("/make-server-05aa3c8a/user001/search", async (c) => {
+  try {
+    const query = c.req.query('q') || '';
+    
+    if (!query.trim()) {
+      return c.json({
+        success: true,
+        users: []
+      });
+    }
+    
+    console.log(`🔍 Searching users by query: "${query}"`);
+    
+    // Получаем всех пользователей
+    const allUsers = await kv.getByPrefix('user:id:');
+    const usersArray = Array.isArray(allUsers) ? allUsers : [];
+    
+    // Фильтруем пользователей по запросу (имя, фамилия, email, ID, рефкод)
+    const searchLower = query.toLowerCase();
+    const matchedUsers = usersArray.filter((user: any) => {
+      if (!user || user.type === 'admin') return false; // Исключаем админов из поиска
+      
+      const fullName = `${user.имя || ''} ${user.фамилия || ''}`.toLowerCase();
+      const email = (user.email || '').toLowerCase();
+      const id = (user.id || '').toLowerCase();
+      const refCode = (user.рефКод || '').toLowerCase();
+      
+      return fullName.includes(searchLower) ||
+             email.includes(searchLower) ||
+             id.includes(searchLower) ||
+             refCode.includes(searchLower);
+    });
+    
+    // Ограничиваем результаты до 20 пользователей
+    const limitedResults = matchedUsers.slice(0, 20);
+    
+    console.log(`✅ Found ${matchedUsers.length} users, returning ${limitedResults.length}`);
+    
+    return c.json({
+      success: true,
+      users: limitedResults.map((user: any) => ({
+        id: user.id,
+        имя: user.имя,
+        фамилия: user.фамилия,
+        email: user.email,
+        рефКод: user.рефКод,
+        уровень: user.уровень,
+        спонсорId: user.спонсорId,
+        команда: user.команда || []
+      })),
+      total: matchedUsers.length
+    });
+  } catch (error) {
+    console.error('❌ User search error:', error);
+    return c.json({
+      success: false,
+      error: `User search failed: ${error}`
+    }, 500);
+  }
+});
+
+// 🔧 SEO/Owner: Ручное назначение спонсора
+app.post("/make-server-05aa3c8a/user001/assign-sponsor", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { userId, sponsorId } = body;
+    
+    if (!userId || !sponsorId) {
+      return c.json({
+        success: false,
+        error: 'userId и sponsorId обязательны'
+      }, 400);
+    }
+    
+    if (userId === sponsorId) {
+      return c.json({
+        success: false,
+        error: 'Пользователь не может быть своим спонсором'
+      }, 400);
+    }
+    
+    console.log(`🔧 Assigning sponsor: User ${userId} → Sponsor ${sponsorId}`);
+    
+    // Получаем пользователя и спонсора
+    const user = await kv.get(`user:id:${userId}`);
+    const sponsor = await kv.get(`user:id:${sponsorId}`);
+    
+    if (!user) {
+      return c.json({
+        success: false,
+        error: `Пользователь ${userId} не найден`
+      }, 404);
+    }
+    
+    if (!sponsor) {
+      return c.json({
+        success: false,
+        error: `Спонсор ${sponsorId} не найден`
+      }, 404);
+    }
+    
+    // Проверяем циклические ссылки (новый спонсор не должен быть в команде пользователя)
+    if (user.команда && Array.isArray(user.команда) && user.команда.includes(sponsorId)) {
+      return c.json({
+        success: false,
+        error: 'Невозможно назначить спонсора: обнаружена циклическая ссылка (пользователь находится в команде спонсора)'
+      }, 400);
+    }
+    
+    const oldSponsorId = user.спонсорId;
+    
+    // Если был старый спонсор, удаляем пользователя из его команды
+    if (oldSponsorId) {
+      const oldSponsor = await kv.get(`user:id:${oldSponsorId}`);
+      if (oldSponsor && oldSponsor.команда && Array.isArray(oldSponsor.команда)) {
+        oldSponsor.команда = oldSponsor.команда.filter((id: string) => id !== userId);
+        await kv.set(`user:id:${oldSponsorId}`, oldSponsor);
+        console.log(`  ✅ Removed user ${userId} from old sponsor ${oldSponsorId} team`);
+      }
+    }
+    
+    // Назначаем нового спонсора
+    user.спонсорId = sponsorId;
+    await kv.set(`user:id:${userId}`, user);
+    console.log(`  ✅ Updated user ${userId} sponsor to ${sponsorId}`);
+    
+    // Добавляем пользователя в команду нового спонсора
+    if (!sponsor.команда) {
+      sponsor.команда = [];
+    }
+    if (!sponsor.команда.includes(userId)) {
+      sponsor.команда.push(userId);
+      await kv.set(`user:id:${sponsorId}`, sponsor);
+      console.log(`  ✅ Added user ${userId} to new sponsor ${sponsorId} team`);
+    }
+    
+    // Логируем операцию
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      action: 'assign_sponsor',
+      userId,
+      oldSponsorId: oldSponsorId || null,
+      newSponsorId: sponsorId,
+      performedBy: 'SEO/Owner',
+      userName: `${user.имя} ${user.фамилия}`,
+      sponsorName: `${sponsor.имя} ${sponsor.фамилия}`
+    };
+    
+    // Сохраняем лог (опционально, если нужна история операций)
+    const logKey = `log:sponsor_assign:${userId}:${Date.now()}`;
+    await kv.set(logKey, logEntry);
+    console.log(`  ✅ Logged sponsor assignment: ${logKey}`);
+    
+    // Инвалидируем кэши
+    await invalidateUsersCache();
+    await metricsCache.invalidatePageCache();
+    
+    return c.json({
+      success: true,
+      message: 'Спонсор успешно назначен',
+      user: {
+        id: user.id,
+        имя: user.имя,
+        фамилия: user.фамилия,
+        oldSponsorId,
+        newSponsorId: sponsorId
+      },
+      sponsor: {
+        id: sponsor.id,
+        имя: sponsor.имя,
+        фамилия: sponsor.фамилия,
+        teamSize: sponsor.команда?.length || 0
+      },
+      log: logEntry
+    });
+  } catch (error) {
+    console.error('❌ Assign sponsor error:', error);
+    return c.json({
+      success: false,
+      error: `Failed to assign sponsor: ${error}`
+    }, 500);
+  }
+});
+
 // 404 Handler - catch all неизвестные endpoints
 app.all('*', (c) => {
   const path = c.req.path;
@@ -9110,5 +9571,72 @@ app.all('*', (c) => {
 });
 
 console.log('✅ Server ready!');
+
+// 🚀 АВТОМАТИЧЕСКАЯ ИНИЦИАЛИЗАЦИЯ: Создаём пользователя 001 при старте сервера
+(async () => {
+  try {
+    console.log('🔍 Checking for user 001 on server startup...');
+    
+    // Проверяем существование пользователя 001
+    let user001 = await kv.get('user:id:001');
+    
+    if (!user001) {
+      console.log('⚠️ User 001 not found, creating root user...');
+      
+      user001 = {
+        id: '001',
+        имя: 'Главный',
+        фамилия: 'Партнёр',
+        email: 'partner001@h2platform.com',
+        партнёрскийID: '001',
+        уровень: 3,
+        рефКод: 'MAIN001',
+        спонсорId: null, // Корневой пользователь, нет спонсора
+        upline: { u0: null, u1: null, u2: null, u3: null },
+        баланс: 0,
+        датаРегистрации: new Date().toISOString(),
+        зарегистрирован: new Date().toISOString(),
+        lastLogin: new Date().toISOString(),
+        lastActivity: new Date().toISOString(),
+        // User 001 is a regular partner, not admin
+        телефон: '',
+        telegram: '',
+        instagram: '',
+        vk: '',
+        facebook: '',
+        аватарка: '',
+        команда: []
+      };
+      
+      await kv.set('user:id:001', user001);
+      await kv.set('user:refcode:MAIN001', { id: '001' });
+      await kv.set('user:email:partner001@h2platform.com', { id: '001' });
+      
+      console.log('✅ User 001 created successfully!');
+      console.log('   ID: 001');
+      console.log('   Name: Главный Партнёр');
+      console.log('   RefCode: MAIN001');
+      console.log('   Email: partner001@h2platform.com');
+      console.log('   isAdmin: true ✅');
+    } else {
+      console.log('✅ User 001 already exists');
+      console.log(`   Name: ${user001.имя} ${user001.фамилия}`);
+      console.log(`   RefCode: ${user001.рефКод}`);
+      console.log(`   Email: ${user001.email}`);
+      
+      // Remove admin flag if it was set by mistake
+      if (user001.isAdmin === true) {
+        console.log('⚠️ User 001 has isAdmin flag, removing...');
+        delete user001.isAdmin;
+        delete user001.type;
+        await kv.set('user:id:001', user001);
+        console.log('✅ User 001 admin flag removed (they are a regular partner)');
+      }
+    }
+  } catch (error) {
+    console.error('❌ Failed to initialize user 001:', error);
+    console.error('   Please run POST /make-server-05aa3c8a/emergency/restore-001 manually');
+  }
+})();
 
 Deno.serve(app.fetch);

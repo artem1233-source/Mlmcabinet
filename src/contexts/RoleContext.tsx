@@ -19,7 +19,7 @@ interface RoleContextType {
 const RoleContext = createContext<RoleContextType | undefined>(undefined);
 
 export function RoleProvider({ children }: { children: ReactNode }) {
-  const [currentRole, setCurrentRole] = useState<RoleType>('owner');
+  const [currentRole, setCurrentRole] = useState<RoleType>('partner'); // 🔧 По умолчанию роль 'partner' для обычных пользователей
   const [inspectionMode, setInspectionMode] = useState(false);
 
   return (

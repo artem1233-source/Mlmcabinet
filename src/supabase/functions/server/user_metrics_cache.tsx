@@ -14,8 +14,20 @@
  * - Агрегированные страницы: users_page:${page}:${filter}:${sort}
  */
 
-import * as kv from './kv_store.tsx';
+import * as kvOriginal from './kv_store.tsx';
+import * as kvRetry from './kv_retry.tsx';
 import { getUserRank } from './rank_calculator.tsx';
+
+// 🔄 Используем retry-обёртки для защиты от сетевых ошибок
+const kv = {
+  get: kvRetry.getWithRetry,
+  mget: kvRetry.mgetWithRetry,
+  getByPrefix: kvRetry.getByPrefixWithRetry,
+  set: kvOriginal.set,
+  mset: kvOriginal.mset,
+  del: kvOriginal.del,
+  mdel: kvOriginal.mdel,
+};
 
 // Интерфейс метрик пользователя
 export interface UserMetrics {

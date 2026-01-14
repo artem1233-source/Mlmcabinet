@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Database, Download as DownloadIcon, Upload, Clock, CheckCircle, AlertCircle, Trash2, Loader2 } from 'lucide-react';
+import { Database, Download, Upload, Clock, CheckCircle, AlertCircle, Trash2, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -425,7 +425,7 @@ export function AutoBackupManager({ currentUser }: { currentUser: any }) {
                       size="sm"
                       variant="outline"
                     >
-                      <DownloadIcon className="w-4 h-4" />
+                      <Download className="w-4 h-4" />
                     </Button>
                     
                     <Button

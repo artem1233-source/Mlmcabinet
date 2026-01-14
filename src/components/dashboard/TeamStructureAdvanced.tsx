@@ -2,12 +2,12 @@ import { useState } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { 
-  Users, TrendingUp, TrendingDown, Search, Filter, Download as DownloadIcon,
+  Users, TrendingUp, TrendingDown, Search, Filter, Download,
   ChevronRight, ChevronDown, Circle, Award, Star, Zap, Clock,
   ArrowUpRight, ArrowDownRight, Mail, ExternalLink, Copy
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { TreeVisualization } from '../TreeVisualization';
+import { TreeVisualizationPhysics } from '../TreeVisualizationPhysics';
 
 interface Partner {
   id: string;
@@ -208,7 +208,7 @@ export function TeamStructureAdvanced({ stats, currentUser }: TeamStructureProps
             Пригласить
           </Button>
           <Button variant="outline">
-            <DownloadIcon className="w-4 h-4 mr-2" />
+            <Download className="w-4 h-4 mr-2" />
             Экспорт
           </Button>
         </div>
@@ -960,8 +960,9 @@ export function TeamStructureAdvanced({ stats, currentUser }: TeamStructureProps
       )}
 
       {activeSubTab === 'tree' && (
-        <TreeVisualization 
+        <TreeVisualizationPhysics 
           currentUser={currentUser} 
+          onClose={() => setActiveSubTab('analytics')}
         />
       )}
     </div>

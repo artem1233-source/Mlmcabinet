@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, RefreshCw, Download as DownloadIcon, Settings, ChevronDown } from 'lucide-react';
+import { Search, RefreshCw, Download, Settings, ChevronDown } from 'lucide-react';
 import { Input } from '../../../components/ui/input';
 import { Button } from '../../../components/ui/button';
 import { PeriodSelector } from '../ui/PeriodSelector';
@@ -138,7 +138,7 @@ export function AdminTopbar({
 
             {/* Export */}
             <Button variant="outline" size="sm" onClick={onExport} className="gap-2 h-9">
-              <DownloadIcon className="w-4 h-4" />
+              <Download className="w-4 h-4" />
               CSV
             </Button>
 

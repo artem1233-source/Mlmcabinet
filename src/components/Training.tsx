@@ -1,4 +1,4 @@
-import { BookOpen, Users, TrendingUp, Play, Download as DownloadIcon } from 'lucide-react';
+import { BookOpen, Users, TrendingUp, Play, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 
@@ -114,7 +114,7 @@ export function Training() {
                       variant="outline" 
                       className="border-[#E6E9EE]"
                     >
-                      <DownloadIcon size={16} className="mr-2" />
+                      <Download size={16} className="mr-2" />
                       Materials
                     </Button>
                   </div>

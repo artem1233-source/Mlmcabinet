@@ -16,17 +16,35 @@ export function SidebarRu({ текущаяВкладка, изменитьВкл
   const isCEO = currentUser?.type === 'admin' && currentUser?.role === 'ceo';
   const { currentRole, inspectionMode } = useRole();
   
+  // 🔧 КРИТИЧЕСКИ ВАЖНО: Логи для отладки прав доступа
+  console.log('🔍 SidebarRu DIAGNOSTIC:', {
+    isAdmin,
+    isCEO,
+    currentRole,
+    inspectionMode,
+    userType: currentUser?.type,
+    userRole: currentUser?.role,
+    userId: currentUser?.id
+  });
+  
+  // 🔧 Определяем показывать ли админские или партнёрские элементы на основе роли
+  // Админские пункты меню показываем только если роль НЕ 'partner'
+  const showAdminMenu = currentRole !== 'partner';
+  const showPartnerMenu = currentRole === 'partner';
+  
+  console.log('🔍 Menu visibility:', { showAdminMenu, showPartnerMenu });
+  
   const navItems = [
     // 🚀 "Дашборд" для всех пользователей (Unified Dashboard с режимами)
     { id: 'дашборд', label: 'Дашборд', icon: LayoutDashboard },
     // 🆕 Админ видит "Пользователи", обычные партнёры - "Структура"
-    ...(isAdmin 
+    ...(showAdminMenu 
       ? [{ id: 'пользователи', label: 'Пользователи', icon: Users }] 
       : [{ id: 'структура', label: 'Структура', icon: Users }]
     ),
     { id: 'заказы', label: 'Заказы', icon: ShoppingBag },
     // 💰 Админ видит "Финансы", обычные партнёры - "Доходы" и "Баланс"
-    ...(isAdmin 
+    ...(showAdminMenu 
       ? [{ id: 'финансы', label: 'Финансы', icon: Wallet }]
       : [
           { id: 'доходы', label: 'Доходы', icon: TrendingUp },
@@ -55,11 +73,13 @@ export function SidebarRu({ текущаяВкладка, изменитьВкл
       return navItems;
     }
     
-    // Иначе показываем только доступные пункты
+    // Иначе показываем толь��о доступные пункты
     return navItems.filter(item => hasAccess(currentRole, item.id));
   };
 
   const filteredNavItems = getFilteredNavItems();
+
+  console.log('📋 Filtered nav items:', filteredNavItems.map(i => i.id));
 
   const sidebarContent = (
     <>

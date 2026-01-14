@@ -73,9 +73,10 @@ export function TreeVisualization({ currentUser, refreshTrigger }: TreeVisualiza
   };
 
   const buildTreeStructure = (user: any, team: any[]): TreeNode => {
-    const userRefCode = user.рефКод || user.ref_code;
+    const userId = user.id;
+    // 🔧 ИСПРАВЛЕНИЕ: Используем спонсорId вместо пригласительКод
     const directChildren = team.filter(
-      (m: any) => (m.пригласительКод || m.invite_code) === userRefCode
+      (m: any) => m.спонсорId === userId
     );
 
     const node: TreeNode = {
@@ -91,7 +92,7 @@ export function TreeVisualization({ currentUser, refreshTrigger }: TreeVisualiza
       phone: user.телефон || user.phone,
       telegram: user.telegram,
       whatsapp: user.whatsapp,
-      refCode: userRefCode,
+      refCode: user.рефКод || user.ref_code,
     };
 
     // Рекурсивно строим дерево для детей
