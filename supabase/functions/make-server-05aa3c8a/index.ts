@@ -993,28 +993,37 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
     
     console.log('Creating user in Supabase Auth...');
     
-    // Create user in Supabase Auth
-    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-      email: email.trim(),
-      password: password,
-      user_metadata: { 
-        firstName: firstName.trim(),
-        lastName: lastName.trim()
-      },
-      email_confirm: true // Auto-confirm since no email server configured
-    });
+    // Try to create user in Supabase Auth with KV fallback
+    let authUserId: string | null = null;
     
-    if (authError) {
-      console.log(`Supabase Auth error: ${authError.message}`, authError);
-      return c.json({ error: `Ошибка создания аккаунта: ${authError.message}` }, 400);
+    try {
+      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+        email: email.trim(),
+        password: password,
+        user_metadata: { 
+          firstName: firstName.trim(),
+          lastName: lastName.trim()
+        },
+        email_confirm: true // Auto-confirm since no email server configured
+      });
+      
+      if (authError) {
+        console.log(`Supabase Auth error: ${authError.message}`, authError);
+        console.log('⚠️ Continuing with KV-only registration (Supabase Auth unavailable)');
+      } else if (authData.user) {
+        authUserId = authData.user.id;
+        console.log(`Supabase user created: ${authUserId}`);
+      }
+    } catch (authErr) {
+      console.log(`Supabase Auth exception: ${authErr}`, authErr);
+      console.log('⚠️ Continuing with KV-only registration (Supabase Auth exception)');
     }
     
-    if (!authData.user) {
-      console.log('Supabase Auth returned no user data');
-      return c.json({ error: "Failed to create user" }, 500);
+    // Generate a unique ID if Supabase Auth failed
+    if (!authUserId) {
+      authUserId = `kv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      console.log(`Generated KV-only user ID: ${authUserId}`);
     }
-    
-    console.log(`Supabase user created: ${authData.user.id}`);
     
     // 🆕 Генерируем числовой ID (используем освобождённые ID е��ли есть)
     const newUserId = await getNextUserId();
@@ -1054,9 +1063,13 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
     const isAdminEmail = email.trim().toLowerCase() === 'admin@admin.com';
     const isFirstUser = newUserId === '1';
     
-    const newUser = {
+    // Hash password for KV-only users
+    const isKvOnlyUser = authUserId.startsWith('kv_');
+    const passwordHash = isKvOnlyUser ? await createHmacSha256(password, email.trim().toLowerCase()) : null;
+    
+    const newUser: any = {
       id: newUserId,
-      supabaseId: authData.user.id,
+      supabaseId: authUserId,
       email: email.trim().toLowerCase(),
       имя: firstName.trim(),
       фамилия: lastName.trim(),
@@ -1069,6 +1082,7 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
       зарегистрирован: new Date().toISOString(),
       lastLogin: new Date().toISOString(),
       isAdmin: isFirstUser || isAdminEmail, // First user OR admin@admin.com is admin
+      isKvOnlyUser: isKvOnlyUser, // Flag for KV-only authentication
       // Дополнительные поля профиля
       телефон: '',
       telegram: '',
@@ -1078,6 +1092,11 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
       аватарка: '',
       команда: [] // Список ID партнеров в структуре
     };
+    
+    // Store password hash for KV-only users
+    if (passwordHash) {
+      newUser.passwordHash = passwordHash;
+    }
     
     console.log('Saving user to KV store...');
     await kvSetWithRetry(userKey, newUser);
@@ -1126,9 +1145,12 @@ app.post("/make-server-05aa3c8a/auth/signup", async (c) => {
     
     console.log(`✅ New user registered: ${newUser.имя} ${newUser.фамилия} (ID: ${newUserId}, RefCode: ${refCode})${(isFirstUser || isAdminEmail) ? ' [ADMIN]' : ''}${sponsor ? ` sponsored by ${sponsor.id}` : ''}`);
     
+    // Remove sensitive data from response
+    const { passwordHash: _, ...safeUser } = newUser;
+    
     return c.json({ 
       success: true, 
-      user: newUser,
+      user: safeUser,
       refCode: refCode,
       message: 'Registration successful'
     });
