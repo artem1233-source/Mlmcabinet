@@ -53,6 +53,14 @@ Preferred communication style: Simple, everyday language.
 - Automatic payout processing through sponsor chain
 - Partner levels (1-3) with tiered pricing
 
+### Team Structure Metrics (A/B/C Display)
+
+- **Format**: A/B/C = firstLine / depth / totalTeam
+- **API Endpoint**: `/users/:userId/team-structure`
+- **Components**: TeamStructureBadge displays metrics with tooltips
+- **Data Flow**: ProfileRu and PartnerDashboard fetch from API on mount
+- **Calculation**: Uses recursive depth-first traversal with cycle protection (visited set) and max depth limit (50 levels)
+
 ## External Dependencies
 
 ### Supabase Services
