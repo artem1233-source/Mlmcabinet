@@ -13,7 +13,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/t
 import { toast } from 'sonner';
 import * as api from '../utils/api';
 import { AvatarCropDialog } from './AvatarCropDialog';
-import { RankBadge } from './RankBadge';
+import { TeamStructureBadge } from './TeamStructureBadge';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 
@@ -36,6 +36,11 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
   
   // 🆕 Локальное состояние для текстового ввода даты
   const [birthDateInput, setBirthDateInput] = useState('');
+  
+  // 🆕 Состояние для метрик команды из API
+  const [teamStructure, setTeamStructure] = useState<{firstLine: number; depth: number; totalTeam: number}>({
+    firstLine: 0, depth: 0, totalTeam: 0
+  });
   
   // Редактируемые поля
   const [formData, setFormData] = useState({
@@ -95,6 +100,19 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
         setBirthDateInput(format(new Date(currentUser.датаРождения), 'dd.MM.yyyy'));
       } else {
         setBirthDateInput('');
+      }
+      
+      // 🆕 Загружаем метрики команды из API
+      if (currentUser.id && !currentUser.isAdmin) {
+        api.getTeamStructure(currentUser.id).then(response => {
+          if (response.success) {
+            setTeamStructure({
+              firstLine: response.firstLine || 0,
+              depth: response.depth || 0,
+              totalTeam: response.totalTeam || 0
+            });
+          }
+        }).catch(() => {});
       }
     }
   }, [currentUser]);
@@ -354,44 +372,14 @@ export function ProfileRu({ currentUser, onUpdate, onLogout }: ProfileProps) {
                   </>
                 )}
                 
-                {/* 🎨 ЗНАЧОК РАНГА ПОД АВАТАРКОЙ */}
+                {/* 🎨 МЕТРИКА СТРУКТУРЫ КОМАНДЫ A/B/C ПОД АВАТАРКОЙ */}
                 {!currentUser.isAdmin && (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div>
-                          <RankBadge rank={currentUser.уровень} />
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-xs p-4 bg-blue-50/95 backdrop-blur-sm border-blue-200/50 rounded-2xl shadow-lg" side="right">
-                        <div className="space-y-2">
-                          <div className="font-semibold text-sm text-blue-900">
-                            Ваш ранг: {currentUser.уровень}
-                          </div>
-                          <p className="text-xs text-blue-700/80">
-                            Ранг определ��ется глубиной вашей партнерской структуры. Чем больше уровней в вашей команде, тем выше ранг.
-                          </p>
-                          <div className="text-xs border-t border-blue-200/50 pt-2 mt-2">
-                            {currentUser.уровень === 1 && (
-                              <p className="text-blue-600 leading-relaxed">
-                                🔹 <strong>Уровень 1</strong> — У вас есть прямые партнеры (1 линия)
-                              </p>
-                            )}
-                            {currentUser.уровень === 2 && (
-                              <p className="text-purple-600 leading-relaxed">
-                                🔸 <strong>Уровень 2</strong> — Ваши партнеры привели своих партнеров (2 линии)
-                              </p>
-                            )}
-                            {currentUser.уровень === 3 && (
-                              <p className="text-amber-600 leading-relaxed">
-                                🔶 <strong>Уровень 3</strong> — Максимальная глубина структуры (3 линии)
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                  <TeamStructureBadge 
+                    firstLine={teamStructure.firstLine}
+                    depth={teamStructure.depth}
+                    totalTeam={teamStructure.totalTeam}
+                    showTooltip={true}
+                  />
                 )}
               </div>
               

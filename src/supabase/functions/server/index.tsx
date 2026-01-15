@@ -9251,6 +9251,42 @@ app.get("/make-server-05aa3c8a/users/:userId/metrics", async (c) => {
   }
 });
 
+/**
+ * 📊 Получение структуры команды пользователя (A/B/C формат)
+ * A = 1-я линия (прямые рефералы)
+ * B = глубина команды
+ * C = всего в команде
+ */
+app.get("/make-server-05aa3c8a/users/:userId/team-structure", async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('X-User-Id'));
+    const userId = c.req.param('userId');
+
+    // Проверка прав: админ или сам пользователь
+    if (!isUserAdmin(currentUser) && currentUser.id !== userId) {
+      throw new Error('Access denied');
+    }
+
+    console.log(`📊 Getting team structure for user ${userId}`);
+    const teamStructure = await metricsCache.calculateTeamStructure(userId);
+
+    return c.json({
+      success: true,
+      ...teamStructure
+    });
+  } catch (error) {
+    console.error('❌ Get team structure error:', error);
+    return c.json({ 
+      success: false,
+      error: `${error}`,
+      firstLine: 0,
+      depth: 0,
+      totalTeam: 0,
+      display: '0/0/0'
+    }, 500);
+  }
+});
+
 // 💰 ADMIN FINANCE STATS - Алиас для /admin/stats с извлечением finance данных
 // DEPRECATED: Используйте /admin/stats вместо этого эндпоинта
 app.get("/make-server-05aa3c8a/admin/finance-stats", async (c) => {

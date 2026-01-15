@@ -4,7 +4,7 @@ import {
   Users, ShoppingBag, Wallet, TrendingUp, Trophy, Sparkles, 
   Copy, ExternalLink, Target, Calendar, Clock, Award,
   ArrowUpRight, ArrowDownRight, CheckCircle2, Circle,
-  Flame, Star, Gift, ChevronRight, Edit3, X, Save, Plus, Trash2, ChevronDown, ChevronUp
+  Flame, Star, Gift, ChevronRight, Edit3, X, Save, Plus, Trash2, ChevronDown, ChevronUp, Info
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import * as api from '../../utils/api';
@@ -79,28 +79,24 @@ export function PartnerDashboard({ currentUser, period }: PartnerDashboardProps)
   const loadPartnerStats = async () => {
     setLoading(true);
     try {
-      const [teamResponse, ordersResponse, earningsResponse] = await Promise.all([
+      const userId = currentUser?.id || '';
+      
+      const [teamResponse, ordersResponse, earningsResponse, teamStructureResponse] = await Promise.all([
         api.getUserTeam().catch(() => ({ success: false, team: [] })),
         api.getOrders().catch(() => ({ success: false, orders: [] })),
         api.getEarnings().catch(() => ({ success: false, earnings: [] })),
+        userId ? api.getTeamStructure(userId).catch(() => ({ success: false, firstLine: 0, depth: 0, totalTeam: 0 })) : Promise.resolve({ success: false, firstLine: 0, depth: 0, totalTeam: 0 }),
       ]);
 
       const team = teamResponse.team || [];
-      const directPartners = team.filter((u: any) => u.sponsor_id === 'current_user_id');
-      const totalTeam = team.length;
       
-      // 🆕 Рассчитываем глубину структуры
-      const calculateDepth = (userId: string, teamData: any[], currentDepth: number = 0): number => {
-        const children = teamData.filter((u: any) => u.sponsor_id === userId);
-        if (children.length === 0) return currentDepth;
-        
-        const childDepths = children.map((child: any) => 
-          calculateDepth(child.id, teamData, currentDepth + 1)
-        );
-        return Math.max(...childDepths);
-      };
+      // Массив прямых партнёров для списков/таблиц
+      const directPartnersList = team.filter((u: any) => u.sponsor_id === userId);
       
-      const structureDepth = calculateDepth('current_user_id', team);
+      // Используем данные из API team-structure для метрик
+      const directPartnersCount = teamStructureResponse.success ? teamStructureResponse.firstLine : directPartnersList.length;
+      const totalTeam = teamStructureResponse.success ? teamStructureResponse.totalTeam : team.length;
+      const structureDepth = teamStructureResponse.success ? teamStructureResponse.depth : 0;
       
       const now = Date.now();
       const oneDayAgo = now - 24 * 60 * 60 * 1000;
@@ -140,8 +136,8 @@ export function PartnerDashboard({ currentUser, period }: PartnerDashboardProps)
 
       const balance = typeof currentUser?.balance === 'number' ? currentUser.balance : 0;
 
-      // Мок-данные для топ партнёров
-      const topPartners = directPartners
+      // Мок-данные для топ партнёров (используем массив directPartnersList)
+      const topPartners = directPartnersList
         .slice(0, 3)
         .map((p: any, i: number) => ({
           name: p.full_name || p.email?.split('@')[0] || `Партнёр ${i + 1}`,
@@ -168,10 +164,10 @@ export function PartnerDashboard({ currentUser, period }: PartnerDashboardProps)
 
       setStats({
         team: {
-          direct: directPartners.length,
+          direct: directPartnersCount,
           total: totalTeam,
           activeToday,
-          level1: directPartners.length,
+          level1: directPartnersCount,
           level2: Math.floor(totalTeam * 0.3),
           level3: Math.floor(totalTeam * 0.6),
           depth: structureDepth, // 🆕 Реальная глубина структуры
@@ -276,8 +272,14 @@ export function PartnerDashboard({ currentUser, period }: PartnerDashboardProps)
               👋 Привет, {currentUser.full_name || currentUser.email?.split('@')[0]}!
             </h2>
             <p className="text-white/90 flex items-center gap-3">
-              <span className="font-mono font-bold text-lg">
+              <span className="font-mono font-bold text-lg flex items-center gap-1">
                 {stats.team.direct}/{stats.team.depth}/{stats.team.total}
+                <span className="relative group">
+                  <Info className="w-4 h-4 opacity-60 hover:opacity-100 cursor-help" />
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
+                    1-я линия / глубина / всего в команде
+                  </span>
+                </span>
               </span>
               <span className="opacity-60">•</span>
               <span>Реферальный код: <span className="font-mono font-bold">{currentUser.ref_code}</span></span>
@@ -412,47 +414,56 @@ export function PartnerDashboard({ currentUser, period }: PartnerDashboardProps)
           onAddGoal={() => setIsAddingGoal(true)}
         />
 
-        {/* Прогресс о следующего уровня */}
+        {/* Структура команды A/B/C */}
         <Card className="p-6">
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center">
-              <Trophy className="w-5 h-5 text-amber-600" />
+            <div className="w-10 h-10 bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] rounded-xl flex items-center justify-center">
+              <Users className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h3 className="font-semibold text-gray-900">Прогресс до уровня {stats.rank.nextRank}</h3>
-              <p className="text-sm text-gray-500">Продолжайте развивать команду</p>
+              <h3 className="font-semibold text-gray-900">Структура команды</h3>
+              <p className="text-sm text-gray-500">Ваша партнёрская сеть</p>
             </div>
           </div>
 
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] flex items-center justify-center text-white text-xl font-bold">
-                  {stats.rank.current}
-                </div>
-                <ChevronRight className="w-5 h-5 text-gray-400" />
-                <div className="w-16 h-16 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-400 text-xl font-bold">
-                  {stats.rank.nextRank}
-                </div>
+            {/* Большой A/B/C блок */}
+            <div className="text-center py-4">
+              <div className="text-4xl font-bold text-gray-900 font-mono tracking-wider">
+                {stats.team.direct}/{stats.team.depth}/{stats.team.total}
               </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold text-gray-900">{stats.rank.progress}%</div>
-                <div className="text-xs text-gray-500">завершено</div>
-              </div>
-            </div>
-
-            <div className="w-full bg-gray-200 rounded-full h-3">
-              <div
-                className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] h-3 rounded-full transition-all relative"
-                style={{ width: `${stats.rank.progress}%` }}
-              >
-                <div className="absolute -right-1 -top-1 w-5 h-5 bg-white rounded-full border-2 border-[#12C9B6] shadow"></div>
+              <div className="text-sm text-gray-500 mt-2 flex items-center justify-center gap-1">
+                <span>1-я линия / глубина / всего</span>
+                <span className="relative group">
+                  <Info className="w-4 h-4 text-gray-400 cursor-help" />
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
+                    A = прямые партнёры<br/>B = глубина структуры<br/>C = всего в команде
+                  </span>
+                </span>
               </div>
             </div>
 
-            <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
-              <div className="text-xs text-blue-600 font-medium mb-1">Что нужно сделать:</div>
-              <div className="text-sm text-blue-900">{stats.rank.requirements}</div>
+            {/* Детализация по метрикам */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="text-center p-3 bg-blue-50 rounded-lg">
+                <div className="text-xl font-bold text-blue-600">{stats.team.direct}</div>
+                <div className="text-xs text-blue-700">1-я линия</div>
+              </div>
+              <div className="text-center p-3 bg-teal-50 rounded-lg">
+                <div className="text-xl font-bold text-teal-600">{stats.team.depth}</div>
+                <div className="text-xs text-teal-700">глубина</div>
+              </div>
+              <div className="text-center p-3 bg-purple-50 rounded-lg">
+                <div className="text-xl font-bold text-purple-600">{stats.team.total}</div>
+                <div className="text-xs text-purple-700">всего</div>
+              </div>
+            </div>
+
+            {/* Подсказка */}
+            <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+              <div className="text-xs text-gray-600">
+                💡 Приглашайте новых партнёров, чтобы увеличить свою команду и получать больше комиссий
+              </div>
             </div>
           </div>
         </Card>

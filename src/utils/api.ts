@@ -183,6 +183,10 @@ export async function getUserRank(userId: string, useCache = true) {
   return apiCall(`/user/${userId}/rank?cache=${useCache}`);
 }
 
+export async function getTeamStructure(userId: string) {
+  return apiCall(`/users/${userId}/team-structure`);
+}
+
 export async function getUserProfile(userId: string) {
   return apiCall(`/user/${userId}/profile`);
 }
