@@ -15,24 +15,35 @@ export async function deleteUser(
   onRefresh?: () => void,
   setUserDetailsOpen?: (open: boolean) => void
 ) {
+  console.log('🗑️ deleteUser called for:', user?.id, user?.имя);
+  
+  if (!user || !user.id) {
+    console.error('❌ deleteUser: user or user.id is missing', user);
+    toast.error('Ошибка: пользователь не найден');
+    return;
+  }
+  
   if (!confirm(`⚠️ УДАЛЕНИЕ ПОЛЬЗОВАТЕЛЯ\n\n${user.имя} ${user.фамилия}\n${user.email}\nID: ${user.id}\n\nЭто действие необратимо!\n\nПродолжить?`)) {
+    console.log('🗑️ Delete cancelled by user');
     return;
   }
 
   try {
     const userId = localStorage.getItem('userId');
-    const response = await fetch(
-      `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/delete-user/${user.id}`,
-      {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'X-User-Id': userId || '',
-        },
-      }
-    );
+    const url = `https://${projectId}.supabase.co/functions/v1/make-server-05aa3c8a/admin/delete-user/${user.id}`;
+    console.log('🗑️ DELETE request to:', url);
+    
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${publicAnonKey}`,
+        'X-User-Id': userId || '',
+      },
+    });
 
+    console.log('🗑️ Response status:', response.status);
     const data = await response.json();
+    console.log('🗑️ Response data:', data);
 
     if (data.success) {
       toast.success('Пользователь удалён!');
@@ -43,8 +54,8 @@ export async function deleteUser(
       throw new Error(data.error || 'Failed to delete user');
     }
   } catch (error: any) {
-    console.error('Delete user error:', error);
-    toast.error('Ошибка удаления пользователя');
+    console.error('❌ Delete user error:', error);
+    toast.error(`Ошибка удаления: ${error.message || 'Неизвестная ошибка'}`);
   }
 }
 
