@@ -4137,6 +4137,10 @@ app.put("/make-server-05aa3c8a/admin/user/:userId/rank", async (c) => {
     // Сохраняем
     await kv.set(userKey, user);
     
+    // 🗑️ Инвалидируем кэш ранга
+    await kv.del(`rank:user:${userId}`);
+    console.log(`🗑️ Rank cache invalidated for ${userId}`);
+    
     console.log(`✅ Rank updated for ${userId}: ${rank}`);
     
     return c.json({ 
