@@ -198,14 +198,12 @@ export function UserTreeRenderer({
                 <p className="text-slate-700 truncate font-semibold text-sm">
                   {user.имя} {user.фамилия}
                 </p>
-                {!user.isAdmin && (
-                  <Badge 
-                    className="bg-gradient-to-r from-orange-400 to-orange-500 text-white px-1.5 py-0 text-[10px] cursor-help shrink-0"
-                    title="1-я линия / глубина / всего в команде"
-                  >
-                    {childrenCount}/{user._metrics?.teamDepth ?? 0}/{totalTeam}
-                  </Badge>
-                )}
+                <Badge 
+                  className="bg-gradient-to-r from-orange-400 to-orange-500 text-white px-1.5 py-0 text-[10px] cursor-help shrink-0"
+                  title="1-я линия / глубина / всего в команде"
+                >
+                  {childrenCount}/{rank}/{totalTeam}
+                </Badge>
               </div>
               <div className="flex items-center gap-2 text-[10px] text-slate-400">
                 <span className="bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">ID: {user.id}</span>
