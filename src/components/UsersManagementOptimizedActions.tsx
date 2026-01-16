@@ -48,6 +48,7 @@ export async function deleteUser(
     if (data.success) {
       toast.success('Пользователь удалён!');
       queryClient.invalidateQueries({ queryKey: ['users-optimized'] });
+      queryClient.invalidateQueries({ queryKey: ['users-all-tree'] });
       if (setUserDetailsOpen) setUserDetailsOpen(false);
       if (onRefresh) onRefresh();
     } else {
