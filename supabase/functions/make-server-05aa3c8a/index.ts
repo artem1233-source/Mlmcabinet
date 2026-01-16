@@ -6787,6 +6787,17 @@ app.post("/make-server-05aa3c8a/debug/check-auth", async (c) => {
   }
 });
 
+// OPTIONS handler for /admin/delete-user (CORS preflight for DELETE)
+app.options("/make-server-05aa3c8a/admin/delete-user/:userId", (c) => {
+  console.log('🗑️ OPTIONS /admin/delete-user - CORS preflight');
+  return c.text('', 204, {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id',
+    'Access-Control-Max-Age': '86400',
+  });
+});
+
 // Admin endpoint: Delete user (only for testing/cleanup)
 app.delete("/make-server-05aa3c8a/admin/delete-user/:userId", async (c) => {
   try {
