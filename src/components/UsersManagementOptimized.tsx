@@ -1018,13 +1018,16 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                 <h3 className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '14px' }}>
                   {user.имя} {user.фамилия}
                 </h3>
-                {/* ✅ ИСПРАВЛЕНО: Только ID и Ранг, БЕЗ P1 */}
+                {/* ID и структура команды A/B/C */}
                 <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white px-1.5 py-0 text-xs">
                   ID: {user.id}
                 </Badge>
-                <Badge className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-1.5 py-0 text-xs flex items-center gap-2.5">
-                  <Award className="w-2.5 h-2.5" />
-                  Ранг {userRanks.get(user.id) ?? metrics.rank ?? 0}
+                <Badge 
+                  className="bg-gradient-to-r from-teal-400 to-cyan-500 text-white px-1.5 py-0 text-xs flex items-center gap-1 cursor-help"
+                  title="1-я линия / глубина / всего в команде"
+                >
+                  <Users className="w-2.5 h-2.5" />
+                  {metrics.teamSize ?? user.команда?.length ?? 0}/{metrics.teamDepth ?? 0}/{metrics.totalTeamSize ?? 0}
                 </Badge>
               </div>
               
@@ -2029,8 +2032,11 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   {selectedUserForDetails?.isAdmin && (
                     <Badge className="bg-purple-100 text-purple-700">Admin</Badge>
                   )}
-                  <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white">
-                    Ранг {userRanks.get(selectedUserForDetails?.id || '') ?? selectedUserForDetails?._metrics?.rank ?? 0}
+                  <Badge 
+                    className="bg-gradient-to-r from-teal-400 to-cyan-500 text-white cursor-help"
+                    title="1-я линия / глубина / всего в команде"
+                  >
+                    {selectedUserForDetails?._metrics?.teamSize ?? selectedUserForDetails?.команда?.length ?? 0}/{selectedUserForDetails?._metrics?.teamDepth ?? userRanks.get(selectedUserForDetails?.id || '') ?? 0}/{selectedUserForDetails?._metrics?.totalTeamSize ?? 0}
                   </Badge>
                 </div>
               </div>
@@ -2503,12 +2509,12 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                                   <div className={`w-1.5 h-1.5 rounded-full ${activity.color} shrink-0`} title={activity.text}></div>
                                 </div>
                                 <div className="flex items-center gap-2.5">
-                                  <Badge className="bg-gradient-to-r from-orange-100 to-orange-200 text-orange-700 text-[10px] px-1.5 py-0">
-                                    Ранг {rank}
+                                  <Badge 
+                                    className="bg-gradient-to-r from-teal-100 to-cyan-100 text-teal-700 text-[10px] px-1.5 py-0 cursor-help"
+                                    title="1-я линия / глубина / всего"
+                                  >
+                                    {teamSize}/{partner._metrics?.teamDepth ?? 0}/{partner._metrics?.totalTeamSize ?? 0}
                                   </Badge>
-                                  <span className="text-[10px] text-[#999]">
-                                    {teamSize} партнёр{teamSize === 1 ? '' : teamSize < 5 ? 'а' : 'ов'}
-                                  </span>
                                 </div>
                               </div>
                               

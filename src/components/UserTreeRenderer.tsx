@@ -199,9 +199,12 @@ export function UserTreeRenderer({
                   {user.имя} {user.фамилия}
                 </p>
                 {!user.isAdmin && (
-                  <Badge className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-1.5 py-0 text-xs flex items-center gap-1">
-                    <Award className="w-2.5 h-2.5" />
-                    Ранг {rank}
+                  <Badge 
+                    className="bg-gradient-to-r from-teal-400 to-cyan-500 text-white px-1.5 py-0 text-xs flex items-center gap-1 cursor-help"
+                    title="1-я линия / глубина / всего в команде"
+                  >
+                    <Users className="w-2.5 h-2.5" />
+                    {childrenCount}/{user._metrics?.teamDepth ?? 0}/{totalTeam}
                   </Badge>
                 )}
               </div>
