@@ -451,7 +451,10 @@ export function VirtualizedTreeView({
                 <Button
                   variant="default"
                   size="sm"
-                  onClick={onRecalculateRanks}
+                  onClick={() => {
+                    console.log('🔄 Button clicked! allUsers.length:', allUsers.length);
+                    onRecalculateRanks();
+                  }}
                   className="bg-gradient-to-r from-emerald-400 to-green-500 hover:from-emerald-500 hover:to-green-600 text-white shadow-sm text-xs"
                   disabled={isRecalculating || allUsers.length === 0}
                 >
