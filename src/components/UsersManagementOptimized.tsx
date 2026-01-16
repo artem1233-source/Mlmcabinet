@@ -1014,26 +1014,26 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
             
             {/* Info */}
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2.5 mb-2.5 flex-wrap">
-                <h3 className="text-[#1E1E1E]" style={{ fontWeight: '600', fontSize: '14px' }}>
+              <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                <h3 className="text-[#1E1E1E] truncate max-w-[180px]" style={{ fontWeight: '600', fontSize: '14px' }}>
                   {user.имя} {user.фамилия}
                 </h3>
-                {/* ID и структура команды A/B/C */}
-                <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white px-1.5 py-0 text-xs">
+                <Badge className="bg-gradient-to-r from-[#39B7FF] to-[#12C9B6] text-white px-1.5 py-0 text-xs shrink-0">
                   ID: {user.id}
                 </Badge>
+              </div>
+              
+              <div className="flex items-center gap-2 text-[#666] flex-wrap" style={{ fontSize: '11px' }}>
+                {/* A/B/C структура команды */}
                 <Badge 
-                  className="bg-gradient-to-r from-teal-400 to-cyan-500 text-white px-1.5 py-0 text-xs flex items-center gap-1 cursor-help"
+                  className="bg-gradient-to-r from-teal-400 to-cyan-500 text-white px-1.5 py-0 text-[10px] flex items-center gap-0.5 cursor-help shrink-0"
                   title="1-я линия / глубина / всего в команде"
                 >
                   <Users className="w-2.5 h-2.5" />
                   {metrics.teamSize ?? user.команда?.length ?? 0}/{metrics.teamDepth ?? 0}/{metrics.totalTeamSize ?? 0}
                 </Badge>
-              </div>
-              
-              <div className="flex items-center gap-2.5 text-[#666] flex-wrap" style={{ fontSize: '11px' }}>
-                {/* ✅ ИСПРАВЛЕНО: Activity Status БЕЗ иконки часов */}
-                <span className="flex items-center gap-2.5 shrink-0">
+                {/* Activity Status */}
+                <span className="flex items-center gap-1 shrink-0">
                   <span className={`w-1.5 h-1.5 rounded-full ${activityStatus.color} animate-pulse`}></span>
                   <span className={activityStatus.textColor}>{activityStatus.text}</span>
                 </span>
