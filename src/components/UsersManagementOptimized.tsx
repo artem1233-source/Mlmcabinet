@@ -424,7 +424,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
         console.log(`  ${u.userName}: ${u.oldRank} → ${u.newRank} (${u.newRank > u.oldRank ? '+' : ''}${u.newRank - u.oldRank})`);
       });
       
-      toast.loading(`💾 Сохраняем ${updates.length} изме��ений...`, { id: toastId });
+      toast.loading(`💾 Сохраняем ${updates.length} изменений...`, { id: toastId });
       
       // Сохраняем в базу ПАКЕТАМИ для скорости
       let savedCount = 0;
