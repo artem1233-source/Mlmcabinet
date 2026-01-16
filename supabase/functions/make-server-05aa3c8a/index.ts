@@ -4053,6 +4053,17 @@ app.get("/make-server-05aa3c8a/admin/users/paginated", async (c) => {
   }
 });
 
+// OPTIONS handler for /admin/user/:userId/rank (CORS preflight for PUT)
+app.options("/make-server-05aa3c8a/admin/user/:userId/rank", (c) => {
+  console.log('🎯 OPTIONS /admin/user/:userId/rank - CORS preflight');
+  return c.text('', 204, {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'PUT, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id',
+    'Access-Control-Max-Age': '86400',
+  });
+});
+
 // 🎯 Update user rank (admin only)
 app.put("/make-server-05aa3c8a/admin/user/:userId/rank", async (c) => {
   try {
