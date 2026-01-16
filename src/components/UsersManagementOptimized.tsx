@@ -395,14 +395,13 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
         
         newRanks.set(user.id, newRank);
         
-        if (newRank !== oldRank) {
-          updates.push({ 
-            userId: user.id, 
-            userName: `${user.имя} ${user.фамилия}`,
-            newRank, 
-            oldRank 
-          });
-        }
+        // ВСЕГДА добавляем в updates для принудительной синхронизации
+        updates.push({ 
+          userId: user.id, 
+          userName: `${user.имя} ${user.фамилия}`,
+          newRank, 
+          oldRank 
+        });
       }
       
       // Обновляем локальное состояние СРАЗУ для визуализации

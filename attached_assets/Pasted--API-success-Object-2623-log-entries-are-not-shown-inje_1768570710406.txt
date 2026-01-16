@@ -1,0 +1,56 @@
+✅ API success: 
+Object
+2623 log entries are not shown.
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: 
+{success: true, userId: '017', rank: 0}
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: 
+{success: true, userId: '010', rank: 0}
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: 
+{success: true, userId: '005', rank: 0}
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: 
+{success: true, userId: '015', rank: 5}
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: 
+{success: true, userId: '012', rank: 0}
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: 
+{success: true, userId: '014', rank: 2}
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: 
+{success: true, userId: '018', rank: 0}
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: 
+{success: true, userId: '002', rank: 1}
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: 
+{success: true, userId: '007', rank: 2}
+injected.js:37 🔄 Button clicked! allUsers.length: 14
+injected.js:37 🔄 recalculateAllRanksFromTree STARTED
+injected.js:37 🔄 User map created with 14 users
+injected.js:37 📊 User 015 (8): calculated=0, stored=0, children=0, sponsorId=001
+injected.js:37 📊 User 005 (Эльза): calculated=0, stored=0, children=0, sponsorId=002
+injected.js:37 📊 User 012 (6): calculated=0, stored=0, children=0, sponsorId=008
+injected.js:37 📊 User 017 (9): calculated=0, stored=0, children=0, sponsorId=001
+injected.js:37 📊 User 003 (1): calculated=4, stored=4, children=1, sponsorId=001
+injected.js:37 📊 User 002 (Елизавета Хачатрян): calculated=1, stored=1, children=2, sponsorId=001
+injected.js:37 📊 User 018 (Алексей): calculated=0, stored=0, children=0, sponsorId=001
+injected.js:37 📊 User 014 (7): calculated=0, stored=0, children=0, sponsorId=001
+injected.js:37 📊 User 010 (5): calculated=0, stored=0, children=0, sponsorId=008
+injected.js:37 📊 User 007 (3): calculated=2, stored=2, children=1, sponsorId=004
+injected.js:37 📊 Пересчитано рангов: 11, изменений: 0
+injected.js:37 🌐 API Call: GET https://vbjueuhgcyfberivihiv.supabase.co/functions/v1/make-server-05aa3c8a/notifications
+injected.js:37 🔑 User ID: seo
+injected.js:37 🔑 Anon Key: Present
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: 
+{success: true, userId: '009', rank: 0}
+injected.js:37 📊 User ranks updated [tree]: 13 users (fresh data loaded)
+injected.js:37 📡 Response status: 200 
+injected.js:37 ✅ API success: 
+{success: true, notifications: Array(0)}
+﻿
+
