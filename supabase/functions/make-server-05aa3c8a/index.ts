@@ -832,6 +832,39 @@ app.get("/make-server-05aa3c8a/admin/health", (c) => {
   });
 });
 
+// 🔧 FIX: Remove admin flag from User 001
+app.post("/make-server-05aa3c8a/fix/remove-admin-001", async (c) => {
+  try {
+    console.log('🔧 FIX: Removing admin flag from user 001...');
+    
+    const user001 = await kvGet('user:id:001');
+    
+    if (!user001) {
+      return c.json({ success: false, error: 'User 001 not found' }, 404);
+    }
+    
+    console.log('📋 Before fix:', { id: user001.id, isAdmin: user001.isAdmin, type: user001.type });
+    
+    // Remove admin flag
+    user001.isAdmin = false;
+    delete user001.type;
+    
+    await kv.set('user:id:001', user001);
+    await invalidateUsersCache();
+    
+    console.log('✅ User 001 is now a regular partner (not admin)');
+    
+    return c.json({
+      success: true,
+      message: 'User 001 admin flag removed',
+      user: { id: user001.id, имя: user001.имя, isAdmin: user001.isAdmin }
+    });
+  } catch (error) {
+    console.error('❌ Fix error:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
 // Simple auth (for demo)
 app.post("/make-server-05aa3c8a/auth", async (c) => {
   try {
