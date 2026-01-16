@@ -382,7 +382,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
       const updates: Array<{userId: string, userName: string, newRank: number, oldRank: number}> = [];
       
       for (const user of allUsers) {
-        if (user.isAdmin) continue; // Админам ранги не нужны
+        // Пересчитываем ВСЕХ пользователей, включая админов!
         
         const newRank = calculateRankFromTree(user.id, userMap);
         const oldRank = userRanks.get(user.id) ?? user.уровень ?? 0;
