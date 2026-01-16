@@ -194,16 +194,15 @@ export function UserTreeRenderer({
 
             {/* 📝 Информация - воздушная */}
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+              <div className="flex items-center gap-1.5 mb-0.5">
                 <p className="text-slate-700 truncate font-semibold text-sm">
                   {user.имя} {user.фамилия}
                 </p>
                 {!user.isAdmin && (
                   <Badge 
-                    className="bg-gradient-to-r from-teal-400 to-cyan-500 text-white px-1.5 py-0 text-xs flex items-center gap-1 cursor-help"
+                    className="bg-gradient-to-r from-orange-400 to-orange-500 text-white px-1.5 py-0 text-[10px] cursor-help shrink-0"
                     title="1-я линия / глубина / всего в команде"
                   >
-                    <Users className="w-2.5 h-2.5" />
                     {childrenCount}/{user._metrics?.teamDepth ?? 0}/{totalTeam}
                   </Badge>
                 )}
