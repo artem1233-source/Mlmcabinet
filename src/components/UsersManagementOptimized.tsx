@@ -387,6 +387,12 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
         const newRank = calculateRankFromTree(user.id, userMap);
         const oldRank = userRanks.get(user.id) ?? user.уровень ?? 0;
         
+        // Детальное логирование для первых 10 пользователей
+        if (newRanks.size < 10) {
+          const children = Array.from(userMap.values()).filter(u => u.спонсорId === user.id);
+          console.log(`📊 User ${user.id} (${user.имя}): calculated=${newRank}, stored=${oldRank}, children=${children.length}, sponsorId=${user.спонсорId}`);
+        }
+        
         newRanks.set(user.id, newRank);
         
         if (newRank !== oldRank) {
