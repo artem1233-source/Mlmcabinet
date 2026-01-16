@@ -366,12 +366,14 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
 
   // 🔄 Пересчёт ВСЕХ рангов на основе дерева
   const recalculateAllRanksFromTree = async () => {
+    console.log('🔄 recalculateAllRanksFromTree STARTED');
     const toastId = toast.loading('🌳 Начинаем пересчёт рангов...');
     
     try {
       // Создаём Map для быстрого доступа
       const userMap = new Map<string, any>();
       allUsers.forEach(u => userMap.set(u.id, u));
+      console.log(`🔄 User map created with ${userMap.size} users`);
       
       toast.loading('🔍 Анализируем древовидную структуру...', { id: toastId });
       
