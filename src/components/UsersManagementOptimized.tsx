@@ -1029,7 +1029,7 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   className="bg-gradient-to-r from-orange-400 to-orange-500 text-white px-1.5 py-0 text-[10px] flex items-center gap-0.5 cursor-help shrink-0"
                   title="1-я линия / глубина / всего в команде"
                 >
-                  {metrics.teamSize ?? user.команда?.length ?? 0}/{userRanks.get(user.id) ?? user.уровень ?? 0}/{metrics.totalTeamSize ?? 0}
+                  {user.команда?.length ?? 0}/{userRanks.get(user.id) ?? 0}/{calculateTotalTeam(user.id)}
                 </Badge>
               </div>
               
