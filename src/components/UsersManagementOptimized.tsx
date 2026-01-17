@@ -1026,21 +1026,15 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                   {user.имя} {user.фамилия}
                 </h3>
                 <Badge 
-                  className="bg-gradient-to-r from-orange-400 to-orange-500 text-white px-1.5 py-0 text-[10px] flex items-center gap-0.5 cursor-help shrink-0"
-                  title="1-я линия / глубина / всего в команде"
-                >
-                  {user.команда?.length ?? 0}/{userRanks.get(user.id) ?? 0}/{calculateTotalTeam(user.id)}
-                </Badge>
-                <Badge 
-                  className="border border-[#39B7FF] text-[#39B7FF] bg-white px-1.5 py-0 text-[10px] shrink-0"
+                  className="bg-gradient-to-br from-[#39B7FF] to-[#12C9B6] text-white px-1.5 py-0 text-[10px] shrink-0"
                 >
                   ID: {user.id}
                 </Badge>
                 <Badge 
-                  className="border border-[#999] text-[#666] bg-white px-1.5 py-0 text-[10px] flex items-center gap-1 shrink-0"
+                  className="bg-gradient-to-r from-orange-400 to-orange-500 text-white px-1.5 py-0 text-[10px] flex items-center gap-0.5 cursor-help shrink-0"
+                  title="1-я линия / глубина / всего в команде"
                 >
-                  <Users className="w-3 h-3" />
-                  Ранг {userRanks.get(user.id) ?? 0}
+                  {user.команда?.length ?? 0}/{userRanks.get(user.id) ?? 0}/{calculateTotalTeam(user.id)}
                 </Badge>
               </div>
               
