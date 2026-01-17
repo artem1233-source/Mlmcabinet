@@ -1031,11 +1031,20 @@ export function UsersManagementOptimized({ currentUser, onRefresh }: UsersManage
                 >
                   {user.команда?.length ?? 0}/{userRanks.get(user.id) ?? 0}/{calculateTotalTeam(user.id)}
                 </Badge>
+                <Badge 
+                  className="border border-[#39B7FF] text-[#39B7FF] bg-white px-1.5 py-0 text-[10px] shrink-0"
+                >
+                  ID: {user.id}
+                </Badge>
+                <Badge 
+                  className="border border-[#999] text-[#666] bg-white px-1.5 py-0 text-[10px] flex items-center gap-1 shrink-0"
+                >
+                  <Users className="w-3 h-3" />
+                  Ранг {userRanks.get(user.id) ?? 0}
+                </Badge>
               </div>
               
               <div className="flex items-center gap-2 text-[#666] flex-wrap" style={{ fontSize: '11px' }}>
-                {/* ID */}
-                <span className="text-[#999] shrink-0">ID: {user.id}</span>
                 {/* Activity Status */}
                 <span className="flex items-center gap-1 shrink-0">
                   <span className={`w-1.5 h-1.5 rounded-full ${activityStatus.color} animate-pulse`}></span>
